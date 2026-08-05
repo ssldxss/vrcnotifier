@@ -128,6 +128,36 @@ test('standard mode monitors all enabled friends without limit', async () => {
   assert.equal(notified.length, 6);
 });
 
+test('snapshot stores avatar image and thumb urls separately', async () => {
+  const t = setup({
+    onlineFriends: [onlineFriend('usr_f1', {
+      currentAvatarImageUrl: 'https://api.vrchat.cloud/api/1/file/file_a/1/file',
+      currentAvatarThumbnailImageUrl: 'https://api.vrchat.cloud/api/1/image/file_a/1/256'
+    })]
+  });
+  const user = addUser(t.db);
+  addConfig(t.db, user.id, 'usr_f1');
+  await t.monitor.activateUser(user, t.vrcapi);
+  const f = t.db.getFriend(user.id, 'usr_f1');
+  assert.equal(f.avatar_url, 'https://api.vrchat.cloud/api/1/file/file_a/1/file');
+  assert.equal(f.avatar_thumb_url, 'https://api.vrchat.cloud/api/1/image/file_a/1/256');
+});
+
+test('snapshot converts full image url to /image/ thumb when thumb missing', async () => {
+  const t = setup({
+    onlineFriends: [onlineFriend('usr_f1', {
+      currentAvatarImageUrl: 'https://api.vrchat.cloud/api/1/file/file_b/3/file',
+      currentAvatarThumbnailImageUrl: undefined
+    })]
+  });
+  const user = addUser(t.db);
+  addConfig(t.db, user.id, 'usr_f1');
+  await t.monitor.activateUser(user, t.vrcapi);
+  const f = t.db.getFriend(user.id, 'usr_f1');
+  assert.equal(f.avatar_url, 'https://api.vrchat.cloud/api/1/file/file_b/3/file');
+  assert.equal(f.avatar_thumb_url, 'https://api.vrchat.cloud/api/1/image/file_b/3/256');
+});
+
 test('runSnapshot returns ok:false when API call fails, ok:true on success', async () => {
   const t = setup({ onlineFriends: [onlineFriend('usr_f1')] });
   const user = addUser(t.db);

@@ -36,9 +36,11 @@ button:disabled { opacity: 0.5; cursor: default; }
 .tabs { display: flex; gap: 6px; margin-bottom: 14px; }
 .tab { background: transparent; color: var(--muted); border: 1px solid var(--line); }
 .tab.active { color: var(--text); border-color: var(--accent); }
-.friend { display: flex; align-items: center; gap: 10px; padding: 9px 4px; border-bottom: 1px solid var(--line); }
-.friend:last-child { border-bottom: 0; }
-.friend .name { flex: 1; min-width: 0; }
+  .friend { display: flex; align-items: center; gap: 10px; padding: 9px 4px; border-bottom: 1px solid var(--line); }
+  .friend:last-child { border-bottom: 0; }
+  .friend .avatar { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; flex: 0 0 auto; background: var(--line); }
+  .friend .avatar-fallback { width: 36px; height: 36px; border-radius: 50%; flex: 0 0 auto; display: none; align-items: center; justify-content: center; background: var(--line); color: var(--muted); font-size: 15px; font-weight: 600; }
+  .friend .name { flex: 1; min-width: 0; }
 .friend .state { font-size: 12px; color: var(--muted); }
 .friend .checks { display: flex; gap: 12px; font-size: 12px; white-space: nowrap; }
 .friend label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
@@ -384,8 +386,13 @@ function renderFriends() {
     const row = document.createElement('div');
     row.className = 'friend';
     row.dataset.id = f.friend_vrchat_id;
+    const initial = escapeHtml((f.display_name || '?').charAt(0).toUpperCase());
+    const avatarHtml = f.avatarKey
+      ? "<img class=avatar src='/api/avatar/" + encodeURIComponent(f.avatarKey) + "' loading='lazy' alt='' onerror=\"this.style.display='none';this.nextElementSibling.style.display='flex'\"><div class='avatar-fallback'>" + initial + '</div>'
+      : "<div class='avatar-fallback' style='display:flex'>" + initial + '</div>';
     const worldTxt = f.world_id === 'private' ? '私密世界' : (f.world_name || '');
     row.innerHTML =
+      avatarHtml +
       '<label class=switch><input type=checkbox class=monitor' + (c.monitor_enabled ? ' checked' : '') + '><span class=slider></span></label>' +
       '<div class=name>' + escapeHtml(f.display_name || f.friend_vrchat_id) +
       '<div class=state>' + stateLabel(f.state) + (worldTxt ? ' · ' + escapeHtml(worldTxt) : '') +

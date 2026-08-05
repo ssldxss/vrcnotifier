@@ -1,9 +1,13 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const { EventEmitter } = require('node:events');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 const { createDb } = require('../src/db');
 const { createMonitor } = require('../src/monitor');
 const { CookieJar } = require('../src/cookiejar');
+const { createAvatarCache } = require('../src/avatar');
 const { createApp } = require('../src/server');
 
 const silent = { info: () => {}, warn: () => {}, error: () => {} };
@@ -42,9 +46,19 @@ function setup(opts = {}) {
     config: { confirmDelayMs: 30000, dedupeWindowMs: 30000, snapshotIntervalMs: 600000, watchdogMs: 600000 }
   });
   const sessionStore = new Map();
+  const avatarCalls = { n: 0 };
+  const avatarCache = createAvatarCache({
+    dir: fs.mkdtempSync(path.join(os.tmpdir(), 'vrcnt-av-')),
+    logger: silent,
+    fetchImpl: opts.avatarFetch || (async () => {
+      avatarCalls.n++;
+      return { status: 200, headers: { get: (k) => (String(k).toLowerCase() === 'content-type' ? 'image/png' : '') }, arrayBuffer: async () => Buffer.from('AVATARPNG') };
+    })
+  });
   const { app, autoLogin } = createApp({
     db, notifier, pipeline, monitor, sessionStore,
     vrcapiFactory: (jar) => (jar ? { ...vrcapi, jar } : vrcapi),
+    avatarCache,
     config: { accessKey: opts.accessKey || null, confirmDelayMs: 30000, dedupeWindowMs: 30000, snapshotIntervalMs: 600000, watchdogMs: 600000 },
     logger: opts.logger || silent,
     now: opts.now || (() => 1000000),
@@ -52,7 +66,7 @@ function setup(opts = {}) {
   });
   const server = app.listen(0);
   const base = 'http://127.0.0.1:' + server.address().port;
-  return { db, bus, vrcapi, pipeline, notifier, monitor, sessionStore, app, autoLogin, server, base, notifications };
+  return { db, bus, vrcapi, pipeline, notifier, monitor, sessionStore, app, autoLogin, server, base, notifications, avatarCache, avatarCalls };
 }
 
 async function close(t) { await new Promise((r) => t.server.close(r)); }
@@ -414,4 +428,75 @@ test('SSE stream receives notification events', async (t) => {
   const buf = await readUntil('notification');
   assert.ok(buf.includes('上线'));
   ac.abort();
+});
+
+test('avatar endpoint: 401 / whitelist / download / cache hit / immutable', async (t) => {
+  const thumb = 'https://api.vrchat.cloud/api/1/image/file_aaa-111/1/256';
+  const ctx = setup({
+    onlineFriends: [{
+      id: 'usr_f1', displayName: 'F1', location: 'wrld_a:1', status: 'active', platform: 'x',
+      currentAvatarImageUrl: 'https://api.vrchat.cloud/api/1/file/file_aaa-111/1/file',
+      currentAvatarThumbnailImageUrl: thumb
+    }]
+  });
+  t.after(() => close(ctx));
+  // 未登录 -> 401
+  let r = await fetch(ctx.base + '/api/avatar/file_aaa-111_1_256');
+  assert.equal(r.status, 401);
+  await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: false });
+  // key 不在白名单 -> 404
+  r = await fetch(ctx.base + '/api/avatar/evil_key');
+  assert.equal(r.status, 404);
+  // /api/friends 带 avatarKey
+  const fl = await get(ctx, '/api/friends');
+  const f1 = fl.data.friends.find((f) => f.friend_vrchat_id === 'usr_f1');
+  assert.equal(f1.avatarKey, 'file_aaa-111_1_256');
+  // 首次: 下载并返回
+  r = await fetch(ctx.base + '/api/avatar/file_aaa-111_1_256');
+  assert.equal(r.status, 200);
+  assert.equal(r.headers.get('content-type'), 'image/png');
+  assert.ok((r.headers.get('cache-control') || '').includes('immutable'));
+  assert.equal(await r.text(), 'AVATARPNG');
+  assert.equal(ctx.avatarCalls.n, 1, '首次应下载一次');
+  // 再次: 缓存命中, 不再下载
+  r = await fetch(ctx.base + '/api/avatar/file_aaa-111_1_256');
+  assert.equal(r.status, 200);
+  assert.equal(await r.text(), 'AVATARPNG');
+  assert.equal(ctx.avatarCalls.n, 1, '缓存命中不应再次下载');
+});
+
+test('avatar endpoint: download failure returns 502 and is not cached', async (t) => {
+  const ctx = setup({
+    onlineFriends: [{
+      id: 'usr_f1', displayName: 'F1', location: 'wrld_a:1', status: 'active', platform: 'x',
+      currentAvatarThumbnailImageUrl: 'https://api.vrchat.cloud/api/1/image/file_bbb-222/1/256'
+    }],
+    avatarFetch: async () => { throw new Error('net down'); }
+  });
+  t.after(() => close(ctx));
+  await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: false });
+  let r = await fetch(ctx.base + '/api/avatar/file_bbb-222_1_256');
+  assert.equal(r.status, 502);
+  assert.equal(ctx.avatarCache.cached('file_bbb-222_1_256'), null, '失败不缓存');
+  // 下次请求重新尝试下载
+  r = await fetch(ctx.base + '/api/avatar/file_bbb-222_1_256');
+  assert.equal(r.status, 502);
+});
+
+test('avatar key works when only full image url is available (auto-converted to /image/)', async (t) => {
+  const ctx = setup({
+    onlineFriends: [{
+      id: 'usr_f1', displayName: 'F1', location: 'wrld_a:1', status: 'active', platform: 'x',
+      currentAvatarImageUrl: 'https://api.vrchat.cloud/api/1/file/file_ccc-333/5/file'
+    }]
+  });
+  t.after(() => close(ctx));
+  await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: false });
+  const fl = await get(ctx, '/api/friends');
+  const f1 = fl.data.friends.find((f) => f.friend_vrchat_id === 'usr_f1');
+  assert.equal(f1.avatarKey, 'file_ccc-333_5_256');
+  const r = await fetch(ctx.base + '/api/avatar/file_ccc-333_5_256');
+  assert.equal(r.status, 200);
+  assert.equal(await r.text(), 'AVATARPNG');
+  assert.equal(ctx.avatarCalls.n, 1);
 });

@@ -5,6 +5,7 @@ const { EventEmitter } = require('node:events');
 const { deriveStateFromSnapshot, applyChange } = require('./state');
 const { parseLocation } = require('./location');
 const { formatLocalTime, createLogger } = require('./util');
+const { toThumbUrl } = require('./avatar');
 
 function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger = null, now = Date.now }) {
   const log = logger || createLogger('monitor');
@@ -108,13 +109,15 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
 
   // ---------- 状态落地 ----------
   async function applyFriendInput(user, friendVrcId, input) {
+    // 头像统一走 /api/1/image/ 缩略图: 优先显式缩略图 URL, 缺失时由原图 URL 转换
+    const thumbUrl = input.avatarThumbUrl || toThumbUrl(input.avatarUrl) || null;
     const existed = db.getFriend(user.id, friendVrcId);
     if (!existed) {
       db.upsertFriend(user.id, friendVrcId, {
         state: input.state || 'offline', status: input.status || null,
         worldId: input.worldId || null, worldName: input.worldName || null,
         statusDescription: input.statusDescription || null, platform: input.platform || null,
-        displayName: input.displayName || null, avatarUrl: input.avatarUrl || null,
+        displayName: input.displayName || null, avatarUrl: input.avatarUrl || null, avatarThumbUrl: thumbUrl,
         lastSeen: now()
       });
       // 首见: 以离线为基线判定转移, 上线即通知(与快照对账语义一致)
@@ -129,8 +132,8 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
       return;
     }
     // 仅更新资料字段, 状态由状态机接管
-    if (input.displayName !== undefined || input.avatarUrl !== undefined) {
-      db.updateFriendProfile(existed.id, { displayName: input.displayName, avatarUrl: input.avatarUrl });
+    if (input.displayName !== undefined || input.avatarUrl !== undefined || input.avatarThumbUrl !== undefined) {
+      db.updateFriendProfile(existed.id, { displayName: input.displayName, avatarUrl: input.avatarUrl, avatarThumbUrl: thumbUrl });
     }
     const cur = db.getFriend(user.id, friendVrcId);
     const result = applyChange(cur, {
@@ -175,7 +178,8 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
             state: 'online', status: content.user?.status || 'active',
             statusDescription: content.user?.statusDescription || null,
             worldId, worldName, platform: content.platform || null,
-            displayName: content.user?.displayName, avatarUrl: content.user?.currentAvatarImageUrl
+            displayName: content.user?.displayName, avatarUrl: content.user?.currentAvatarImageUrl,
+            avatarThumbUrl: content.user?.profilePicOverrideThumbnail || content.user?.currentAvatarThumbnailImageUrl
           });
           break;
         }
@@ -185,7 +189,8 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
             state: 'active', status: content.user?.status || 'active',
             statusDescription: content.user?.statusDescription || null,
             worldId: null, worldName: null, platform: content.platform || 'web',
-            displayName: content.user?.displayName, avatarUrl: content.user?.currentAvatarImageUrl
+            displayName: content.user?.displayName, avatarUrl: content.user?.currentAvatarImageUrl,
+            avatarThumbUrl: content.user?.profilePicOverrideThumbnail || content.user?.currentAvatarThumbnailImageUrl
           });
           break;
         }
@@ -205,7 +210,8 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
             state: 'online', status: content.user?.status || 'active',
             statusDescription: content.user?.statusDescription || null,
             worldId, worldName, platform: content.platform || null,
-            displayName: content.user?.displayName, avatarUrl: content.user?.currentAvatarImageUrl
+            displayName: content.user?.displayName, avatarUrl: content.user?.currentAvatarImageUrl,
+            avatarThumbUrl: content.user?.profilePicOverrideThumbnail || content.user?.currentAvatarThumbnailImageUrl
           });
           break;
         }
@@ -218,7 +224,7 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
             status: u.status || null,
             statusDescription: u.statusDescription !== undefined ? u.statusDescription : null,
             platform: u.last_platform || null,
-            displayName: u.displayName, avatarUrl: u.currentAvatarImageUrl
+            displayName: u.displayName, avatarUrl: u.currentAvatarImageUrl, avatarThumbUrl: u.profilePicOverrideThumbnail || u.currentAvatarThumbnailImageUrl
           });
           break;
         }
@@ -230,7 +236,8 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
           await applyFriendInput(user, id, {
             state, status: u.status || 'active', statusDescription: u.statusDescription || null,
             worldId: loc.isReal ? loc.worldId : null, worldName: null,
-            platform: u.platform || null, displayName: u.displayName, avatarUrl: u.currentAvatarImageUrl
+            platform: u.platform || null, displayName: u.displayName, avatarUrl: u.currentAvatarImageUrl,
+            avatarThumbUrl: u.profilePicOverrideThumbnail || u.currentAvatarThumbnailImageUrl
           });
           break;
         }
@@ -311,7 +318,8 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
         await applyFriendInput(user, id, {
           state, status: f.status || 'active', statusDescription: f.statusDescription || null,
           worldId, worldName, platform: f.platform || null,
-          displayName: f.displayName, avatarUrl: f.currentAvatarImageUrl || f.currentAvatarThumbnailImageUrl || null
+          displayName: f.displayName, avatarUrl: f.currentAvatarImageUrl || null,
+          avatarThumbUrl: f.profilePicOverrideThumbnail || f.currentAvatarThumbnailImageUrl || null
         });
       }
 

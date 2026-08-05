@@ -10,6 +10,7 @@ const { createVrcApi } = require('./vrcapi');
 const { createNotifier } = require('./notify');
 const { createPipelineManager } = require('./pipeline');
 const { createMonitor } = require('./monitor');
+const { createAvatarCache } = require('./avatar');
 const { createApp } = require('./server');
 
 const DEFAULT_API_BASE = 'https://api.vrchat.cloud/api/1';
@@ -39,6 +40,16 @@ function buildApplication(opts = {}) {
     try { fs.mkdirSync(path.dirname(dbPath), { recursive: true }); } catch (e) { /* ignore */ }
   }
   const db = opts.db || createDb(dbPath);
+  const avatarDir = opts.avatarDir || (dbPath === ':memory:'
+    ? path.join(require('node:os').tmpdir(), `vrcnotifier-avatars-${process.pid}`)
+    : path.join(path.dirname(dbPath), 'avatars'));
+  const avatarCache = opts.avatarCache || createAvatarCache({
+    dir: avatarDir,
+    logger,
+    userAgent: opts.userAgent || 'vrcnotifier/1.0',
+    ttlMs: opts.avatarTtlMs ?? 30 * 24 * 3600 * 1000
+  });
+  avatarCache.sweep();
   const bus = opts.bus || new EventEmitter();
   const sessionStore = new Map();
   const now = opts.now || Date.now;
@@ -111,6 +122,7 @@ function buildApplication(opts = {}) {
 
   const { app, autoLogin } = createApp({
     db, notifier, pipeline, monitor, sessionStore, vrcapiFactory,
+    avatarCache,
     config: {
       accessKey: config.accessKey,
       pending2faTtlMs: config.pending2faTtlMs,
@@ -126,7 +138,7 @@ function buildApplication(opts = {}) {
 
   return {
     app, autoLogin, monitor, pipeline, sessionStore, db, bus,
-    config
+    config, avatarCache
   };
 }
 

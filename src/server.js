@@ -7,6 +7,7 @@ const { randomBytes } = require('node:crypto');
 const { CookieJar } = require('./cookiejar');
 const { parseLocation } = require('./location');
 const { deriveStateFromSnapshot } = require('./state');
+const { toThumbUrl } = require('./avatar');
 
 const MASK = '••••••••';
 const SECRET_FIELDS = new Set(['smtp_pass', 'gotify_app_token']);
@@ -28,7 +29,7 @@ const SETTING_MAP = {
 function createApp({
   db, notifier, pipeline, monitor,
   sessionStore = new Map(), vrcapiFactory, config = {}, logger = null,
-  now = Date.now, publicDir = null
+  now = Date.now, publicDir = null, avatarCache = null
 }) {
   const log = logger || { info: () => {}, warn: () => {}, error: () => {} };
   const app = express();
@@ -39,6 +40,13 @@ function createApp({
   const pending2fa = new Map();
   let lastSnapshotAt = null;
   const sseClients = new Set();
+
+  // 好友行附带头像 key(前端零解析)
+  function friendRow(f) {
+    const out = { ...f };
+    out.avatarKey = f.avatar_thumb_url && avatarCache ? avatarCache.thumbKeyFromUrl(f.avatar_thumb_url) : null;
+    return out;
+  }
 
   function maskUser(row) {
     if (!row) return null;
@@ -234,10 +242,39 @@ function createApp({
     if (!current) return res.status(401).json({ error: '未登录' });
     const configs = db.listConfigs(current.dbId);
     const friends = db.listFriends(current.dbId).map((f) => ({
-      ...f,
+      ...friendRow(f),
       config: configs.find((c) => c.friend_vrchat_id === f.friend_vrchat_id) || null
     }));
     return res.json({ ok: true, friends });
+  });
+
+  // 头像: 未登录 401 / key 不在当前用户好友缩略图白名单 404 / 命中缓存直接返回 / 否则下载并原子写盘
+  app.get('/api/avatar/:key', async (req, res) => {
+    if (!current) return res.status(401).json({ error: '未登录' });
+    if (!avatarCache) return res.status(404).json({ error: '头像缓存未启用' });
+    const key = req.params.key;
+    let url = null;
+    for (const f of db.listFriends(current.dbId)) {
+      if (!f.avatar_thumb_url) continue;
+      if (avatarCache.thumbKeyFromUrl(f.avatar_thumb_url) === key) { url = f.avatar_thumb_url; break; }
+    }
+    if (!url) return res.status(404).json({ error: 'key 不在白名单' });
+    try {
+      const local = avatarCache.cached(key);
+      let info = null;
+      if (local) {
+        avatarCache.touch(key); // 每次访问刷新 TTL
+        info = { filePath: local };
+      } else {
+        info = await avatarCache.serve(key, url);
+      }
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      if (info.contentType) res.setHeader('Content-Type', info.contentType);
+      return res.sendFile(info.filePath);
+    } catch (e) {
+      log.error(`[avatar] 获取失败 key=${key}: ${e.message}`);
+      return res.status(502).json({ error: '头像获取失败' });
+    }
   });
 
   app.post('/api/friends/refresh', async (req, res) => {
@@ -258,10 +295,11 @@ function createApp({
       for (const [id, f] of merged) {
         const loc = parseLocation(f.location);
         const worldId = loc.isReal ? loc.worldId : (f.location === 'private' ? 'private' : null);
-        const r = db.upsertFriend(current.dbId, id, {
-          displayName: f.displayName,
-          avatarUrl: f.currentAvatarImageUrl || f.currentAvatarThumbnailImageUrl || null,
-          state: deriveStateFromSnapshot(f, currentUser),
+          const r = db.upsertFriend(current.dbId, id, {
+            displayName: f.displayName,
+            avatarUrl: f.currentAvatarImageUrl || null,
+            avatarThumbUrl: f.profilePicOverrideThumbnail || toThumbUrl(f.currentAvatarThumbnailImageUrl) || toThumbUrl(f.currentAvatarImageUrl),
+            state: deriveStateFromSnapshot(f, currentUser),
           status: f.status || 'active',
           worldId, worldName: null,
           statusDescription: f.statusDescription || null,
@@ -270,11 +308,11 @@ function createApp({
         });
         if (r.isNew) added++; else updated++;
       }
-      const configs = db.listConfigs(current.dbId);
-      const friends = db.listFriends(current.dbId).map((f) => ({
-        ...f,
-        config: configs.find((c) => c.friend_vrchat_id === f.friend_vrchat_id) || null
-      }));
+        const configs = db.listConfigs(current.dbId);
+        const friends = db.listFriends(current.dbId).map((f) => ({
+          ...friendRow(f),
+          config: configs.find((c) => c.friend_vrchat_id === f.friend_vrchat_id) || null
+        }));
       log.info(`[server] 刷新好友成功: 新增 ${added}, 更新 ${updated}, 共 ${friends.length} 人, 耗时 ${Date.now() - t0}ms`);
       return res.json({ ok: true, friends, added, updated });
     } catch (e) {

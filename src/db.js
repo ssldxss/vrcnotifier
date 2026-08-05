@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS friends (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER NOT NULL,
   friend_vrchat_id TEXT NOT NULL,
-  display_name TEXT, avatar_url TEXT,
+  display_name TEXT, avatar_url TEXT, avatar_thumb_url TEXT,
   state TEXT DEFAULT 'offline',
   status TEXT,
   world_id TEXT, world_name TEXT,
@@ -75,6 +75,8 @@ function createDb(location = ':memory:') {
   const db = new DatabaseSync(location);
   db.exec('PRAGMA journal_mode = WAL');
   db.exec(SCHEMA);
+  // 旧库迁移: friends 表补 avatar_thumb_url 列(已存在则忽略)
+  try { db.exec('ALTER TABLE friends ADD COLUMN avatar_thumb_url TEXT'); } catch (e) { /* 已存在 */ }
 
   const stmt = {
     upsertUser: db.prepare(`INSERT INTO users (vrchat_user_id, username, display_name, avatar_url)
@@ -90,11 +92,12 @@ function createDb(location = ':memory:') {
     saveCookies: db.prepare("UPDATE users SET cookie_data = ?, remember_me = 1, saved_username = ?, updated_at = datetime('now') WHERE id = ?"),
     clearOtherCookies: db.prepare("UPDATE users SET cookie_data = NULL, remember_me = 0, saved_username = NULL, updated_at = datetime('now') WHERE remember_me = 1 AND id != ?"),
     clearCookies: db.prepare("UPDATE users SET cookie_data = NULL, remember_me = 0, updated_at = datetime('now') WHERE id = ?"),
-    upsertFriend: db.prepare(`INSERT INTO friends (user_id, friend_vrchat_id, display_name, avatar_url, state, status, world_id, world_name, status_description, platform, last_seen)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    upsertFriend: db.prepare(`INSERT INTO friends (user_id, friend_vrchat_id, display_name, avatar_url, avatar_thumb_url, state, status, world_id, world_name, status_description, platform, last_seen)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(user_id, friend_vrchat_id) DO UPDATE SET
         display_name = COALESCE(excluded.display_name, friends.display_name),
         avatar_url = COALESCE(excluded.avatar_url, friends.avatar_url),
+        avatar_thumb_url = COALESCE(excluded.avatar_thumb_url, friends.avatar_thumb_url),
         state = excluded.state,
         status = excluded.status,
         world_id = excluded.world_id,
@@ -107,10 +110,11 @@ function createDb(location = ':memory:') {
     listFriends: db.prepare('SELECT * FROM friends WHERE user_id = ? ORDER BY display_name'),
     deleteFriend: db.prepare('DELETE FROM friends WHERE user_id = ? AND friend_vrchat_id = ?'),
     updateFriendProfile: db.prepare(`UPDATE friends SET
-      display_name = COALESCE(?, display_name),
-      avatar_url = COALESCE(?, avatar_url),
-      updated_at = datetime('now')
-      WHERE id = ?`),
+        display_name = COALESCE(?, display_name),
+        avatar_url = COALESCE(?, avatar_url),
+        avatar_thumb_url = COALESCE(?, avatar_thumb_url),
+        updated_at = datetime('now')
+        WHERE id = ?`),
     updateFriendState: db.prepare(`UPDATE friends SET
         state = ?, status = ?, world_id = ?, world_name = ?, status_description = ?, platform = ?,
         pending_state = ?, pending_at = ?, last_seen = ?, updated_at = datetime('now')
@@ -173,7 +177,7 @@ function createDb(location = ':memory:') {
       const existing = stmt.getFriend.get(dbId, friendVrcId);
       stmt.upsertFriend.run(
         dbId, friendVrcId,
-        fields.displayName ?? null, fields.avatarUrl ?? null,
+        fields.displayName ?? null, fields.avatarUrl ?? null, fields.avatarThumbUrl ?? null,
         fields.state ?? (existing ? existing.state : 'offline'),
         fields.status ?? null, fields.worldId ?? null, fields.worldName ?? null,
         fields.statusDescription ?? null, fields.platform ?? null,
@@ -184,8 +188,8 @@ function createDb(location = ':memory:') {
     getFriend: (dbId, friendVrcId) => stmt.getFriend.get(dbId, friendVrcId) || null,
     listFriends: (dbId) => stmt.listFriends.all(dbId),
     deleteFriend(dbId, friendVrcId) { stmt.deleteFriend.run(dbId, friendVrcId); },
-    updateFriendProfile(rowId, { displayName, avatarUrl }) {
-      stmt.updateFriendProfile.run(displayName ?? null, avatarUrl ?? null, rowId);
+    updateFriendProfile(rowId, { displayName, avatarUrl, avatarThumbUrl }) {
+      stmt.updateFriendProfile.run(displayName ?? null, avatarUrl ?? null, avatarThumbUrl ?? null, rowId);
     },
     updateFriendState(id, fields) {
       stmt.updateFriendState.run(

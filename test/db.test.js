@@ -67,6 +67,25 @@ test('friends: upsert new/update, list, delete', () => {
   assert.equal(db.listFriends(uid).length, 0);
 });
 
+test('friends: avatar_thumb_url stored and updated via profile', () => {
+  const db = newDb();
+  const uid = db.upsertUser('usr_1', { username: 'u1', displayName: 'n', avatarUrl: null });
+  db.upsertFriend(uid, 'usr_f1', { displayName: 'F', avatarUrl: 'orig.png', avatarThumbUrl: 'thumb256.png' });
+  let f = db.getFriend(uid, 'usr_f1');
+  assert.equal(f.avatar_url, 'orig.png');
+  assert.equal(f.avatar_thumb_url, 'thumb256.png');
+  db.updateFriendProfile(f.id, { avatarThumbUrl: 'thumb256-new.png' });
+  f = db.getFriend(uid, 'usr_f1');
+  assert.equal(f.avatar_thumb_url, 'thumb256-new.png');
+  assert.equal(f.avatar_url, 'orig.png', '更新缩略图不应覆盖原图');
+  // 旧库迁移: 已存在表补列不报错
+  const db2 = createDb(':memory:');
+  db2.upsertUser('usr_2', { username: 'u2', displayName: 'n', avatarUrl: null });
+  const uid2 = db2.getUserByVrcId('usr_2').id;
+  db2.upsertFriend(uid2, 'usr_f1', { displayName: 'F', avatarUrl: 'a', avatarThumbUrl: 'b' });
+  assert.equal(db2.getFriend(uid2, 'usr_f1').avatar_thumb_url, 'b');
+});
+
 test('monitor_config: upsert, list, disable all', () => {
   const db = newDb();
   const uid = db.upsertUser('usr_1', { username: 'u1', displayName: 'n', avatarUrl: null });
