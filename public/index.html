@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang='zh-CN'>
+<head>
+<meta charset='utf-8'>
+<meta name='viewport' content='width=device-width, initial-scale=1'>
+<title>vrcnotifier</title>
+<style>
+:root {
+  --bg: #0f1115; --card: #171a21; --line: #2a2f3a; --text: #e6e8ee;
+  --muted: #9aa3b2; --accent: #4f8cff; --ok: #3fb950; --warn: #d29922; --bad: #f85149;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.6 system-ui, 'Segoe UI', sans-serif; }
+header { display: flex; align-items: center; gap: 12px; padding: 12px 20px; border-bottom: 1px solid var(--line); }
+header h1 { font-size: 18px; margin: 0; }
+header .spacer { flex: 1; }
+.container { max-width: 960px; margin: 0 auto; padding: 20px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+.card h2 { font-size: 15px; margin: 0 0 10px; }
+.muted { color: var(--muted); }
+.hidden { display: none !important; }
+input, select, textarea, button { font: inherit; }
+input[type='text'], input[type='password'], input[type='number'], input[type='email'], select, textarea {
+  width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--line);
+  border-radius: 6px; padding: 7px 9px; margin: 4px 0 8px;
+}
+button {
+  background: var(--accent); color: #fff; border: 0; border-radius: 6px;
+  padding: 7px 14px; cursor: pointer;
+}
+button.secondary { background: #2a2f3a; color: var(--text); }
+button.danger { background: var(--bad); }
+button:disabled { opacity: 0.5; cursor: default; }
+.row { display: flex; gap: 8px; align-items: center; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
+.tabs { display: flex; gap: 6px; margin-bottom: 14px; }
+.tab { background: transparent; color: var(--muted); border: 1px solid var(--line); }
+.tab.active { color: var(--text); border-color: var(--accent); }
+.friend { display: flex; align-items: center; gap: 10px; padding: 9px 4px; border-bottom: 1px solid var(--line); }
+.friend:last-child { border-bottom: 0; }
+.friend .name { flex: 1; min-width: 0; }
+.friend .state { font-size: 12px; color: var(--muted); }
+.friend .checks { display: flex; gap: 12px; font-size: 12px; white-space: nowrap; }
+.friend label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+.switch { position: relative; width: 34px; height: 18px; flex: 0 0 auto; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.switch .slider { position: absolute; inset: 0; background: var(--line); border-radius: 9px; transition: 0.15s; }
+.switch .slider::before { content: ''; position: absolute; width: 14px; height: 14px; left: 2px; top: 2px; background: #fff; border-radius: 50%; transition: 0.15s; }
+.switch input:checked + .slider { background: var(--accent); }
+.switch input:checked + .slider::before { transform: translateX(16px); }
+.badge { font-size: 12px; padding: 2px 8px; border-radius: 10px; background: var(--line); }
+.badge.ok { background: rgba(63,185,80,0.18); color: var(--ok); }
+.badge.bad { background: rgba(248,81,73,0.18); color: var(--bad); }
+.badge.warn { background: rgba(210,153,34,0.18); color: var(--warn); }
+#log { max-height: 220px; overflow: auto; font: 12px/1.5 ui-monospace, Consolas, monospace; }
+#log div { padding: 2px 0; border-bottom: 1px dashed var(--line); }
+#log .err { color: var(--bad); }
+fieldset { border: 1px solid var(--line); border-radius: 8px; margin: 0 0 12px; padding: 10px 12px; }
+legend { font-size: 13px; color: var(--muted); padding: 0 6px; }
+h3.chan { font-size: 13px; margin: 14px 0 4px; color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>vrcnotifier</h1>
+  <span class='muted' id='userLabel'></span>
+  <span class='spacer'></span>
+  <button id='logoutBtn' class='secondary hidden'>登出</button>
+</header>
+
+<div class='container hidden' id='gateView'>
+  <div class='card'>
+    <h2>访问密钥</h2>
+    <p class='muted'>服务端已配置访问密钥, 请输入后继续(密钥仅用于前端门禁)。</p>
+    <input type='password' id='gateKey' placeholder='输入访问密钥'>
+    <div class='row'>
+      <button id='gateBtn'>进入</button>
+      <span class='muted' id='gateMsg'></span>
+    </div>
+  </div>
+</div>
+
+<div class='container hidden' id='loginView'>
+  <div class='card'>
+    <h2>登录 VRChat</h2>
+    <div id='loginForm'>
+      <input type='text' id='loginUser' placeholder='用户名' autocomplete='username'>
+      <input type='password' id='loginPass' placeholder='密码' autocomplete='current-password'>
+      <label class='row' style='justify-content:flex-start'>
+        <input type='checkbox' id='rememberMe' style='width:auto'> 记住我(保存会话, 自动恢复)
+      </label>
+      <div class='row'>
+        <button id='loginBtn'>登录</button>
+        <span class='muted' id='loginMsg'></span>
+      </div>
+    </div>
+    <div id='twofaForm' class='hidden'>
+      <p class='muted'>账号已开启两步验证, 请输入验证码:</p>
+      <input type='text' id='twofaCode' placeholder='6 位验证码'>
+      <div class='row'>
+        <button id='twofaBtn'>验证</button>
+        <button id='twofaCancel' class='secondary'>取消</button>
+        <span class='muted' id='twofaMsg'></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class='container hidden' id='mainView'>
+  <div class='tabs'>
+    <button class='tab active' data-tab='status'>状态</button>
+    <button class='tab' data-tab='friends'>好友</button>
+    <button class='tab' data-tab='settings'>通知设置</button>
+  </div>
+
+  <section id='tab-status'>
+    <div class='card'>
+      <h2>运行状态</h2>
+      <div class='grid2'>
+        <div>登录用户: <span id='stUser' class='muted'>-</span></div>
+        <div>WS 连接: <span id='stWs' class='badge'>-</span></div>
+        <div>监控好友数: <span id='stMonitored' class='muted'>-</span></div>
+        <div>上次快照: <span id='stSnapshot' class='muted'>-</span></div>
+        <div>仅状态模式: <span id='stStatusOnly' class='muted'>-</span></div>
+      </div>
+      <div class='row' style='margin-top:12px'>
+        <button id='refreshFriends' class='secondary'>刷新好友列表</button>
+        <button id='forceSnapshot' class='secondary'>立即对账</button>
+        <span class='muted' id='opMsg'></span>
+      </div>
+    </div>
+    <div class='card'>
+      <h2>实时事件</h2>
+      <div id='log'><div class='muted'>等待事件...</div></div>
+    </div>
+  </section>
+
+  <section id='tab-friends' class='hidden'>
+    <div class='card'>
+      <h2>好友监控 <span class='muted' id='friendsCount'></span></h2>
+      <p class='muted'>启用监控开关即开始检测该好友; 仅状态模式不推送世界变化。</p>
+      <div id='friendsList'></div>
+    </div>
+  </section>
+
+  <section id='tab-settings' class='hidden'>
+    <div class='card'>
+      <h2>常规</h2>
+      <label class='row' style='justify-content:flex-start'>
+        <input type='checkbox' id='statusOnly' style='width:auto'> 仅状态模式(禁用世界变化通知)
+      </label>
+    </div>
+    <div class='card'>
+      <h2>邮件 (SMTP)</h2>
+      <div class='grid2'>
+        <div><label>收件邮箱<input type='email' id='sEmail' placeholder='you@example.com'></label></div>
+        <div><label>SMTP 主机<input type='text' id='sSmtpHost' placeholder='smtp.example.com'></label></div>
+        <div><label>SMTP 端口<input type='number' id='sSmtpPort' value='587'></label></div>
+        <div><label class='row' style='justify-content:flex-start'><input type='checkbox' id='sSmtpSecure' style='width:auto'> SSL/TLS</label></div>
+        <div><label>SMTP 用户<input type='text' id='sSmtpUser'></label></div>
+        <div><label>SMTP 密码<input type='password' id='sSmtpPass' placeholder='留空保持不变'></label></div>
+      </div>
+      <div class='row'><button id='testEmail' class='secondary'>发送测试邮件</button></div>
+    </div>
+    <div class='card'>
+      <h2>Gotify</h2>
+      <div class='grid2'>
+        <div><label>启用<select id='sGotifyEnabled'><option value='0'>关闭</option><option value='1'>开启</option></select></label></div>
+        <div><label>服务器地址<input type='text' id='sGotifyUrl' placeholder='https://gotify.example.com'></label></div>
+        <div><label>App Token<input type='password' id='sGotifyToken'></label></div>
+        <div><label>优先级<input type='number' id='sGotifyPriority' value='5'></label></div>
+      </div>
+      <div class='row'><button id='testGotify' class='secondary'>发送测试推送</button></div>
+    </div>
+    <div class='card'>
+      <h2>NTFY</h2>
+      <div class='grid2'>
+        <div><label>启用<select id='sNtfyEnabled'><option value='0'>关闭</option><option value='1'>开启</option></select></label></div>
+        <div><label>服务器地址<input type='text' id='sNtfyUrl' placeholder='https://ntfy.sh'></label></div>
+        <div><label>Topic<input type='text' id='sNtfyTopic'></label></div>
+        <div><label>优先级<input type='number' id='sNtfyPriority' value='3'></label></div>
+      </div>
+      <div class='row'><button id='testNtfy' class='secondary'>发送测试推送</button></div>
+    </div>
+    <div class='card'>
+      <h2>Webhook</h2>
+      <div class='grid2'>
+        <div><label>启用<select id='sWebhookEnabled'><option value='0'>关闭</option><option value='1'>开启</option></select></label></div>
+        <div><label>URL<input type='text' id='sWebhookUrl' placeholder='https://example.com/hook'></label></div>
+        <div><label>方法<select id='sWebhookMethod'><option>POST</option><option>GET</option></select></label></div>
+        <div><label>Content-Type<input type='text' id='sWebhookContentType' value='application/json'></label></div>
+      </div>
+      <label>自定义 Headers(JSON)<textarea id='sWebhookHeaders' rows='2' placeholder='{&quot;X-Token&quot;: &quot;abc&quot;}'></textarea></label>
+      <label>Body 模板(可选)<textarea id='sWebhookBody' rows='2' placeholder='留空使用默认 JSON'></textarea></label>
+      <div class='row'><button id='testWebhook' class='secondary'>发送测试请求</button></div>
+    </div>
+    <div class='card'>
+      <div class='row'>
+        <button id='saveSettings'>保存设置</button>
+        <span class='muted' id='settingsMsg'></span>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+'use strict';
+const $ = (s) => document.querySelector(s);
+const $$ = (s) => Array.from(document.querySelectorAll(s));
+
+let appConfig = { accessKeyRequired: false };
+let currentUser = null;
+let tempSessionId = null;
+let twofaKind = 'emailOtp';
+let statusTimer = null;
+let friendsCache = [];
+
+function escapeHtml(v) {
+  return String(v == null ? '' : v)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+async function api(method, path, body) {
+  const opts = { method, headers: {} };
+  if (body !== undefined) {
+    opts.headers['Content-Type'] = 'application/json';
+    opts.body = JSON.stringify(body);
+  }
+  const res = await fetch(path, opts);
+  let data = {};
+  try { data = await res.json(); } catch (e) { data = {}; }
+  return { status: res.status, data };
+}
+
+function log(msg, cls) {
+  const box = $('#log');
+  const div = document.createElement('div');
+  div.textContent = new Date().toLocaleTimeString() + ' ' + msg;
+  if (cls) div.className = cls;
+  box.prepend(div);
+  while (box.children.length > 60) box.lastChild.remove();
+}
+
+function showView(name) {
+  $('#gateView').classList.toggle('hidden', name !== 'gate');
+  $('#loginView').classList.toggle('hidden', name !== 'login');
+  $('#mainView').classList.toggle('hidden', name !== 'main');
+}
+
+function stateLabel(s) {
+  return ({ online: '在线', offline: '离线', active: '网页在线' })[s] || s || '未知';
+}
+
+// ---------- 访问密钥门禁 ----------
+async function loadConfig() {
+  const r = await api('GET', '/api/config');
+  appConfig = r.data || {};
+  if (appConfig.accessKeyRequired) {
+    showView('gate');
+  } else {
+    await checkSession();
+  }
+}
+
+$('#gateBtn').addEventListener('click', async () => {
+  const key = $('#gateKey').value.trim();
+  const r = await api('POST', '/api/access/verify', { key });
+  if (r.data.ok) {
+    sessionStorage.setItem('vrcn_gate', '1');
+    $('#gateMsg').textContent = '';
+    await checkSession();
+  } else {
+    $('#gateMsg').textContent = '密钥错误';
+  }
+});
+
+// ---------- 会话 / 登录 ----------
+async function checkSession() {
+  if (appConfig.accessKeyRequired && sessionStorage.getItem('vrcn_gate') !== '1') {
+    showView('gate');
+    return;
+  }
+  const r = await api('GET', '/api/session');
+  if (r.data.loggedIn && r.data.user) {
+    currentUser = r.data.user;
+    enterMain();
+  } else {
+    currentUser = null;
+    showView('login');
+  }
+}
+
+$('#loginBtn').addEventListener('click', async () => {
+  const username = $('#loginUser').value.trim();
+  const password = $('#loginPass').value;
+  if (!username || !password) { $('#loginMsg').textContent = '请输入用户名和密码'; return; }
+  $('#loginMsg').textContent = '登录中...';
+  const r = await api('POST', '/api/login', {
+    username, password, rememberMe: $('#rememberMe').checked
+  });
+  if (r.data.requiresTwoFactorAuth) {
+    tempSessionId = r.data.tempSessionId;
+    twofaKind = r.data.requiresTwoFactorAuth[0] || 'emailOtp';
+    $('#loginForm').classList.add('hidden');
+    $('#twofaForm').classList.remove('hidden');
+    $('#loginMsg').textContent = '';
+    $('#twofaMsg').textContent = '请输入' + (twofaKind === 'emailOtp' ? '邮箱' : twofaKind === 'totp' ? 'TOTP' : '备用') + '验证码';
+    return;
+  }
+  if (r.data.ok) {
+    currentUser = r.data.user;
+    enterMain();
+  } else {
+    $('#loginMsg').textContent = r.data.error || '登录失败';
+  }
+});
+
+$('#twofaBtn').addEventListener('click', async () => {
+  const code = $('#twofaCode').value.trim();
+  if (!code) { $('#twofaMsg').textContent = '请输入验证码'; return; }
+  $('#twofaMsg').textContent = '验证中...';
+  const r = await api('POST', '/api/login/2fa', { tempSessionId, code, kind: twofaKind });
+  if (r.data.ok) {
+    currentUser = r.data.user;
+    enterMain();
+  } else {
+    $('#twofaMsg').textContent = r.data.error || '验证失败';
+  }
+});
+
+$('#twofaCancel').addEventListener('click', () => {
+  tempSessionId = null;
+  $('#twofaForm').classList.add('hidden');
+  $('#loginForm').classList.remove('hidden');
+  $('#twofaMsg').textContent = '';
+});
+
+$('#logoutBtn').addEventListener('click', async () => {
+  await api('POST', '/api/logout', {});
+  if (statusTimer) { clearInterval(statusTimer); statusTimer = null; }
+  if (window.__evt) window.__evt.close();
+  currentUser = null;
+  showView('login');
+});
+
+function enterMain() {
+  showView('main');
+  $('#userLabel').textContent = currentUser.display_name || currentUser.vrchat_user_id;
+  $('#logoutBtn').classList.remove('hidden');
+  loadAll();
+  startStatus();
+  connectEvents();
+}
+
+function loadAll() {
+  loadFriends();
+  loadSettings();
+  loadStatus();
+}
+
+// ---------- 好友与监控配置 ----------
+async function loadFriends() {
+  const r = await api('GET', '/api/friends');
+  if (r.data.friends) {
+    friendsCache = r.data.friends;
+    renderFriends();
+  }
+}
+
+function renderFriends() {
+  const list = $('#friendsList');
+  if (!friendsCache.length) {
+    list.innerHTML = '<p class=muted>暂无好友数据, 点击上方「刷新好友列表」拉取。</p>';
+    $('#friendsCount').textContent = '';
+    return;
+  }
+  const monitored = friendsCache.filter((f) => f.config && f.config.monitor_enabled === 1);
+  $('#friendsCount').textContent = '已监控 ' + monitored.length + '/' + friendsCache.length;
+  list.innerHTML = '';
+  for (const f of friendsCache) {
+    const c = f.config || {};
+    const row = document.createElement('div');
+    row.className = 'friend';
+    row.dataset.id = f.friend_vrchat_id;
+    const worldTxt = f.world_id === 'private' ? '私密世界' : (f.world_name || '');
+    row.innerHTML =
+      '<label class=switch><input type=checkbox class=monitor' + (c.monitor_enabled ? ' checked' : '') + '><span class=slider></span></label>' +
+      '<div class=name>' + escapeHtml(f.display_name || f.friend_vrchat_id) +
+      '<div class=state>' + stateLabel(f.state) + (worldTxt ? ' · ' + escapeHtml(worldTxt) : '') +
+      (f.status_description ? ' · ' + escapeHtml(f.status_description) : '') + '</div></div>' +
+      '<div class=checks>' +
+      '<label><input type=checkbox data-k=notify_online' + (c.notify_online ? ' checked' : '') + '>上线</label>' +
+      '<label><input type=checkbox data-k=notify_offline' + (c.notify_offline ? ' checked' : '') + '>下线</label>' +
+      '<label><input type=checkbox data-k=notify_status_change' + (c.notify_status_change ? ' checked' : '') + '>状态</label>' +
+      '<label><input type=checkbox data-k=notify_world_change' + (c.notify_world_change ? ' checked' : '') + '>世界</label>' +
+      '</div>';
+    list.appendChild(row);
+  }
+}
+
+$('#friendsList').addEventListener('change', async (e) => {
+  const cb = e.target;
+  const row = cb.closest('.friend');
+  if (!row) return;
+  const id = row.dataset.id;
+  const cur = friendsCache.find((f) => f.friend_vrchat_id === id) || {};
+  const c = cur.config || {};
+  const body = {
+    monitorEnabled: !!row.querySelector('.monitor').checked,
+    notifyOnline: !!row.querySelector('[data-k=notify_online]').checked,
+    notifyOffline: !!row.querySelector('[data-k=notify_offline]').checked,
+    notifyStatusChange: !!row.querySelector('[data-k=notify_status_change]').checked,
+    notifyWorldChange: !!row.querySelector('[data-k=notify_world_change]').checked
+  };
+  const r = await api('PUT', '/api/friends/' + encodeURIComponent(id) + '/config', body);
+  if (r.data.ok) {
+    cur.config = r.data.config;
+    log('已更新监控配置: ' + (cur.display_name || id));
+  } else {
+    log(r.data.error || '配置保存失败', 'err');
+  }
+});
+
+$('#refreshFriends').addEventListener('click', async () => {
+  $('#opMsg').textContent = '拉取中...';
+  const r = await api('POST', '/api/friends/refresh', {});
+  if (r.data.friends) {
+    friendsCache = r.data.friends;
+    renderFriends();
+    $('#opMsg').textContent = '已更新 ' + (r.data.added || 0) + ' 新增, ' + (r.data.updated || 0) + ' 更新';
+  } else {
+    $('#opMsg').textContent = r.data.error || '刷新失败';
+  }
+});
+
+$('#forceSnapshot').addEventListener('click', async () => {
+  $('#opMsg').textContent = '对账中...';
+  const r = await api('POST', '/api/monitor/snapshot', {});
+  if (r.data.ok) {
+    $('#opMsg').textContent = '对账完成';
+    loadStatus();
+  } else {
+    $('#opMsg').textContent = r.data.error || '对账失败';
+  }
+});
+
+// ---------- 设置 ----------
+async function loadSettings() {
+  const r = await api('GET', '/api/settings');
+  const s = r.data.settings || {};
+  $('#statusOnly').checked = s.status_only_mode === 1;
+  $('#sEmail').value = s.email || '';
+  $('#sSmtpHost').value = s.smtp_host || '';
+  $('#sSmtpPort').value = s.smtp_port || 587;
+  $('#sSmtpSecure').checked = !!s.smtp_secure;
+  $('#sSmtpUser').value = s.smtp_user || '';
+  $('#sSmtpPass').placeholder = s.smtp_pass ? '已配置(留空保持不变)' : '未配置';
+  $('#sGotifyEnabled').value = s.gotify_enabled ? '1' : '0';
+  $('#sGotifyUrl').value = s.gotify_server_url || '';
+  $('#sGotifyToken').placeholder = s.gotify_app_token ? '已配置(留空保持不变)' : '未配置';
+  $('#sGotifyPriority').value = s.gotify_priority == null ? 5 : s.gotify_priority;
+  $('#sNtfyEnabled').value = s.ntfy_enabled ? '1' : '0';
+  $('#sNtfyUrl').value = s.ntfy_server_url || 'https://ntfy.sh';
+  $('#sNtfyTopic').value = s.ntfy_topic || '';
+  $('#sNtfyPriority').value = s.ntfy_priority == null ? 3 : s.ntfy_priority;
+  $('#sWebhookEnabled').value = s.webhook_enabled ? '1' : '0';
+  $('#sWebhookUrl').value = s.webhook_url || '';
+  $('#sWebhookMethod').value = s.webhook_method || 'POST';
+  $('#sWebhookContentType').value = s.webhook_content_type || 'application/json';
+  $('#sWebhookHeaders').value = s.webhook_headers || '';
+  $('#sWebhookBody').value = s.webhook_body_template || '';
+}
+
+$('#saveSettings').addEventListener('click', async () => {
+  const body = {
+    status_only_mode: $('#statusOnly').checked ? 1 : 0,
+    email: $('#sEmail').value.trim() || null,
+    smtp_host: $('#sSmtpHost').value.trim() || null,
+    smtp_port: parseInt($('#sSmtpPort').value, 10) || null,
+    smtp_secure: $('#sSmtpSecure').checked ? 1 : 0,
+    smtp_user: $('#sSmtpUser').value.trim() || null,
+    gotify_enabled: $('#sGotifyEnabled').value === '1' ? 1 : 0,
+    gotify_server_url: $('#sGotifyUrl').value.trim() || null,
+    gotify_priority: parseInt($('#sGotifyPriority').value, 10) || 5,
+    ntfy_enabled: $('#sNtfyEnabled').value === '1' ? 1 : 0,
+    ntfy_server_url: $('#sNtfyUrl').value.trim() || null,
+    ntfy_topic: $('#sNtfyTopic').value.trim() || null,
+    ntfy_priority: parseInt($('#sNtfyPriority').value, 10) || 3,
+    webhook_enabled: $('#sWebhookEnabled').value === '1' ? 1 : 0,
+    webhook_url: $('#sWebhookUrl').value.trim() || null,
+    webhook_method: $('#sWebhookMethod').value || 'POST',
+    webhook_content_type: $('#sWebhookContentType').value.trim() || 'application/json',
+    webhook_headers: $('#sWebhookHeaders').value.trim() || null,
+    webhook_body_template: $('#sWebhookBody').value.trim() || null
+  };
+  const pass = $('#sSmtpPass').value;
+  if (pass) body.smtp_pass = pass;
+  const token = $('#sGotifyToken').value;
+  if (token) body.gotify_app_token = token;
+  const r = await api('PUT', '/api/settings', body);
+  $('#settingsMsg').textContent = r.data.ok ? '已保存' : (r.data.error || '保存失败');
+  if (r.data.ok) {
+    $('#sSmtpPass').value = '';
+    $('#sGotifyToken').value = '';
+    loadSettings();
+  }
+});
+
+function bindTest(kind, btnId) {
+  $(btnId).addEventListener('click', async () => {
+    const r = await api('POST', '/api/test/' + kind, {});
+    log('测试通知(' + kind + '): ' + (r.data.ok ? '已发送' : (r.data.result && r.data.result.reason ? r.data.result.reason : '失败')), r.data.ok ? '' : 'err');
+  });
+}
+bindTest('email', '#testEmail');
+bindTest('gotify', '#testGotify');
+bindTest('ntfy', '#testNtfy');
+bindTest('webhook', '#testWebhook');
+
+// ---------- 状态与事件 ----------
+async function loadStatus() {
+  const r = await api('GET', '/api/status');
+  const d = r.data || {};
+  $('#stUser').textContent = d.loggedIn ? (d.user ? d.user.display_name : '是') : '未登录';
+  const ws = $('#stWs');
+  if (!d.loggedIn) { ws.textContent = '-'; ws.className = 'badge'; }
+  else if (d.wsConnected) { ws.textContent = '已连接'; ws.className = 'badge ok'; }
+  else { ws.textContent = '未连接/重连中'; ws.className = 'badge warn'; }
+  $('#stMonitored').textContent = d.loggedIn ? '查看好友页' : '-';
+  $('#stSnapshot').textContent = d.lastSnapshotAt ? new Date(d.lastSnapshotAt).toLocaleTimeString() : '-';
+  $('#stStatusOnly').textContent = d.user && d.user.status_only_mode === 1 ? '是' : '否';
+}
+
+function startStatus() {
+  if (statusTimer) clearInterval(statusTimer);
+  statusTimer = setInterval(loadStatus, 5000);
+}
+
+function connectEvents() {
+  if (window.__evt) window.__evt.close();
+  const evt = new EventSource('/api/events');
+  window.__evt = evt;
+  evt.addEventListener('notification', (e) => {
+    const d = JSON.parse(e.data);
+    log('通知已发: ' + d.friendName + ' ' + d.changeType);
+    loadFriends();
+  });
+  evt.addEventListener('snapshot', (e) => {
+    const d = JSON.parse(e.data);
+    log('快照完成: ' + (d.count || 0) + ' 位好友', '');
+    loadFriends();
+    loadStatus();
+  });
+  evt.addEventListener('session-expired', () => {
+    log('会话已失效, 请重新登录', 'err');
+    currentUser = null;
+    showView('login');
+  });
+  evt.addEventListener('ws-failure', (e) => {
+    const d = JSON.parse(e.data);
+    log('WS 连续断线: ' + (d.displayName || d.userId || ''), 'err');
+  });
+}
+
+// ---------- Tab 切换 ----------
+$$('.tab').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    $$('.tab').forEach((b) => b.classList.toggle('active', b === btn));
+    ['status', 'friends', 'settings'].forEach((name) => {
+      $('#tab-' + name).classList.toggle('hidden', name !== btn.dataset.tab);
+    });
+    if (btn.dataset.tab === 'friends') loadFriends();
+  });
+});
+
+loadConfig();
+</script>
+</body>
+</html>

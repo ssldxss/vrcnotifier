@@ -1,0 +1,22 @@
+﻿{
+  "name": "vrcnotifier",
+  "version": "0.1.0",
+  "description": "VRChat friend monitor & notifier (WebSocket event-driven + REST reconciliation)",
+  "type": "commonjs",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "express": "^5.2.1",
+    "nodemailer": "^9.0.3",
+    "ws": "^8.21.1"
+  }
+}
+
