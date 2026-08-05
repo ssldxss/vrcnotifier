@@ -10,11 +10,12 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
   const log = logger || createLogger('monitor');
   const events = bus || new EventEmitter();
   const sessions = new Map();      // vrchat_user_id -> { vrcapi, user }
-  const worldCache = new Map();    // worldId -> { name, at }
 
   const confirmDelayMs = config.confirmDelayMs ?? 30000;
   const dedupeWindowMs = config.dedupeWindowMs ?? 30000;
-  const worldCacheTtlMs = config.worldCacheTtlMs ?? 10 * 60 * 1000;
+  const WORLD_CACHE_OK_TTL_MS = 365 * 24 * 60 * 60 * 1000; // 成功名称缓存 1 年
+  const WORLD_CACHE_UNKNOWN_TTL_MS = 24 * 60 * 60 * 1000; // 未知世界缓存 1 天
+  const UNKNOWN_WORLD_NAME = '未知世界';
   const snapshotIntervalMs = config.snapshotIntervalMs ?? 10 * 60 * 1000;
   const watchdogMs = config.watchdogMs ?? 10 * 60 * 1000;
   const watchdogCheckMs = config.watchdogCheckMs ?? 60 * 1000;
@@ -47,18 +48,26 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
   }
 
   // ---------- 世界名 ----------
+  function worldCacheFresh(worldId) {
+    const c = db.getWorldCache(worldId);
+    if (!c) return null;
+    const ttl = c.world_name === UNKNOWN_WORLD_NAME ? WORLD_CACHE_UNKNOWN_TTL_MS : WORLD_CACHE_OK_TTL_MS;
+    return now() - c.updated_at < ttl ? c : null;
+  }
+
   async function resolveWorldName(vrcapi, worldId) {
     if (!worldId || worldId === 'private' || worldId === 'offline' || worldId === 'traveling') return null;
-    const hit = worldCache.get(worldId);
-    if (hit && now() - hit.at < worldCacheTtlMs) return hit.name;
+    const cached = worldCacheFresh(worldId);
+    if (cached) return cached.world_name;
+    let name = UNKNOWN_WORLD_NAME;
     try {
       const w = await vrcapi.world(worldId);
-      worldCache.set(worldId, { name: w.name, at: now() });
-      return w.name;
+      if (w && w.name) name = w.name;
     } catch (e) {
       log.warn(`[monitor] 世界 ${worldId} 名称获取失败: ${e.message}`);
-      return worldId; // 降级: 显示 worldId
     }
+    db.upsertWorldCache(worldId, name, now());
+    return name;
   }
 
   // ---------- 通知 ----------
@@ -262,7 +271,10 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
       const existingForTravel = db.getFriend(user.id, id);
       const worldId = loc.isReal ? loc.worldId : (f.location === 'private' ? 'private' : (f.location === 'traveling' && existingForTravel ? existingForTravel.world_id : null));
       let worldName = null;
-      if (worldId && worldId !== 'private' && monitoredIds.has(id) && worldResolves < maxWorldResolvesPerSnapshot) {
+      const cachedW = worldId && worldId !== 'private' ? worldCacheFresh(worldId) : null;
+      if (cachedW) {
+        worldName = cachedW.world_name;
+      } else if (worldId && worldId !== 'private' && monitoredIds.has(id) && worldResolves < maxWorldResolvesPerSnapshot) {
         const existing = db.getFriend(user.id, id);
         if (!existing || existing.world_id !== worldId || !existing.world_name) {
           worldName = await resolveWorldName(vrcapi, worldId);

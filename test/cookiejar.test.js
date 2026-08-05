@@ -47,3 +47,20 @@ test('setCookies accepts string or array, skips malformed', () => {
   assert.ok(h.includes('a=1'));
   assert.ok(h.includes('b=2'));
 });
+
+test('replaces same-name same-domain same-path cookie with new value', () => {
+  const jar = new CookieJar();
+  jar.setCookies(['auth=cookie_A; Path=/; Domain=api.vrchat.cloud'], 'https://api.vrchat.cloud/x');
+  jar.setCookies(['auth=cookie_B; Path=/; Domain=api.vrchat.cloud'], 'https://api.vrchat.cloud/y');
+  assert.equal(jar.cookies.length, 1);
+  assert.equal(jar.cookieHeader('https://api.vrchat.cloud/z'), 'auth=cookie_B');
+  assert.ok(!jar.cookieHeader('https://api.vrchat.cloud/z').includes('cookie_A'));
+});
+
+test('keeps distinct cookies when name or path differs', () => {
+  const jar = new CookieJar();
+  jar.setCookies(['auth=one; Path=/; Domain=api.vrchat.cloud'], 'https://api.vrchat.cloud/x');
+  jar.setCookies(['auth=two; Path=/auth; Domain=api.vrchat.cloud'], 'https://api.vrchat.cloud/y');
+  jar.setCookies(['other=three; Path=/; Domain=api.vrchat.cloud'], 'https://api.vrchat.cloud/y');
+  assert.equal(jar.cookies.length, 3);
+});

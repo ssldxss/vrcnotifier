@@ -230,3 +230,46 @@ test('watchdog forces reconnect + snapshot when no messages', async () => {
   assert.equal(t.pipeline.reconnects, 1);
   assert.ok(t.events.some((e) => e.kind === 'snapshot'));
 });
+
+test('world name cached in db: repeat lookup skips api', async () => {
+  let worldCalls = 0;
+  const t = setup({ onlineFriends: [onlineFriend('usr_f1')] });
+  t.vrcapi.world = async (id) => { worldCalls++; return { id, name: '世界_' + id }; };
+  const user = addUser(t.db);
+  addConfig(t.db, user.id, 'usr_f1');
+  await t.monitor.activateUser(user, t.vrcapi);
+  assert.equal(worldCalls, 1);
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '1', { type: 'friend-location', content: { userId: 'usr_f1', location: 'wrld_a:1~region(us)', user: { id: 'usr_f1', displayName: 'F1', status: 'active' } } });
+  assert.equal(worldCalls, 1, '缓存命中不应再调 API');
+  const c = t.db.getWorldCache('wrld_a');
+  assert.ok(c && c.world_name === '世界_wrld_a');
+});
+
+test('failed world lookup caches unknown for 1 day, success cached 1 year', async () => {
+  let cur = 1000000;
+  let fail = true;
+  let worldCalls = 0;
+  const t = setup({ now: () => cur, onlineFriends: [onlineFriend('usr_f1')] });
+  t.vrcapi.world = async (id) => { worldCalls++; if (fail) throw new Error('boom'); return { id, name: '世界_' + id }; };
+  const user = addUser(t.db);
+  addConfig(t.db, user.id, 'usr_f1');
+  await t.monitor.activateUser(user, t.vrcapi);
+  assert.equal(worldCalls, 1);
+  assert.equal(t.db.getWorldCache('wrld_a').world_name, '未知世界');
+  // 1 天内不重查
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '1', { type: 'friend-location', content: { userId: 'usr_f1', location: 'wrld_a:1', user: { id: 'usr_f1', displayName: 'F1', status: 'active' } } });
+  assert.equal(worldCalls, 1);
+  // 超过1天: 重新查询(成功)
+  fail = false;
+  cur += 24 * 3600 * 1000 + 1;
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '2', { type: 'friend-location', content: { userId: 'usr_f1', location: 'wrld_a:1', user: { id: 'usr_f1', displayName: 'F1', status: 'active' } } });
+  assert.equal(worldCalls, 2);
+  assert.equal(t.db.getWorldCache('wrld_a').world_name, '世界_wrld_a');
+  // 1 年内不重查
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '3', { type: 'friend-location', content: { userId: 'usr_f1', location: 'wrld_a:1', user: { id: 'usr_f1', displayName: 'F1', status: 'active' } } });
+  assert.equal(worldCalls, 2);
+  // 超过1年: 重新查询
+  cur += 365 * 24 * 3600 * 1000 + 1;
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '4', { type: 'friend-location', content: { userId: 'usr_f1', location: 'wrld_a:1', user: { id: 'usr_f1', displayName: 'F1', status: 'active' } } });
+  assert.equal(worldCalls, 3);
+});

@@ -18,6 +18,7 @@ function setup(opts = {}) {
     verify2fa: async (kind, code) => { vrcapi.verifyCalls = vrcapi.verifyCalls || []; vrcapi.verifyCalls.push({ kind, code }); return { verified: true }; },
     me: async () => (opts.currentUser !== undefined ? opts.currentUser : { id: 'usr_me', displayName: '我', onlineFriends: [], activeFriends: [], offlineFriends: [] }),
     authToken: async () => ({ token: 'authcookie_test' }),
+    setCookiesChanged: (fn) => { vrcapi._cookiesChanged = fn; },
     friends: async ({ offline }) => (offline ? (opts.offlineFriends || []) : (opts.onlineFriends || [])),
     world: async (id) => ({ id, name: '世界_' + id })
   };
@@ -79,6 +80,8 @@ async function put(t, path, body) {
   return { status: res.status, data: await res.json() };
 }
 
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 test('config endpoint exposes app config and access key requirement', async (t) => {
   const ctx = setup({ accessKey: 'secret123' });
   t.after(() => close(ctx));
@@ -145,6 +148,50 @@ test('logout deactivates session and clears saved cookies', async (t) => {
   const s = await get(ctx, '/api/session');
   assert.equal(s.data.loggedIn, false);
 });
+test('logout stays effective when a debounced cookie save is pending', async (t) => {
+  const ctx = setup();
+  t.after(() => close(ctx));
+  await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: true });
+  // 模拟 API 响应轮换 cookie: 触发防抖持久化定时器
+  if (ctx.vrcapi._cookiesChanged) ctx.vrcapi._cookiesChanged(ctx.vrcapi.jar);
+  await post(ctx, '/api/logout', {});
+  await sleep(2500);
+  const row = ctx.db.getUserByVrcId('usr_me');
+  assert.equal(row.cookie_data, null, '登出后不应被防抖定时器写回');
+  assert.equal(row.remember_me, 0);
+});
+
+test('login with rememberMe=false clears previously saved cookies', async (t) => {
+  const ctx = setup();
+  t.after(() => close(ctx));
+  await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: true });
+  const row1 = ctx.db.getUserByVrcId('usr_me');
+  assert.ok(row1.cookie_data);
+  assert.equal(row1.remember_me, 1);
+  // 同一账号再次登录但不勾选记住我
+  await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: false });
+  const row2 = ctx.db.getUserByVrcId('usr_me');
+  assert.equal(row2.cookie_data, null, '不记住我时应清除已存 cookie');
+  assert.equal(row2.remember_me, 0);
+  assert.equal(ctx.db.getSavedLogin(), null);
+});
+
+test('saving cookies for another user replaces the previous saved cookie', async (t) => {
+  const ctx = setup();
+  t.after(() => close(ctx));
+  await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: true });
+  // 换一个账号登录
+  ctx.vrcapi.login = async () => ({ id: 'usr_B', displayName: 'B', currentAvatarImageUrl: null });
+  await post(ctx, '/api/login', { username: 'other', password: 'pw', rememberMe: true });
+  const a = ctx.db.getUserByVrcId('usr_me');
+  assert.equal(a.cookie_data, null);
+  assert.equal(a.remember_me, 0);
+  const b = ctx.db.getUserByVrcId('usr_B');
+  assert.ok(b.cookie_data);
+  assert.equal(b.remember_me, 1);
+  assert.equal(ctx.db.getSavedLogin().vrchat_user_id, 'usr_B');
+});
+
 
 test('saved session auto-restores on fresh app instance (GET /api/session)', async (t) => {
   const ctx = setup();

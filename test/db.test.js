@@ -36,6 +36,22 @@ test('cookies: save/clear/remember_me and saved_username', () => {
   assert.equal(u2.remember_me, 0);
 });
 
+test('cookies: saving a new user clears the previous saved cookie (only one stored)', () => {
+  const db = newDb();
+  const idA = db.upsertUser('usr_A', { username: 'a', displayName: 'A', avatarUrl: null });
+  const idB = db.upsertUser('usr_B', { username: 'b', displayName: 'B', avatarUrl: null });
+  db.saveCookies(idA, 'cookieA', 'a');
+  assert.equal(db.getSavedLogin().vrchat_user_id, 'usr_A');
+  db.saveCookies(idB, 'cookieB', 'b');
+  const a = db.getUserByDbId(idA);
+  assert.equal(a.cookie_data, null);
+  assert.equal(a.remember_me, 0);
+  const b = db.getUserByDbId(idB);
+  assert.equal(b.cookie_data, 'cookieB');
+  assert.equal(b.remember_me, 1);
+  assert.equal(db.getSavedLogin().vrchat_user_id, 'usr_B');
+});
+
 test('friends: upsert new/update, list, delete', () => {
   const db = newDb();
   const uid = db.upsertUser('usr_1', { username: 'u1', displayName: 'n', avatarUrl: null });
@@ -76,4 +92,18 @@ test('settings get/set and notif dedupe window', () => {
   db.markNotified('k1', t);
   assert.equal(db.isDuplicate('k1', 30000, t + 10000), true);
   assert.equal(db.isDuplicate('k1', 30000, t + 40000), false); // 窗口外
+});
+
+test('world_cache: upsert, get, overwrite', () => {
+  const db = newDb();
+  assert.equal(db.getWorldCache('wrld_a'), null);
+  db.upsertWorldCache('wrld_a', 'A', 1000);
+  const c = db.getWorldCache('wrld_a');
+  assert.equal(c.world_name, 'A');
+  assert.equal(c.updated_at, 1000);
+  db.upsertWorldCache('wrld_a', 'A2', 2000);
+  assert.equal(db.getWorldCache('wrld_a').world_name, 'A2');
+  assert.equal(db.getWorldCache('wrld_a').updated_at, 2000);
+  db.upsertWorldCache('wrld_b', '未知世界', 3000);
+  assert.equal(db.getWorldCache('wrld_b').world_name, '未知世界');
 });

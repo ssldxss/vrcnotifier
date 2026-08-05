@@ -53,6 +53,11 @@ CREATE TABLE IF NOT EXISTS monitor_config (
 );
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT DEFAULT (datetime('now')));
 CREATE TABLE IF NOT EXISTS notif_dedupe (key TEXT PRIMARY KEY, created_at INTEGER);
+CREATE TABLE IF NOT EXISTS world_cache (
+  world_id TEXT PRIMARY KEY,
+  world_name TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+);
 `;
 
 /** 设置字段白名单: 列名 -> 类型(int|str) */
@@ -83,6 +88,7 @@ function createDb(location = ':memory:') {
     listUsers: db.prepare('SELECT * FROM users ORDER BY id'),
     getSavedLogin: db.prepare("SELECT * FROM users WHERE saved_username IS NOT NULL AND remember_me = 1 ORDER BY updated_at DESC LIMIT 1"),
     saveCookies: db.prepare("UPDATE users SET cookie_data = ?, remember_me = 1, saved_username = ?, updated_at = datetime('now') WHERE id = ?"),
+    clearOtherCookies: db.prepare("UPDATE users SET cookie_data = NULL, remember_me = 0, saved_username = NULL, updated_at = datetime('now') WHERE remember_me = 1 AND id != ?"),
     clearCookies: db.prepare("UPDATE users SET cookie_data = NULL, remember_me = 0, updated_at = datetime('now') WHERE id = ?"),
     upsertFriend: db.prepare(`INSERT INTO friends (user_id, friend_vrchat_id, display_name, avatar_url, state, status, world_id, world_name, status_description, platform, last_seen)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -125,6 +131,8 @@ function createDb(location = ':memory:') {
     setSetting: db.prepare(`INSERT INTO settings (key, value) VALUES (?, ?)
       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')`),
     markNotified: db.prepare('INSERT OR IGNORE INTO notif_dedupe (key, created_at) VALUES (?, ?)'),
+    getWorldCache: db.prepare('SELECT world_id, world_name, updated_at FROM world_cache WHERE world_id = ?'),
+    upsertWorldCache: db.prepare('INSERT INTO world_cache (world_id, world_name, updated_at) VALUES (?, ?, ?) ON CONFLICT(world_id) DO UPDATE SET world_name = excluded.world_name, updated_at = excluded.updated_at'),
     isDuplicate: db.prepare('SELECT created_at FROM notif_dedupe WHERE key = ?')
   };
 
@@ -153,7 +161,11 @@ function createDb(location = ':memory:') {
     getUserByDbId: (id) => stmt.getUserByDbId.get(id) || null,
     listUsers: () => stmt.listUsers.all(),
     getSavedLogin: () => stmt.getSavedLogin.get() || null,
-    saveCookies(dbId, cookieData, username) { stmt.saveCookies.run(cookieData, username ?? null, dbId); },
+    // 全局最多保留一份 cookie: 保存前先清掉其他用户的已存 cookie
+    saveCookies(dbId, cookieData, username) {
+      stmt.clearOtherCookies.run(dbId);
+      stmt.saveCookies.run(cookieData, username ?? null, dbId);
+    },
     clearCookies(dbId) { stmt.clearCookies.run(dbId); },
     updateUserSettings,
     // friends
@@ -192,6 +204,9 @@ function createDb(location = ':memory:') {
     // settings
     getSetting(key) { const r = stmt.getSetting.get(key); return r ? r.value : null; },
     setSetting(key, value) { stmt.setSetting.run(key, value); },
+    // world cache
+    getWorldCache(worldId) { const r = stmt.getWorldCache.get(worldId); return r || null; },
+    upsertWorldCache(worldId, worldName, atMs = Date.now()) { stmt.upsertWorldCache.run(worldId, worldName, atMs); },
     // dedupe
     markNotified(key, atMs = Date.now()) { stmt.markNotified.run(key, atMs); },
     isDuplicate(key, windowMs, atMs = Date.now()) {

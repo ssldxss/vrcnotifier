@@ -79,21 +79,26 @@ function createApp({
       displayName: currentUser.displayName || null,
       avatarUrl: currentUser.currentAvatarImageUrl || null
     });
-    if (rememberMe) {
-      db.saveCookies(dbId, vrcapi.jar.serialize(), username);
-      if (typeof vrcapi.setCookiesChanged === 'function') {
-        let saveTimer = null;
+      const cookieCtx = { cancelled: false, timer: null };
+      if (rememberMe) {
+        db.saveCookies(dbId, vrcapi.jar.serialize(), username);
+        if (typeof vrcapi.setCookiesChanged === 'function') {
         vrcapi.setCookiesChanged(() => {
-          if (saveTimer) clearTimeout(saveTimer);
-          saveTimer = setTimeout(() => {
-            saveTimer = null;
+          if (cookieCtx.cancelled) return;
+          if (cookieCtx.timer) clearTimeout(cookieCtx.timer);
+          cookieCtx.timer = setTimeout(() => {
+            cookieCtx.timer = null;
+            if (cookieCtx.cancelled) return;
             try { db.saveCookies(dbId, vrcapi.jar.serialize(), username || null); } catch (e) { log.warn(`[server] cookie 保存失败: ${e.message}`); }
-          }, 2000);
-        });
+            }, 2000);
+          });
+        }
+      } else {
+        // 不记住我: 清除该账号已存的 cookie, 避免下次启动仍用旧 cookie 自动登录
+        db.clearCookies(dbId);
       }
-    }
     const user = db.getUserByDbId(dbId);
-    current = { userId, dbId, vrcapi };
+    current = { userId, dbId, vrcapi, cookieCtx };
     sessionStore.set(userId, vrcapi);
     await monitor.activateUser(user, vrcapi);
     return user;
@@ -201,6 +206,10 @@ function createApp({
   app.post('/api/logout', async (req, res) => {
     if (!current) return res.json({ ok: true });
     const { userId, dbId } = current;
+    if (current.cookieCtx) {
+      current.cookieCtx.cancelled = true;
+      if (current.cookieCtx.timer) clearTimeout(current.cookieCtx.timer);
+    }
     try { monitor.deactivateUser(userId); } catch (e) { log.warn(`[server] 停用失败: ${e.message}`); }
     sessionStore.delete(userId);
     db.clearCookies(dbId);

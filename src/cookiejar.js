@@ -43,7 +43,12 @@ class CookieJar {
         attrs[key] = val;
       }
       if (!attrs.domain) attrs.domain = host;
-      this.cookies.push(new Cookie(name, value, attrs));
+      const cookie = new Cookie(name, value, attrs);
+      // 浏览器语义: 同名 + 同域 + 同路径的 cookie 应替换旧值, 而不是堆叠
+      this.cookies = this.cookies.filter((c) =>
+        !(c.name === cookie.name && c.domain === cookie.domain && c.path === cookie.path)
+      );
+      this.cookies.push(cookie);
     }
   }
 
