@@ -52,6 +52,8 @@ function createVrcApi({ baseUrl = 'https://api.vrchat.cloud/api/1', userAgent = 
     };
     const cookieHeader = jar.cookieHeader(url.toString());
     if (cookieHeader) headers.Cookie = cookieHeader;
+    const endpoint = '/' + String(path).replace(/^\/+/, '');
+    log.info(`[vrcapi] 请求: ${method} ${endpoint}`);
     if (auth) headers.Authorization = `Basic ${auth}`;
     if (body !== undefined) headers['Content-Type'] = 'application/json;charset=utf-8';
 
@@ -69,6 +71,8 @@ function createVrcApi({ baseUrl = 'https://api.vrchat.cloud/api/1', userAgent = 
     const text = await res.text();
     let data = null;
     try { data = text ? JSON.parse(text) : null; } catch (e) { data = text; }
+
+    log.info(`[vrcapi] 完成: ${method} ${endpoint} (${res.status})`);
 
     if (res.status >= 400) {
       let msg = `HTTP ${res.status}`;

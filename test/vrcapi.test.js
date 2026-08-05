@@ -187,3 +187,27 @@ test('onCookiesChanged fires when response sets cookies', async () => {
     assert.ok(changed[0].includes('rotated'));
   } finally { server.close(); }
 });
+
+test('every api call logs the endpoint', async () => {
+  records.length = 0;
+  const logs = [];
+  const logger = { info: (...a) => logs.push(['info', ...a]), warn: (...a) => logs.push(['warn', ...a]), error: (...a) => logs.push(['error', ...a]) };
+  const server = await startMockApi({
+    '/api/1/auth/user': ({ req }, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ id: 'usr_1', displayName: 'T' }));
+    },
+    '/api/1/auth/user/friends': ({ req }, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify([]));
+    }
+  });
+  try {
+    const v = createVrcApi({ baseUrl: 'http://127.0.0.1:' + server.address().port + '/api/1', userAgent: 't/1', logger });
+    await v.me();
+    await v.friends({ offline: false });
+    const joined = logs.map((l) => l.slice(1).join(' ')).join('\n');
+    assert.ok(joined.includes('GET /auth/user'), 'logs me endpoint');
+    assert.ok(joined.includes('GET /auth/user/friends'), 'logs friends endpoint');
+  } finally { server.close(); }
+});

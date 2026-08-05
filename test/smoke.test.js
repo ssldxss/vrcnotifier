@@ -192,3 +192,17 @@ test('buildApplication starts periodic snapshot timer', async (t) => {
   const got = await waitFor(() => (snapshots >= 2 ? snapshots : null), 3000, 50);
   assert.ok(got, '周期快照定时器未启动');
 });
+
+test('buildApplication default ws reconnectMaxMs is 1 hour', () => {
+  const runtime = buildApplication({
+    logger: silent,
+    dbPath: ':memory:',
+    apiBaseUrl: 'http://127.0.0.1:1/api/1',
+    wsBaseUrl: 'ws://127.0.0.1:1'
+  });
+  try {
+    assert.equal(runtime.config.ws.reconnectMaxMs, 3600000);
+  } finally {
+    try { runtime.monitor.stopTimers(); } catch (e) { /* ignore */ }
+  }
+});

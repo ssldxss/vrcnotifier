@@ -61,7 +61,7 @@ function buildApplication(opts = {}) {
       pingIntervalMs: opts.pingIntervalMs ?? 10000,
       pongTimeoutMs: opts.pongTimeoutMs ?? 30000,
       reconnectBaseMs: opts.reconnectBaseMs ?? 5000,
-      reconnectMaxMs: opts.reconnectMaxMs ?? 60000,
+      reconnectMaxMs: opts.reconnectMaxMs ?? 3600000,
       jitterMs: opts.jitterMs ?? 1000,
       failNotifyMs: opts.failNotifyMs ?? 5 * 60 * 1000,
       ...(opts.ws || {})
@@ -139,6 +139,7 @@ async function main() {
     watchdogMs: envInt('WATCHDOG_MS', 10 * 60 * 1000),
     watchdogCheckMs: envInt('WATCHDOG_CHECK_MS', 60 * 1000),
     pingIntervalMs: envInt('WS_PING_INTERVAL_MS', 10000),
+    reconnectMaxMs: envInt('RECONNECT_MAX_MS', 3600000),
     pongTimeoutMs: envInt('WS_PONG_TIMEOUT_MS', 30000)
   });
   const port = envInt('PORT', 3000);

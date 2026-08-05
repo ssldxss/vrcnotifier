@@ -18,7 +18,7 @@ function createPipelineManager(opts) {
   const pingIntervalMs = config.pingIntervalMs ?? 10000;
   const pongTimeoutMs = config.pongTimeoutMs ?? 30000;
   const reconnectBaseMs = config.reconnectBaseMs ?? 5000;
-  const reconnectMaxMs = config.reconnectMaxMs ?? 60000;
+  const reconnectMaxMs = config.reconnectMaxMs ?? 3600000;
   const jitterMs = config.jitterMs ?? 1000;
   const failNotifyMs = config.failNotifyMs ?? 5 * 60 * 1000;
 
