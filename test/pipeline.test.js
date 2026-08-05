@@ -105,6 +105,29 @@ test('forceReconnect tears down and reconnects; disconnect stops reconnection', 
   } finally { await close(); }
 });
 
+test('onReconnect fires after reconnect succeeds, not on first connect', async () => {
+  const { state, url, close } = await startMockPipeline();
+  try {
+    let reconnects = 0;
+    const pm = createPipelineManager({
+      getToken: async () => ({ status: 'ok', token: 't' }),
+      onMessage: () => {},
+      onReconnect: () => { reconnects++; },
+      userAgent: 't/1',
+      wsUrl: (token) => `${url}/?authToken=${token}`,
+      config: cfg,
+      logger: { info: () => {}, warn: () => {}, error: () => {} }
+    });
+    pm.connect('u1', '我');
+    await sleep(80);
+    assert.equal(reconnects, 0, '首次连接不应触发 onReconnect');
+    state.connections[0].ws.terminate();
+    await sleep(300);
+    assert.ok(reconnects >= 1, '重连成功应触发 onReconnect');
+    pm.disconnect('u1');
+  } finally { await close(); }
+});
+
 test('disconnect during in-flight getToken does not open a zombie connection', async () => {
   const { state, url, close } = await startMockPipeline();
   try {

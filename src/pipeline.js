@@ -9,7 +9,7 @@ function createPipelineManager(opts) {
   const {
     getToken, onMessage, wsUrl, userAgent,
     now = Date.now, logger = null,
-    onConnectFailure = null, onConnectRecovered = null,
+    onConnectFailure = null, onConnectRecovered = null, onReconnect = null,
     WsClient = WebSocket,
     config = {}
   } = opts;
@@ -144,6 +144,9 @@ function createPipelineManager(opts) {
       conn.notified = false;
       conn.lastMessageAt = now();
       startPing(conn);
+      if (wasFailing && onReconnect) {
+        try { onReconnect(userId, conn.displayName); } catch (e) { log.error(`[ws] onReconnect 错误 userId=${userId}: ${e.message}`); }
+      }
       if (wasFailing && onConnectRecovered) onConnectRecovered(userId, conn.displayName);
     });
 

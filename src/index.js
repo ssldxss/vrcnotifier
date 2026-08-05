@@ -52,7 +52,7 @@ function buildApplication(opts = {}) {
     monitor: {
       confirmDelayMs: opts.confirmDelayMs ?? 30000,
       dedupeWindowMs: opts.dedupeWindowMs ?? 30000,
-      snapshotIntervalMs: opts.snapshotIntervalMs ?? 10 * 60 * 1000,
+      snapshotIntervalMs: opts.snapshotIntervalMs ?? 3600 * 1000,
       watchdogMs: opts.watchdogMs ?? 10 * 60 * 1000,
       watchdogCheckMs: opts.watchdogCheckMs ?? 60 * 1000,
       ...(opts.monitor || {})
@@ -89,6 +89,9 @@ function buildApplication(opts = {}) {
       }
     },
     onMessage: (userId, raw, parsed) => monitor.handlePipelineEvent(userId, raw, parsed),
+    onReconnect: (userId) => {
+      monitor.handleWsReconnect(userId).catch((e) => log.error(`[monitor] 重连对账失败 userId=${userId}: ${e.message}`));
+    },
     wsUrl: (token) => `${config.wsBaseUrl.replace(/\/+$/, '')}?authToken=${encodeURIComponent(token)}`,
     userAgent: config.userAgent,
     logger,
@@ -135,7 +138,7 @@ async function main() {
     userAgent: env('USER_AGENT', 'vrcnotifier/1.0'),
     confirmDelayMs: envInt('CONFIRM_DELAY_MS', 30000),
     dedupeWindowMs: envInt('DEDUPE_WINDOW_MS', 30000),
-    snapshotIntervalMs: envInt('SNAPSHOT_INTERVAL_MS', 10 * 60 * 1000),
+    snapshotIntervalMs: envInt('SNAPSHOT_INTERVAL_MS', 3600 * 1000),
     watchdogMs: envInt('WATCHDOG_MS', 10 * 60 * 1000),
     watchdogCheckMs: envInt('WATCHDOG_CHECK_MS', 60 * 1000),
     pingIntervalMs: envInt('WS_PING_INTERVAL_MS', 10000),

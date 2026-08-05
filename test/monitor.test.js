@@ -222,13 +222,79 @@ test('session 401 during snapshot emits session-expired and deactivates', async 
   assert.equal(t.pipeline.disconnects.length, 1);
 });
 
-test('watchdog forces reconnect + snapshot when no messages', async () => {
-  const t = setup({ lastMessageAt: () => 0, now: () => 2000000 });
+test('watchdog only forces reconnect (snapshot runs after reconnect succeeds)', async () => {
+  const t = setup({ lastMessageAt: () => 0, now: () => 2000000, onlineFriends: [onlineFriend('usr_f1')] });
   const user = addUser(t.db);
+  addConfig(t.db, user.id, 'usr_f1');
   await t.monitor.activateUser(user, t.vrcapi);
+  const snapshotsBefore = t.events.filter((e) => e.kind === 'snapshot').length;
+  t.notifications.length = 0;
   await t.monitor.runWatchdog();
   assert.equal(t.pipeline.reconnects, 1);
-  assert.ok(t.events.some((e) => e.kind === 'snapshot'));
+  assert.equal(t.events.filter((e) => e.kind === 'snapshot').length, snapshotsBefore, 'watchdog 本身不跑快照');
+  assert.equal(t.notifications.length, 0);
+});
+
+test('ws reconnect: snapshot first, WS messages ignored until snapshot done', async () => {
+  const t = setup({ onlineFriends: [onlineFriend('usr_f1')] });
+  const user = addUser(t.db);
+  addConfig(t.db, user.id, 'usr_f1');
+  await t.monitor.activateUser(user, t.vrcapi); // 基线快照
+  t.notifications.length = 0;
+  t.events.length = 0;
+  // 挂起下一次快照, 模拟对账进行中
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const origFriends = t.vrcapi.friends;
+  t.vrcapi.friends = async (opts) => { await gate; return origFriends(opts); };
+  const p = t.monitor.handleWsReconnect(user.vrchat_user_id);
+  // 对账完成前: WS 消息被忽略
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '1', { type: 'friend-online', content: { userId: 'usr_f1', location: 'wrld_z:9', user: { id: 'usr_f1', displayName: 'F1', status: 'active' } } });
+  assert.equal(t.notifications.length, 0, '对账完成前消息不应触发通知');
+  assert.equal(t.db.getFriend(user.id, 'usr_f1').world_id, 'wrld_a', '对账完成前消息不应写库');
+  // 释放对账
+  release();
+  await p;
+  assert.ok(t.events.some((e) => e.kind === 'snapshot'), '重连成功应先跑快照');
+  // 对账完成后: WS 消息正常处理
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '2', { type: 'friend-location', content: { userId: 'usr_f1', location: 'wrld_b:2', user: { id: 'usr_f1', displayName: 'F1', status: 'active' } } });
+  assert.equal(t.notifications.length, 1);
+  assert.equal(t.db.getFriend(user.id, 'usr_f1').world_id, 'wrld_b');
+});
+
+test('concurrent snapshot triggers are ignored; auto reconcile slides after any trigger', async () => {
+  let cur = 1000000;
+  const t = setup({ now: () => cur, onlineFriends: [onlineFriend('usr_f1')] });
+  const user = addUser(t.db);
+  addConfig(t.db, user.id, 'usr_f1');
+  try {
+    t.monitor.startTimers();
+    assert.equal(t.monitor._debug.nextAutoReconcileAt(), cur + 600000);
+    await t.monitor.activateUser(user, t.vrcapi);
+    assert.equal(t.monitor._debug.nextAutoReconcileAt(), cur + 600000);
+    // 手动对账 → 自动对账顺延
+    await t.monitor.runSnapshot(user.vrchat_user_id);
+    assert.equal(t.monitor._debug.nextAutoReconcileAt(), cur + 600000);
+    cur += 100000;
+    await t.monitor.runSnapshot(user.vrchat_user_id);
+    assert.equal(t.monitor._debug.nextAutoReconcileAt(), cur + 600000);
+    // 快照进行中: 并发触发被忽略
+    let release;
+    const gate = new Promise((r) => { release = r; });
+    const origFriends = t.vrcapi.friends;
+    let friendCalls = 0;
+    t.vrcapi.friends = async (opts) => { friendCalls++; await gate; return origFriends(opts); };
+    const p1 = t.monitor.runSnapshot(user.vrchat_user_id);
+    const p2 = t.monitor.runSnapshot(user.vrchat_user_id);
+    const r2 = await p2;
+    assert.equal(r2.ok, false);
+    assert.ok(r2.error.includes('快照进行中'));
+    release();
+    await p1;
+    assert.equal(friendCalls, 2, '并发触发不应重复调 API(一次快照 = 在线+离线 两次 friends 调用)');
+  } finally {
+    t.monitor.stopTimers();
+  }
 });
 
 test('world name cached in db: repeat lookup skips api', async () => {
