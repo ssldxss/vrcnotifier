@@ -11,35 +11,39 @@ class ApiError extends Error {
   }
 }
 
-function createVrcApi({ baseUrl = 'https://api.vrchat.cloud/api/1', userAgent = 'vrcnotifier/1.0', cookieJar = null, fetchImpl = fetch, logger = null }) {
+function createVrcApi({ baseUrl = 'https://api.vrchat.cloud/api/1', userAgent = 'vrcnotifier/1.0', cookieJar = null, fetchImpl = fetch, logger = null, retryBaseMs = 5000, retryMaxMs = 3600000, jitterMs = 1000 } = {}) {
   const jar = cookieJar || new CookieJar();
   const log = logger || { info: () => {}, warn: () => {}, error: () => {} };
   let cookiesChanged = null;
 
-  // 瞬时错误(网络中断/5xx)自动重试; 4xx(含 429)不重试, 不做限流退避。
-  const RETRY_DELAYS_MS = [800, 2000];
+  // 401/429/网络错误/5xx 都按指数退避 + jitter 重试(与 WS 重连一致, 默认 5s 起、1h 封顶)。
+  // 登录/2FA/authToken 以及前端手动操作传 noRetry: true, 立即失败交给上层处理。
+  function backoffMs(attempt) {
+    const base = Math.min(retryBaseMs * Math.pow(2, attempt), retryMaxMs);
+    return base + Math.floor(Math.random() * jitterMs);
+  }
 
   function isTransient(e) {
     if (!(e instanceof ApiError)) return false;
     if (e.status === -1) return true;             // 网络错误
+    if (e.status === 401 || e.status === 429) return true; // 会话/限流: 与 WS 一样退避重试
     return e.status >= 500 && e.status < 600;     // 5xx 服务端临时故障
   }
 
   async function request(path, opts = {}) {
-    const attempts = 1 + RETRY_DELAYS_MS.length;
-    let lastError;
-    for (let attempt = 0; attempt < attempts; attempt++) {
+    const endpoint = '/' + String(path).replace(/^\/+/, '');
+    let attempt = 0;
+    for (;;) {
       try {
         return await attemptRequest(path, opts);
       } catch (e) {
-        lastError = e;
-        if (!isTransient(e) || attempt === attempts - 1) throw e;
-        const delay = RETRY_DELAYS_MS[Math.min(attempt, RETRY_DELAYS_MS.length - 1)];
-        log.warn(`[vrcapi] 请求失败(${e.message}), ${delay}ms 后重试(${attempt + 1}/${attempts - 1})`);
+        if (opts.noRetry || !isTransient(e) || attempt >= (opts.maxRetries ?? Infinity)) throw e;
+        const delay = backoffMs(attempt);
+        attempt++;
+        log.warn(`[vrcapi] ${opts.method || 'GET'} ${endpoint} 失败(${e.message}), ${delay}ms 后重试(第 ${attempt} 次)`);
         await new Promise((r) => setTimeout(r, delay));
       }
     }
-    throw lastError;
   }
 
   async function attemptRequest(path, { method = 'GET', auth, body, params, type = 'userProfile' } = {}) {
@@ -87,7 +91,7 @@ function createVrcApi({ baseUrl = 'https://api.vrchat.cloud/api/1', userAgent = 
   async function login(username, password) {
     const auth = Buffer.from(`${encodeURIComponent(username)}:${encodeURIComponent(password)}`).toString('base64');
     try {
-      return await request('/auth/user', { auth, type: 'auth' });
+      return await request('/auth/user', { auth, type: 'auth', noRetry: true });
     } catch (e) {
       if (e.status === 401 && /two.?factor|2fa/i.test(e.message)) {
         const kinds = e.data && Array.isArray(e.data.requiresTwoFactorAuth) && e.data.requiresTwoFactorAuth.length > 0
@@ -101,26 +105,27 @@ function createVrcApi({ baseUrl = 'https://api.vrchat.cloud/api/1', userAgent = 
 
   /** 2FA 验证(不带 Authorization) */
   function verify2fa(kind, code) {
-    return request(`/auth/twofactorauth/${kind}/verify`, { method: 'POST', body: { code }, type: 'auth' });
+    return request(`/auth/twofactorauth/${kind}/verify`, { method: 'POST', body: { code }, type: 'auth', noRetry: true });
   }
 
   /** 当前用户 */
-  function me() {
-    return request('/auth/user', { type: 'userProfile' });
+  function me(opts = {}) {
+    return request('/auth/user', { type: 'userProfile', ...opts });
   }
 
   /** WS token */
   function authToken() {
-    return request('/auth', { type: 'auth' });
+    return request('/auth', { type: 'auth', noRetry: true });
   }
 
   /** 好友列表(分页拉全量); offline=true 仅离线 */
-  async function friends({ offline = false, pageSize = 100 } = {}) {
+  async function friends({ offline = false, pageSize = 100, noRetry = false } = {}) {
     const all = [];
     let offset = 0;
     for (;;) {
       const page = await request('/auth/user/friends', {
         type: 'friendStatus',
+        noRetry,
         params: { n: pageSize, offset, ...(offline ? { offline: 'true' } : {}) }
       });
       if (!Array.isArray(page) || page.length === 0) break;
@@ -132,8 +137,8 @@ function createVrcApi({ baseUrl = 'https://api.vrchat.cloud/api/1', userAgent = 
   }
 
   /** 世界信息 */
-  function world(worldId) {
-    return request(`/worlds/${encodeURIComponent(worldId)}`, { type: 'worldInfo' });
+  function world(worldId, opts = {}) {
+    return request(`/worlds/${encodeURIComponent(worldId)}`, { type: 'worldInfo', ...opts });
   }
 
   return { request, login, verify2fa, me, authToken, friends, world, jar, setCookiesChanged: (fn) => { cookiesChanged = fn; } };

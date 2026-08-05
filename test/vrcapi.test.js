@@ -124,7 +124,7 @@ test('4xx responses throw ApiError with status', async () => {
   });
   try {
     const v = api(server);
-    await assert.rejects(() => v.me(), (err) => err.status === 401 && err.message.includes('Missing Credentials'));
+    await assert.rejects(() => v.me({ noRetry: true }), (err) => err.status === 401 && err.message.includes('Missing Credentials'));
   } finally { server.close(); }
 });
 
@@ -142,7 +142,7 @@ function fakeFetch({ throwTimes = 0, badStatuses = [], okStatus = 200, body = '{
 
 test('network error is retried once then succeeds', async () => {
   const { impl, calls } = fakeFetch({ throwTimes: 1, body: JSON.stringify({ id: 'usr_1' }) });
-  const v = createVrcApi({ baseUrl: 'https://api.vrchat.cloud/api/1', userAgent: 't/1', cookieJar: null, fetchImpl: impl });
+  const v = createVrcApi({ baseUrl: 'https://api.vrchat.cloud/api/1', userAgent: 't/1', cookieJar: null, fetchImpl: impl, retryBaseMs: 1, jitterMs: 0 });
   const me = await v.me();
   assert.equal(me.id, 'usr_1');
   assert.equal(calls.n, 2);
@@ -150,24 +150,40 @@ test('network error is retried once then succeeds', async () => {
 
 test('5xx is retried once then succeeds', async () => {
   const { impl, calls } = fakeFetch({ badStatuses: [503], body: JSON.stringify({ id: 'usr_1' }) });
-  const v = createVrcApi({ baseUrl: 'https://api.vrchat.cloud/api/1', userAgent: 't/1', cookieJar: null, fetchImpl: impl });
+  const v = createVrcApi({ baseUrl: 'https://api.vrchat.cloud/api/1', userAgent: 't/1', cookieJar: null, fetchImpl: impl, retryBaseMs: 1, jitterMs: 0 });
   const me = await v.me();
   assert.equal(me.id, 'usr_1');
   assert.equal(calls.n, 2);
 });
 
-test('429 is not retried (no rate-limit protection)', async () => {
-  const { impl, calls } = fakeFetch({ badStatuses: [429], body: JSON.stringify({ error: { message: 'Rate limited', status_code: 429 } }) });
-  const v = createVrcApi({ baseUrl: 'https://api.vrchat.cloud/api/1', userAgent: 't/1', cookieJar: null, fetchImpl: impl });
-  await assert.rejects(() => v.me(), (err) => err.status === 429);
+test('429 is retried with backoff then succeeds', async () => {
+  const { impl, calls } = fakeFetch({ badStatuses: [429], body: JSON.stringify({ id: 'usr_1' }) });
+  const v = createVrcApi({ baseUrl: 'https://api.vrchat.cloud/api/1', userAgent: 't/1', cookieJar: null, fetchImpl: impl, retryBaseMs: 1, jitterMs: 0 });
+  const me = await v.me();
+  assert.equal(me.id, 'usr_1');
+  assert.equal(calls.n, 2, '429 应退避重试');
+});
+
+test('401 is retried with backoff then succeeds', async () => {
+  const { impl, calls } = fakeFetch({ badStatuses: [401], body: JSON.stringify({ id: 'usr_1' }) });
+  const v = createVrcApi({ baseUrl: 'https://api.vrchat.cloud/api/1', userAgent: 't/1', cookieJar: null, fetchImpl: impl, retryBaseMs: 1, jitterMs: 0 });
+  const me = await v.me();
+  assert.equal(me.id, 'usr_1');
+  assert.equal(calls.n, 2, '401 应退避重试');
+});
+
+test('401 with noRetry throws immediately (login/auth flows)', async () => {
+  const { impl, calls } = fakeFetch({ badStatuses: [401], body: JSON.stringify({ error: { message: 'Missing Credentials', status_code: 401 } }) });
+  const v = createVrcApi({ baseUrl: 'https://api.vrchat.cloud/api/1', userAgent: 't/1', cookieJar: null, fetchImpl: impl, retryBaseMs: 1, jitterMs: 0 });
+  await assert.rejects(() => v.me({ noRetry: true }), (err) => err.status === 401);
   assert.equal(calls.n, 1);
 });
 
-test('401 is not retried', async () => {
-  const { impl, calls } = fakeFetch({ badStatuses: [401], body: JSON.stringify({ error: { message: 'Missing Credentials', status_code: 401 } }) });
-  const v = createVrcApi({ baseUrl: 'https://api.vrchat.cloud/api/1', userAgent: 't/1', cookieJar: null, fetchImpl: impl });
-  await assert.rejects(() => v.me(), (err) => err.status === 401);
-  assert.equal(calls.n, 1);
+test('retries respect maxRetries then throw', async () => {
+  const { impl, calls } = fakeFetch({ badStatuses: [401, 429, 503], body: JSON.stringify({ error: { message: 'x', status_code: 401 } }) });
+  const v = createVrcApi({ baseUrl: 'https://api.vrchat.cloud/api/1', userAgent: 't/1', cookieJar: null, fetchImpl: impl, retryBaseMs: 1, jitterMs: 0 });
+  await assert.rejects(() => v.me({ maxRetries: 2 }), (err) => err.status === 503);
+  assert.equal(calls.n, 3);
 });
 
 test('onCookiesChanged fires when response sets cookies', async () => {

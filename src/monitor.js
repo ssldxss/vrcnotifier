@@ -64,7 +64,7 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
     if (cached) return cached.world_name;
     let name = UNKNOWN_WORLD_NAME;
     try {
-      const w = await vrcapi.world(worldId);
+      const w = await vrcapi.world(worldId, { noRetry: true }); // 世界名查询失败不阻塞快照, 缓存未知世界
       if (w && w.name) name = w.name;
     } catch (e) {
       log.warn(`[monitor] 世界 ${worldId} 名称获取失败: ${e.message}`);
@@ -249,7 +249,7 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
   }
 
   // ---------- 快照对账 ----------
-  async function runSnapshot(userId) {
+  async function runSnapshot(userId, opts = {}) {
     // 任何触发都把自动对账顺延到最后一次触发之后
     scheduleAutoReconcile();
     const session = sessions.get(userId);
@@ -264,8 +264,11 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
       let online;
       let offline;
       try {
-        currentUser = await vrcapi.me();
-        [online, offline] = await Promise.all([vrcapi.friends({ offline: false }), vrcapi.friends({ offline: true })]);
+        currentUser = await vrcapi.me(opts);
+        [online, offline] = await Promise.all([
+          vrcapi.friends({ offline: false, noRetry: opts.noRetry }),
+          vrcapi.friends({ offline: true, noRetry: opts.noRetry })
+        ]);
       } catch (e) {
         if (e.status === 401) {
           log.warn(`[monitor] 会话失效(${e.message}), 通知并停用 ${userId}`);

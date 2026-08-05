@@ -108,10 +108,10 @@ function createApp({
     if (current) return;
     const saved = db.getSavedLogin();
     if (!saved || !saved.cookie_data) return;
-    const jar = CookieJar.deserialize(saved.cookie_data);
-    const vrcapi = vrcapiFactory(jar);
-    try {
-      const user = await vrcapi.me();
+      const jar = CookieJar.deserialize(saved.cookie_data);
+      const vrcapi = vrcapiFactory(jar);
+      try {
+        const user = await vrcapi.me({ noRetry: true }); // 自动登录快速失败, 避免 cookie 失效时无限退避
       if (!user || !user.id) return;
       await finalizeLogin(vrcapi, user, { rememberMe: true, username: saved.saved_username || null });
       log.info(`[server] 自动登录成功: ${user.displayName || user.id}`);
@@ -243,13 +243,13 @@ function createApp({
   app.post('/api/friends/refresh', async (req, res) => {
     if (!current) return res.status(401).json({ error: '未登录' });
     const { vrcapi } = current;
-    const t0 = Date.now();
-    try {
-      const currentUser = await vrcapi.me();
-      const [online, offline] = await Promise.all([
-        vrcapi.friends({ offline: false }),
-        vrcapi.friends({ offline: true })
-      ]);
+      const t0 = Date.now();
+      try {
+        const currentUser = await vrcapi.me({ noRetry: true });
+        const [online, offline] = await Promise.all([
+          vrcapi.friends({ offline: false, noRetry: true }),
+          vrcapi.friends({ offline: true, noRetry: true })
+        ]);
       const merged = new Map();
       for (const f of online || []) if (f && f.id) merged.set(f.id, f);
       for (const f of offline || []) if (f && f.id && !merged.has(f.id)) merged.set(f.id, f);
@@ -375,9 +375,9 @@ function createApp({
 
   app.post('/api/monitor/snapshot', async (req, res) => {
     if (!current) return res.status(401).json({ error: '未登录' });
-    try {
-      const t0 = Date.now();
-      const result = await monitor.runSnapshot(current.userId);
+      try {
+        const t0 = Date.now();
+        const result = await monitor.runSnapshot(current.userId, { noRetry: true });
       if (!result || result.ok === false) {
         log.error(`[server] 手动对账失败: ${(result && result.error) || '未知错误'}`);
         return res.status(502).json({ error: `对账失败: ${(result && result.error) || '未知错误'}` });

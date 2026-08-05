@@ -72,7 +72,10 @@ function buildApplication(opts = {}) {
     baseUrl: config.apiBaseUrl,
     userAgent: config.userAgent,
     cookieJar: jar,
-    logger
+    logger,
+    retryBaseMs: config.ws.reconnectBaseMs,
+    retryMaxMs: config.ws.reconnectMaxMs,
+    jitterMs: config.ws.jitterMs
   }));
   const notifier = opts.notifier || createNotifier({ logger });
 
