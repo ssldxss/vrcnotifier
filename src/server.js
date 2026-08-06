@@ -7,12 +7,13 @@ const { randomBytes } = require('node:crypto');
 const { CookieJar } = require('./cookiejar');
 const { parseLocation } = require('./location');
 const { deriveStateFromSnapshot } = require('./state');
-const { toThumbUrl } = require('./avatar');
+const { toThumbUrl, detectImageType } = require('./avatar');
 
 const MASK = '••••••••';
-const SECRET_FIELDS = new Set(['smtp_pass', 'gotify_app_token']);
+const SECRET_FIELDS = new Set(['smtp_pass', 'gotify_app_token', 'qq_app_secret']);
 const SETTING_MAP = {
   email: 'email',
+  smtpEnabled: 'smtp_enabled',
   smtpHost: 'smtp_host', smtpPort: 'smtp_port', smtpSecure: 'smtp_secure',
   smtpUser: 'smtp_user', smtpPass: 'smtp_pass',
   emailSubjectTemplate: 'email_subject_template', emailBodyTemplate: 'email_body_template',
@@ -23,13 +24,13 @@ const SETTING_MAP = {
   webhookEnabled: 'webhook_enabled', webhookUrl: 'webhook_url', webhookMethod: 'webhook_method',
   webhookHeaders: 'webhook_headers', webhookBodyTemplate: 'webhook_body_template',
   webhookContentType: 'webhook_content_type',
-  statusOnlyMode: 'status_only_mode'
+  qqEnabled: 'qq_enabled', qqAppId: 'qq_app_id', qqAppSecret: 'qq_app_secret'
 };
 
 function createApp({
   db, notifier, pipeline, monitor,
   sessionStore = new Map(), vrcapiFactory, config = {}, logger = null,
-  now = Date.now, publicDir = null, avatarCache = null
+  now = Date.now, publicDir = null, avatarCache = null, qq = null
 }) {
   const log = logger || { info: () => {}, warn: () => {}, error: () => {} };
   const app = express();
@@ -51,10 +52,16 @@ function createApp({
   function maskUser(row) {
     if (!row) return null;
     const out = { ...row };
-    out.smtp_pass = row.smtp_pass ? MASK : null;
-    out.gotify_app_token = row.gotify_app_token ? MASK : null;
     out.cookie_data = undefined;
     delete out.cookie_data;
+    return out;
+  }
+
+  function maskSettings(row) {
+    const out = { ...row };
+    for (const k of SECRET_FIELDS) {
+      out[k] = out[k] ? MASK : null;
+    }
     return out;
   }
 
@@ -142,10 +149,34 @@ function createApp({
 
   app.use(express.json({ limit: '1mb' }));
 
+  // CORS(跨域支持): 默认全部放行, 可用 config.corsOrigin 收紧
+  app.use((req, res, next) => {
+    res.setHeader('Access-Control-Allow-Origin', config.corsOrigin || '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    if (req.method === 'OPTIONS') return res.sendStatus(204);
+    next();
+  });
+
+  // Bearer token 鉴权: 除 config/verify 外所有 /api 接口都需要 token
+  const authWhitelist = new Set(['/api/config', '/api/access/verify']);
+  app.use((req, res, next) => {
+    if (!config.accessToken) return next(); // 未配置 token 时跳过(测试/内嵌兼容)
+    const pathname = (req.path || req.url.split('?')[0]).replace(/\/+$/, '');
+    if (!pathname.startsWith('/api/')) return next(); // 静态资源无需 token
+    if (authWhitelist.has(pathname)) return next();
+    const header = req.headers.authorization || '';
+    const bearer = header.startsWith('Bearer ') ? header.slice(7).trim() : '';
+    const queryToken = req.query.token ? String(req.query.token) : '';
+    if ((bearer || queryToken) && (bearer || queryToken) === config.accessToken) return next();
+    log.warn('[server] 访问被拒绝: 缺少或错误的访问令牌');
+    return res.status(401).json({ error: '访问被拒绝: 缺少或错误的访问令牌' });
+  });
+
   app.get('/api/config', (req, res) => {
     res.json({
       ok: true,
-      accessKeyRequired: !!config.accessKey,
+      tokenRequired: !!config.accessToken,
       confirmDelayMs: config.confirmDelayMs ?? 30000,
       snapshotIntervalMs: config.snapshotIntervalMs ?? 600000,
       watchdogMs: config.watchdogMs ?? 600000,
@@ -156,10 +187,10 @@ function createApp({
 
   app.post('/api/access/verify', (req, res) => {
     const { key } = req.body || {};
-    if (!config.accessKey) return res.json({ ok: true });
-    const ok = key === config.accessKey;
-    if (ok) log.info('[server] 访问密钥验证成功');
-    else log.warn('[server] 访问密钥验证失败');
+    if (!config.accessToken) return res.json({ ok: true });
+    const ok = key === config.accessToken;
+    if (ok) log.info('[server] 访问令牌验证成功');
+    else log.warn('[server] 访问令牌验证失败');
     return res.json({ ok });
   });
 
@@ -269,7 +300,8 @@ function createApp({
         info = await avatarCache.serve(key, url);
       }
       res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-      if (info.contentType) res.setHeader('Content-Type', info.contentType);
+      const contentType = info.contentType || detectImageType(info.filePath);
+      if (contentType) res.setHeader('Content-Type', contentType);
       return res.sendFile(info.filePath);
     } catch (e) {
       log.error(`[avatar] 获取失败 key=${key}: ${e.message}`);
@@ -343,38 +375,34 @@ function createApp({
 
   app.get('/api/settings', (req, res) => {
     if (!current) return res.status(401).json({ error: '未登录' });
-    return res.json({ ok: true, settings: maskUser(db.getUserByDbId(current.dbId)) });
+    return res.json({ ok: true, settings: maskSettings(db.getGlobalSettings()) });
   });
 
   app.put('/api/settings', (req, res) => {
     if (!current) return res.status(401).json({ error: '未登录' });
     const body = req.body || {};
-    const user = db.getUserByDbId(current.dbId);
+    const prev = db.getGlobalSettings();
     const fields = {};
     for (const [camel, snake] of Object.entries(SETTING_MAP)) {
       const raw = body[camel] !== undefined ? body[camel] : body[snake];
       if (raw === undefined) continue;
       if (SECRET_FIELDS.has(snake)) {
-        if (raw === MASK) { fields[snake] = user[snake]; continue; }
+        if (raw === MASK) { fields[snake] = prev[snake] || null; continue; }
         fields[snake] = (raw === '' || raw === null) ? null : String(raw);
       } else {
         fields[snake] = raw;
       }
     }
-    db.updateUserSettings(current.dbId, fields);
+    db.updateGlobalSettings(fields);
+    if (qq) qq.sync(current.dbId, db.getGlobalSettings());
     const changed = Object.entries(fields).map(([k, v]) => (SECRET_FIELDS.has(k) ? `${k}=${v ? '***' : '空'}` : `${k}=${v === null ? '空' : String(v)}`)).join(', ');
     log.info(`[server] 更新通知设置: ${changed || '(无字段变化)'}`);
-    return res.json({ ok: true, settings: maskUser(db.getUserByDbId(current.dbId)) });
+    return res.json({ ok: true, settings: maskSettings(db.getGlobalSettings()) });
   });
 
   app.post('/api/test/:kind', async (req, res) => {
     if (!current) return res.status(401).json({ error: '未登录' });
-    const user = db.getUserByDbId(current.dbId);
-    const forSend = {
-      ...user,
-      smtp_pass: user.smtp_pass || null,
-      gotify_app_token: user.gotify_app_token || null
-    };
+    const forSend = { id: current.dbId, ...db.getGlobalSettings() };
     try {
       log.info(`[server] 发送测试通知: ${req.params.kind}`);
       const result = await notifier.sendTest(forSend, req.params.kind);
@@ -400,6 +428,7 @@ function createApp({
       activeUsers: active.map((a) => a.user.vrchat_user_id),
       wsConnected: !!(ws && ws.connected),
       wsLastMessageAt: ws ? ws.lastMessageAt : null,
+      qq: qq && current ? qq.status(current.dbId) : null,
       lastSnapshotAt,
       pending2faCount: pending2fa.size,
       config: {

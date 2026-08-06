@@ -1,5 +1,8 @@
 ﻿const test = require('node:test');
 const assert = require('node:assert');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 const { createDb } = require('../src/db');
 
 function newDb() { return createDb(':memory:'); }
@@ -10,12 +13,11 @@ test('users: upsert, get by vrc id, settings update', () => {
   assert.ok(id > 0);
   const u = db.getUserByVrcId('usr_1');
   assert.equal(u.display_name, '昵称1');
-  db.updateUserSettings(id, { email: 'a@b.c', smtp_host: 'smtp.x', smtp_port: 587, smtp_secure: true, smtp_user: 'uu', smtp_pass: 'enc:xx', gotify_enabled: true, gotify_app_token: 'tok', status_only_mode: true });
-  const u2 = db.getUserByDbId(id);
-  assert.equal(u2.email, 'a@b.c');
-  assert.equal(u2.smtp_port, 587);
-  assert.equal(u2.gotify_enabled, 1);
-  assert.equal(u2.status_only_mode, 1);
+  db.updateGlobalSettings({ email: 'a@b.c', smtp_host: 'smtp.x', smtp_port: 587, smtp_secure: true, smtp_user: 'uu', smtp_pass: 'enc:xx', gotify_enabled: true, gotify_app_token: 'tok' });
+  const g = db.getGlobalSettings();
+  assert.equal(g.email, 'a@b.c');
+  assert.equal(g.smtp_port, 587);
+  assert.equal(g.gotify_enabled, 1);
   // upsert 同一用户更新资料不重复
   db.upsertUser('usr_1', { username: 'u1', displayName: '新名', avatarUrl: null });
   assert.equal(db.listUsers().length, 1);
@@ -125,4 +127,32 @@ test('world_cache: upsert, get, overwrite', () => {
   assert.equal(db.getWorldCache('wrld_a').updated_at, 2000);
   db.upsertWorldCache('wrld_b', '未知世界', 3000);
   assert.equal(db.getWorldCache('wrld_b').world_name, '未知世界');
+});
+
+test('legacy db migration moves notify columns into settings', () => {
+  const { DatabaseSync } = require('node:sqlite');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vrcnt-db-'));
+  const file = path.join(dir, 'old.db');
+  const old = new DatabaseSync(file);
+  old.exec(`CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, vrchat_user_id TEXT UNIQUE, username TEXT, saved_username TEXT, display_name TEXT, avatar_url TEXT, email TEXT, smtp_host TEXT, smtp_port INTEGER, smtp_secure INTEGER, smtp_user TEXT, smtp_pass TEXT, email_subject_template TEXT, email_body_template TEXT, gotify_enabled INTEGER DEFAULT 0, gotify_server_url TEXT, gotify_app_token TEXT, gotify_priority INTEGER DEFAULT 5, ntfy_enabled INTEGER DEFAULT 0, ntfy_server_url TEXT, ntfy_topic TEXT, ntfy_priority INTEGER DEFAULT 3, webhook_enabled INTEGER DEFAULT 0, webhook_url TEXT, webhook_method TEXT DEFAULT 'POST', webhook_headers TEXT, webhook_body_template TEXT, webhook_content_type TEXT DEFAULT 'application/json', smtp_enabled INTEGER DEFAULT 0, qq_enabled INTEGER DEFAULT 0, qq_app_id TEXT, qq_app_secret TEXT, status_only_mode INTEGER DEFAULT 0, remember_me INTEGER DEFAULT 0, cookie_data TEXT, created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')));`);
+  old.exec(`INSERT INTO users (vrchat_user_id, username, email, smtp_host, smtp_port, qq_enabled, qq_app_id, qq_app_secret, smtp_enabled) VALUES ('usr_old', 'uold', 'a@b.c', 'smtp.x', 587, 1, 'app1', 'sec1', 1);`);
+  old.close();
+  const db = createDb(file);
+  const g = db.getGlobalSettings();
+  assert.equal(g.email, 'a@b.c');
+  assert.equal(g.smtp_host, 'smtp.x');
+  assert.equal(g.smtp_port, 587);
+  assert.equal(g.qq_enabled, 1);
+  assert.equal(g.qq_app_id, 'app1');
+  assert.equal(g.qq_app_secret, 'sec1');
+  assert.equal(g.smtp_enabled, 1);
+  // 旧通知列已从 users 表删除
+  const chk = new DatabaseSync(file);
+  const cols = chk.prepare('PRAGMA table_info(users)').all().map((c) => c.name);
+  chk.close();
+  assert.ok(!cols.includes('email'));
+  assert.ok(!cols.includes('qq_enabled'));
+  const id = db.getUserByVrcId('usr_old').id;
+  db.upsertQqBinding(id, { appId: 'app1', openid: 'openid_old', nickname: 'x', at: 1 });
+  assert.equal(db.getQqBinding(id, 'app1').openid, 'openid_old');
 });

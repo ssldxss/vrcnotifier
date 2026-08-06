@@ -125,7 +125,7 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
       const result = applyChange(baseline, {
         state: input.state, status: input.status, worldId: input.worldId,
         worldName: input.worldName, statusDescription: input.statusDescription, platform: input.platform
-      }, { now, confirmDelayMs, statusOnlyMode: user.status_only_mode === 1 });
+      }, { now, confirmDelayMs,  });
       if (result.notify) {
         await dispatchNotification(user, friendVrcId, { ...result.change, friendId: friendVrcId });
       }
@@ -139,7 +139,7 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
     const result = applyChange(cur, {
       state: input.state, status: input.status, worldId: input.worldId,
       worldName: input.worldName, statusDescription: input.statusDescription, platform: input.platform
-    }, { now, confirmDelayMs, statusOnlyMode: user.status_only_mode === 1 });
+    }, { now, confirmDelayMs,  });
     db.updateFriendState(cur.id, { ...result.dbUpdate, last_seen: now() });
     if (result.notify) {
       await dispatchNotification(user, friendVrcId, { ...result.change, friendId: friendVrcId, newWorldId: result.dbUpdate.world_id });

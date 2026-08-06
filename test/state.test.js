@@ -69,11 +69,13 @@ test('classifyTransition: custom status change when nothing else changed', () =>
   assert.equal(r.changeType, '自定义状态');
 });
 
-test('classifyTransition: world change suppressed in status_only_mode', () => {
-  assert.equal(classifyTransition(
+test('classifyTransition: world change always parsed (status_only_mode removed)', () => {
+  // 旧参数 statusOnlyMode 已废弃: 传与也不受制
+  const r = classifyTransition(
     F({ state: 'online', status: 'active', worldId: 'wrld_a', worldName: 'A' }),
     F({ state: 'online', status: 'active', worldId: 'wrld_b', worldName: 'B' }),
-    { statusOnlyMode: true }), null);
+    { statusOnlyMode: true });
+  assert.deepEqual(r, { changeType: '切换世界', notifyField: 'notify_world_change', needsConfirm: false });
 });
 
 test('applyChange: immediate upgrade notifies and clears pending', () => {

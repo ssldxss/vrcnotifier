@@ -38,9 +38,8 @@ function setup(opts = {}) {
   return { db, bus, events, notifications, notifier, vrcapi, pipeline, monitor };
 }
 
-function addUser(db, { vrcId = 'usr_me', displayName = '我', statusOnly = 0 } = {}) {
+function addUser(db, { vrcId = 'usr_me', displayName = '我' } = {}) {
   const id = db.upsertUser(vrcId, { username: 'me', displayName, avatarUrl: null });
-  db.updateUserSettings(id, { status_only_mode: statusOnly });
   return db.getUserByVrcId(vrcId);
 }
 
@@ -172,16 +171,22 @@ test('runSnapshot returns ok:false when API call fails, ok:true on success', asy
   assert.ok(failed.error.includes('network down'));
 });
 
-test('status_only_mode disables world change notification', async () => {
+test('world change notifies by default and is controlled per-friend', async () => {
   const t = setup({ onlineFriends: [onlineFriend('usr_f1')] });
-  const user = addUser(t.db, { statusOnly: 1 });
+  const user = addUser(t.db);
   addConfig(t.db, user.id, 'usr_f1');
   await t.monitor.activateUser(user, t.vrcapi);
   t.notifications.length = 0;
   await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'x', { type: 'friend-location', content: { userId: 'usr_f1', location: 'wrld_c:3', user: { id: 'usr_f1', displayName: 'F1', status: 'active' } } });
-  assert.equal(t.notifications.length, 0);
+  assert.equal(t.notifications.length, 1);
+  assert.equal(t.notifications[0].change.changeType, '切换世界');
   const f = t.db.getFriend(user.id, 'usr_f1');
-  assert.equal(f.world_id, 'wrld_c'); // 状态仍更新
+  assert.equal(f.world_id, 'wrld_c');
+  // 取消该好友的世界变化通知开关后不通知
+  t.notifications.length = 0;
+  addConfig(t.db, user.id, 'usr_f1', { notifyWorldChange: false });
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'y', { type: 'friend-location', content: { userId: 'usr_f1', location: 'wrld_d:4', user: { id: 'usr_f1', displayName: 'F1', status: 'active' } } });
+  assert.equal(t.notifications.length, 0);
 });
 
 test('traveling preserves world so A->traveling->B still notifies world change', async () => {

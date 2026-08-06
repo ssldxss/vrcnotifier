@@ -10,6 +10,7 @@ const { createVrcApi } = require('./vrcapi');
 const { createNotifier } = require('./notify');
 const { createPipelineManager } = require('./pipeline');
 const { createMonitor } = require('./monitor');
+const { createQqManager } = require('./qq');
 const { createAvatarCache } = require('./avatar');
 const { createApp } = require('./server');
 
@@ -19,6 +20,36 @@ const DEFAULT_WS_BASE = 'wss://pipeline.vrchat.cloud';
 function env(name, fallback = null) {
   const v = process.env[name];
   return v === undefined || v === '' ? fallback : v;
+}
+
+function resolveAccessToken(db, dbPath, logger) {
+  const envToken = env('ACCESS_TOKEN');
+  if (envToken) return envToken;
+  const saved = db.getSetting('access_token');
+  if (saved) return saved;
+  // 迁移旧方案: data/token.txt 文件 -> 数据库
+  if (dbPath && dbPath !== ':memory:') {
+    const file = path.join(path.dirname(dbPath), 'token.txt');
+    try {
+      if (fs.existsSync(file)) {
+        const legacy = fs.readFileSync(file, 'utf8').trim();
+        if (legacy) {
+          db.setSetting('access_token', legacy);
+          try { fs.unlinkSync(file); } catch (e) { /* 删除失败忽略 */ }
+          logger.info(`[启动] 已迁移访问令牌至数据库 (${file})`);
+          return legacy;
+        }
+      }
+    } catch (e) { /* 读取失败则忽略 */ }
+  }
+  const token = require('node:crypto').randomBytes(24).toString('base64url');
+  try {
+    db.setSetting('access_token', token);
+    logger.info(`[启动] 已生成访问令牌: ${token} (已保存至数据库)`);
+  } catch (e) {
+    logger.info(`[启动] 访问令牌: ${token} (无法写入数据库: ${e.message})`);
+  }
+  return token;
 }
 
 function envInt(name, fallback) {
@@ -58,7 +89,8 @@ function buildApplication(opts = {}) {
     apiBaseUrl: opts.apiBaseUrl || DEFAULT_API_BASE,
     wsBaseUrl: opts.wsBaseUrl || DEFAULT_WS_BASE,
     userAgent: opts.userAgent || 'vrcnotifier/1.0',
-    accessKey: opts.accessKey || null,
+    accessKey: opts.accessToken || null,
+    corsOrigin: opts.corsOrigin || null,
     pending2faTtlMs: opts.pending2faTtlMs ?? 5 * 60 * 1000,
     monitor: {
       confirmDelayMs: opts.confirmDelayMs ?? 30000,
@@ -88,8 +120,22 @@ function buildApplication(opts = {}) {
     retryMaxMs: config.ws.reconnectMaxMs,
     jitterMs: config.ws.jitterMs
   }));
-  const notifier = opts.notifier || createNotifier({ logger });
-
+  const qq = opts.qq || createQqManager({
+    db, logger,
+    getSettings: () => db.getGlobalSettings(),
+    config: {
+      tokenUrl: opts.qqTokenUrl || null,
+      apiBase: opts.qqApiBase || null,
+      wsUrl: opts.qqWsUrl || null,
+      reconnectBaseMs: config.ws.reconnectBaseMs,
+      reconnectMaxMs: config.ws.reconnectMaxMs,
+      jitterMs: config.ws.jitterMs
+    }
+  });
+  const notifier = opts.notifier || createNotifier({
+    logger, qq,
+    getSettings: () => db.getGlobalSettings()
+  });
   let monitor = null;
   const pipeline = opts.pipeline || createPipelineManager({
     getToken: async (userId) => {
@@ -121,10 +167,11 @@ function buildApplication(opts = {}) {
   monitor.startTimers();
 
   const { app, autoLogin } = createApp({
-    db, notifier, pipeline, monitor, sessionStore, vrcapiFactory,
+    db, notifier, pipeline, monitor, sessionStore, vrcapiFactory, qq,
     avatarCache,
     config: {
-      accessKey: config.accessKey,
+      accessToken: config.accessKey,
+      corsOrigin: config.corsOrigin,
       pending2faTtlMs: config.pending2faTtlMs,
       confirmDelayMs: config.monitor.confirmDelayMs,
       dedupeWindowMs: config.monitor.dedupeWindowMs,
@@ -133,21 +180,25 @@ function buildApplication(opts = {}) {
     },
     logger,
     now,
-    publicDir: opts.publicDir === undefined ? path.join(__dirname, '..', 'public') : opts.publicDir
+    publicDir: opts.publicDir || null
   });
 
   return {
     app, autoLogin, monitor, pipeline, sessionStore, db, bus,
-    config, avatarCache
+    config, avatarCache, qq
   };
 }
 
 async function main() {
   const logger = createLogger('vrcnotifier');
+  const dbPath = env('DB_PATH', path.join(__dirname, '..', 'data', 'vrcnotifier.db'));
+  const db = createDb(dbPath);
+  const accessToken = resolveAccessToken(db, dbPath, logger);
   const runtime = buildApplication({
     logger,
-    dbPath: env('DB_PATH', path.join(__dirname, '..', 'data', 'vrcnotifier.db')),
-    accessKey: env('ACCESS_KEY'),
+    dbPath,
+    db,
+    accessToken,
     apiBaseUrl: env('VRC_API_URL', DEFAULT_API_BASE),
     wsBaseUrl: env('VRC_WS_URL', DEFAULT_WS_BASE),
     userAgent: env('USER_AGENT', 'vrcnotifier/1.0'),
@@ -158,17 +209,23 @@ async function main() {
     watchdogCheckMs: envInt('WATCHDOG_CHECK_MS', 60 * 1000),
     pingIntervalMs: envInt('WS_PING_INTERVAL_MS', 10000),
     reconnectMaxMs: envInt('RECONNECT_MAX_MS', 3600000),
-    pongTimeoutMs: envInt('WS_PONG_TIMEOUT_MS', 30000)
+    pongTimeoutMs: envInt('WS_PONG_TIMEOUT_MS', 30000),
+    qqWsUrl: env('QQ_WS_URL'),
+    qqApiBase: env('QQ_API_BASE'),
+    publicDir: env('SERVE_STATIC') ? path.join(__dirname, '..', 'public') : null
   });
   const port = envInt('PORT', 3000);
   const server = runtime.app.listen(port, () => {
     logger.info(`[启动] vrcnotifier 运行中: http://localhost:${port}`);
   });
+  try { runtime.qq.startAll(runtime.db.listUsers()); } catch (e) { logger.warn(`[startup] qq startAll failed: ${e.message}`); }
+
   runtime.autoLogin().catch((e) => logger.warn(`[启动] 自动登录恢复失败: ${e.message}`));
 
   const shutdown = () => {
     logger.info('[退出] 正在停止监控与连接...');
     try { runtime.monitor.stopTimers(); } catch (e) { logger.warn(`[退出] stopTimers: ${e.message}`); }
+    try { runtime.qq.stopAll(); } catch (e) { logger.warn(`[退出] qq.stopAll: ${e.message}`); }
     for (const { user } of runtime.monitor.activeUsers()) {
       try { runtime.monitor.deactivateUser(user.vrchat_user_id); } catch (e) { /* ignore */ }
     }
@@ -187,4 +244,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { buildApplication };
+module.exports = { buildApplication, resolveAccessToken };

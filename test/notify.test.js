@@ -29,7 +29,7 @@ function startSink() {
 const baseUser = {
   display_name: '我',
   email: 'me@example.com',
-  smtp_host: 'smtp.test', smtp_port: 587, smtp_secure: false, smtp_user: 'u', smtp_pass: 'decrypted-pass',
+  smtp_enabled: true, smtp_host: 'smtp.test', smtp_port: 587, smtp_secure: false, smtp_user: 'u', smtp_pass: 'decrypted-pass',
   gotify_enabled: true, gotify_server_url: 'http://127.0.0.1:0', gotify_app_token: 'gtok', gotify_priority: 7,
   ntfy_enabled: true, ntfy_server_url: 'http://127.0.0.1:0', ntfy_topic: 'mytopic', ntfy_priority: 4,
   webhook_enabled: true, webhook_url: 'http://127.0.0.1:0/hook', webhook_method: 'POST',
@@ -105,13 +105,13 @@ test('sendWebhook posts default JSON body', async () => {
 test('sendAll dispatches to all enabled channels and reports per-channel results', async () => {
   const { server, received } = await startSink();
   try {
-    const notifier = createNotifier({ createTransport: () => ({ sendMail: async () => ({ accepted: ['x'] }) }) });
     const user = {
       ...baseUser,
       gotify_server_url: `http://127.0.0.1:${server.address().port}`,
       ntfy_server_url: `http://127.0.0.1:${server.address().port}`,
       webhook_url: `http://127.0.0.1:${server.address().port}/hook`
     };
+    const notifier = createNotifier({ createTransport: () => ({ sendMail: async () => ({ accepted: ['x'] }) }), getSettings: () => user });
     const results = await notifier.sendAll(user, change);
     assert.equal(results.gotify.ok, true);
     assert.equal(results.ntfy.ok, true);
@@ -124,15 +124,57 @@ test('sendAll dispatches to all enabled channels and reports per-channel results
 test('sendTest produces test change for every channel', async () => {
   const { server, received } = await startSink();
   try {
-    const notifier = createNotifier({ createTransport: () => ({ sendMail: async () => ({}) }) });
     const user = {
       ...baseUser,
       gotify_server_url: `http://127.0.0.1:${server.address().port}`,
       ntfy_server_url: `http://127.0.0.1:${server.address().port}`,
       webhook_url: `http://127.0.0.1:${server.address().port}/hook`
     };
+    const notifier = createNotifier({ createTransport: () => ({ sendMail: async () => ({}) }), getSettings: () => user });
     const r = await notifier.sendTest(user, 'gotify');
     assert.equal(r.ok, true);
     assert.ok(received.length >= 1);
   } finally { server.close(); }
+});
+
+test('sendQq delegates to qq manager with built text; sendAll includes qq result', async () => {
+  const sent = [];
+  const qq = { sendText: async (dbId, text) => { sent.push({ dbId, text }); return { ok: true }; } };
+  const notifier = createNotifier({ qq, getSettings: () => ({ qq_enabled: 1, qq_app_id: 'app1', qq_app_secret: 'sec1' }) });
+  const user = { id: 7, qq_enabled: 1, qq_app_id: 'app1', qq_app_secret: 'sec1' };
+  const r = await notifier.sendQq(user, change);
+  assert.equal(r.ok, true);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].dbId, 7);
+  assert.ok(sent[0].text.includes('上线: 阿猫'));
+  const all = await notifier.sendAll(user, change);
+  assert.ok(all.qq && all.qq.ok === true);
+});
+
+test('sendQq without config or manager returns not-configured', async () => {
+  const notifier = createNotifier({});
+  const user = { id: 7, qq_enabled: 0, qq_app_id: 'app1', qq_app_secret: 'sec1' };
+  const r = await notifier.sendQq(user, change);
+  assert.equal(r.ok, false);
+  assert.ok(r.reason.includes('未配置'));
+  const r2 = await notifier.sendQq({ ...user, qq_enabled: 1 }, change);
+  assert.equal(r2.ok, false);
+});
+
+test('sendTest qq uses test change', async () => {
+  const sent = [];
+  const qq = { sendText: async (dbId, text) => { sent.push(text); return { ok: true }; } };
+  const notifier = createNotifier({ qq, getSettings: () => ({ qq_enabled: 1, qq_app_id: 'a', qq_app_secret: 's' }) });
+  const r = await notifier.sendTest({ id: 3, qq_enabled: 1, qq_app_id: 'a', qq_app_secret: 's' }, 'qq');
+  assert.equal(r.ok, true);
+  assert.ok(sent[0].includes('测试通知'));
+});
+
+test('sendEmail disabled by smtp_enabled switch', async () => {
+  const notifier = createNotifier({ createTransport: () => ({ sendMail: async () => ({ accepted: ['x'] }) }) });
+  const r = await notifier.sendEmail({ display_name: 'x', smtp_enabled: 0, email: 'a@b.c', smtp_host: 'h', smtp_user: 'u', smtp_pass: 'p' }, change);
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /\u672a\u914d\u7f6e/);
+  const r2 = await notifier.sendEmail({ ...baseUser, smtp_enabled: 1 }, change);
+  assert.equal(r2.ok, true);
 });

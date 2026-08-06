@@ -100,7 +100,8 @@ test('end-to-end: login → refresh → configure → ws event → webhook notif
     logger: silent,
     dbPath: ':memory:',
     apiBaseUrl: api.base + '/api/1',
-    wsBaseUrl: ws.url
+    wsBaseUrl: ws.url,
+    accessToken: 'smoke-token'
   });
   const server = runtime.app.listen(0);
 
@@ -118,7 +119,7 @@ test('end-to-end: login → refresh → configure → ws event → webhook notif
   const base = 'http://127.0.0.1:' + server.address().port;
   const json = (method, p, body) => fetch(base + p, {
     method,
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer smoke-token' },
     body: body === undefined ? undefined : JSON.stringify(body)
   }).then(async (r) => ({ status: r.status, data: await r.json() }));
 
@@ -149,11 +150,9 @@ test('end-to-end: login → refresh → configure → ws event → webhook notif
   assert.equal(payload.change.newStatus, '加入我');
   assert.ok(payload.change.newWorld.includes('世界B') || payload.change.newWorld.includes('wrld_b'));
 
-  // 5. 静态 UI 可访问
+  // 5. 后端不再托管静态页面(前端由独立进程 serve.js 提供)
   const ui = await fetch(base + '/');
-  assert.equal(ui.status, 200);
-  const html = await ui.text();
-  assert.ok(html.includes('vrcnotifier'));
+  assert.equal(ui.status, 404);
 });
 
 test('buildApplication starts periodic snapshot timer', async (t) => {
@@ -164,6 +163,7 @@ test('buildApplication starts periodic snapshot timer', async (t) => {
     dbPath: ':memory:',
     apiBaseUrl: api.base + '/api/1',
     wsBaseUrl: ws.url,
+    accessToken: 'smoke-token',
     snapshotIntervalMs: 100,
     watchdogCheckMs: 60000
   });
@@ -184,7 +184,7 @@ test('buildApplication starts periodic snapshot timer', async (t) => {
   const base = 'http://127.0.0.1:' + server.address().port;
   const res = await fetch(base + '/api/login', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer smoke-token' },
     body: JSON.stringify({ username: 'me', password: 'pw', rememberMe: false })
   });
   assert.equal((await res.json()).ok, true);
@@ -205,4 +205,95 @@ test('buildApplication default ws reconnectMaxMs is 1 hour', () => {
   } finally {
     try { runtime.monitor.stopTimers(); } catch (e) { /* ignore */ }
   }
+});
+
+test('frontend server serves public dir as standalone process', async (t) => {
+  const path = require('node:path');
+  const { createFrontendServer } = require('../serve');
+  const server = createFrontendServer({
+    root: path.join(__dirname, '..', 'public'),
+    logger: silent
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  t.after(() => new Promise((r) => server.close(r)));
+  const base = 'http://127.0.0.1:' + server.address().port;
+
+  const home = await fetch(base + '/');
+  assert.equal(home.status, 200);
+  const html = await home.text();
+  assert.ok(html.includes('vrcnotifier'));
+  assert.ok(html.includes(id='connectBtn'));
+
+  const missing = await fetch(base + '/nope.js');
+  assert.equal(missing.status, 404);
+
+  const escape = await fetch(base + '/..%2F..%2Fpackage.json');
+  assert.notEqual(escape.status, 200);
+});
+
+test('access token auth: 401 without token, whitelist open, SSE via query token, CORS preflight', async (t) => {
+  const api = await startMockApi();
+  const ws = await startMockWs();
+  const runtime = buildApplication({
+    logger: silent,
+    dbPath: ':memory:',
+    apiBaseUrl: api.base + '/api/1',
+    wsBaseUrl: ws.url,
+    accessToken: 'smoke-token'
+  });
+  const server = runtime.app.listen(0);
+
+  t.after(async () => {
+    try { runtime.monitor.stopTimers(); } catch (e) { /* ignore */ }
+    await new Promise((r) => server.close(r));
+    await new Promise((r) => api.server.close(r));
+    await new Promise((r) => ws.wss.close(r));
+  });
+
+  const base = 'http://127.0.0.1:' + server.address().port;
+
+  // 未带 token -> 401
+  const noAuth = await fetch(base + '/api/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: 'me', password: 'pw' })
+  });
+  assert.equal(noAuth.status, 401);
+
+  // 白名单: /api/config 与 /api/access/verify 无需 token
+  const cfg = await fetch(base + '/api/config');
+  assert.equal(cfg.status, 200);
+  const cfgData = await cfg.json();
+  assert.equal(cfgData.tokenRequired, true);
+  const badVerify = await fetch(base + '/api/access/verify', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ key: 'wrong' })
+  });
+  assert.equal((await badVerify.json()).ok, false);
+  const goodVerify = await fetch(base + '/api/access/verify', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ key: 'smoke-token' })
+  });
+  assert.equal((await goodVerify.json()).ok, true);
+
+  // query token 可连 SSE, 错误 token 被拒
+  const badSse = await fetch(base + '/api/events?token=wrong');
+  assert.equal(badSse.status, 401);
+  const sse = await fetch(base + '/api/events?token=smoke-token');
+  assert.equal(sse.status, 200);
+
+  // CORS 预检
+  const preflight = await fetch(base + '/api/friends', {
+    method: 'OPTIONS',
+    headers: {
+      'Origin': 'http://127.0.0.1:9999',
+      'Access-Control-Request-Method': 'GET'
+    }
+  });
+  assert.equal(preflight.status, 204);
+  assert.equal(preflight.headers.get('access-control-allow-origin'), '*');
+
+  await sse.body.getReader().cancel();
 });

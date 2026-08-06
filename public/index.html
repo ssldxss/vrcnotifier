@@ -14,12 +14,14 @@ body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.6 syst
 header { display: flex; align-items: center; gap: 12px; padding: 12px 20px; border-bottom: 1px solid var(--line); }
 header h1 { font-size: 18px; margin: 0; }
 header .spacer { flex: 1; }
+header input[type='text'], header input[type='password'] { width: auto; margin: 0; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 6px 9px; }
 .container { max-width: 960px; margin: 0 auto; padding: 20px; }
 .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
 .card h2 { font-size: 15px; margin: 0 0 10px; }
 .muted { color: var(--muted); }
 .hidden { display: none !important; }
-input, select, textarea, button { font: inherit; }
+input, select, textarea, a { color: var(--accent); }
+button { font: inherit; }
 input[type='text'], input[type='password'], input[type='number'], input[type='email'], select, textarea {
   width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--line);
   border-radius: 6px; padding: 7px 9px; margin: 4px 0 8px;
@@ -65,22 +67,17 @@ h3.chan { font-size: 13px; margin: 14px 0 4px; color: var(--muted); }
 <body>
 <header>
   <h1>vrcnotifier</h1>
-  <span class='muted' id='userLabel'></span>
+  <input type='text' id='backendUrl' placeholder='后端地址' title='后端地址'><input type='password' id='accessTokenInput' placeholder='访问令牌' title='访问令牌'><button id='connectBtn' class='secondary'>连接</button><span class='muted' id='userLabel'></span>
   <span class='spacer'></span>
   <button id='logoutBtn' class='secondary hidden'>登出</button>
 </header>
 
 <div class='container hidden' id='gateView'>
   <div class='card'>
-    <h2>访问密钥</h2>
-    <p class='muted'>服务端已配置访问密钥, 请输入后继续(密钥仅用于前端门禁)。</p>
-    <input type='password' id='gateKey' placeholder='输入访问密钥'>
-    <div class='row'>
-      <button id='gateBtn'>进入</button>
-      <span class='muted' id='gateMsg'></span>
-    </div>
-  </div>
-</div>
+    <h2>连接后端</h2>
+    <p class='muted'>在页面左上角填写后端地址与访问令牌, 点击[连接]。令牌与后端启动日志中「已生成访问令牌」一致。</p>
+    <p class='muted' id='gateMsg'></p>
+  </div></div>
 
 <div class='container hidden' id='loginView'>
   <div class='card'>
@@ -123,7 +120,8 @@ h3.chan { font-size: 13px; margin: 14px 0 4px; color: var(--muted); }
         <div>WS 连接: <span id='stWs' class='badge'>-</span></div>
         <div>监控好友数: <span id='stMonitored' class='muted'>-</span></div>
         <div>上次快照: <span id='stSnapshot' class='muted'>-</span></div>
-        <div>仅状态模式: <span id='stStatusOnly' class='muted'>-</span></div>
+        <div>QQ: <span id='qqBindInfo' class='muted'>-</span></div>
+
       </div>
       <div class='row' style='margin-top:12px'>
         <button id='refreshFriends' class='secondary'>刷新好友列表</button>
@@ -146,15 +144,20 @@ h3.chan { font-size: 13px; margin: 14px 0 4px; color: var(--muted); }
   </section>
 
   <section id='tab-settings' class='hidden'>
+
     <div class='card'>
-      <h2>常规</h2>
-      <label class='row' style='justify-content:flex-start'>
-        <input type='checkbox' id='statusOnly' style='width:auto'> 仅状态模式(禁用世界变化通知)
-      </label>
-    </div>
-    <div class='card'>
+      <h2>QQ 机器人 (推荐)</h2>
+      <div class='grid2'>
+        <div><label>启用<select id='sQqEnabled'><option value='0'>关闭</option><option value='1'>开启</option></select></label></div>
+        <div><label>AppID<input type='text' id='sQqAppId' placeholder='QQ开放平台管理端 AppID'></label></div>
+        <div><label>AppSecret<input type='password' id='sQqAppSecret'></label></div>
+      </div>
+      <div class='muted'>在 <a href='https://q.qq.com/qqbot/openclaw/login.html' target='_blank' rel='noopener'>QQ 开放平台</a> 创建机器人, 填入 AppID/AppSecret 并保存后, 在 QQ 中给机器人发任意一条消息完成绑定</div>
+      <div class='row'><button id='testQq' class='secondary'>发送测试推送</button></div>
+    </div>    <div class='card'>
       <h2>邮件 (SMTP)</h2>
       <div class='grid2'>
+        <div><label>启用<select id='sSmtpEnabled'><option value='0'>关闭</option><option value='1'>开启</option></select></label></div>
         <div><label>收件邮箱<input type='email' id='sEmail' placeholder='you@example.com'></label></div>
         <div><label>SMTP 主机<input type='text' id='sSmtpHost' placeholder='smtp.example.com'></label></div>
         <div><label>SMTP 端口<input type='number' id='sSmtpPort' value='587'></label></div>
@@ -209,8 +212,23 @@ h3.chan { font-size: 13px; margin: 14px 0 4px; color: var(--muted); }
 'use strict';
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
+const LS_BASE = 'vrcn_base';
+const LS_TOKEN = 'vrcn_token';
 
-let appConfig = { accessKeyRequired: false };
+function baseUrl() {
+  return (localStorage.getItem(LS_BASE) || 'http://127.0.0.1:3000').replace(/\/+$/, '');
+}
+function accessToken() { return localStorage.getItem(LS_TOKEN) || ''; }
+function avatarUrl(key) { return baseUrl() + '/api/avatar/' + encodeURIComponent(key) + '?token=' + encodeURIComponent(accessToken()); }
+function saveConnection() {
+  const b = ($('#backendUrl').value.trim() || 'http://127.0.0.1:3000').replace(/\/+$/, '');
+  const t = $('#accessTokenInput').value.trim();
+  localStorage.setItem(LS_BASE, b);
+  localStorage.setItem(LS_TOKEN, t);
+  return t;
+}
+
+let appConfig = { tokenRequired: false };
 let currentUser = null;
 let tempSessionId = null;
 let twofaKind = 'emailOtp';
@@ -224,18 +242,20 @@ function escapeHtml(v) {
     .replace(/>/g, '&gt;');
 }
 
-async function api(method, path, body) {
-  const opts = { method, headers: {} };
-  if (body !== undefined) {
-    opts.headers['Content-Type'] = 'application/json';
-    opts.body = JSON.stringify(body);
-  }
-  const res = await fetch(path, opts);
+async function api(method, path, body, opts = {}) {
+  const url = baseUrl() + path;
+  const headers = {};
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
+  if (!opts.noAuth && accessToken()) headers['Authorization'] = 'Bearer ' + accessToken();
+  const res = await fetch(url, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
   let data = {};
   try { data = await res.json(); } catch (e) { data = {}; }
+  if (res.status === 401 && !opts.noAuth && headers['Authorization'] && path !== '/api/login' && path !== '/api/login/2fa') {
+    showView('gate');
+    $('#gateMsg').textContent = '\u8bbf\u95ee\u88ab\u62d2\u7edd, \u8bf7\u68c0\u67e5\u4ee4\u724c';
+  }
   return { status: res.status, data };
 }
-
 function log(msg, cls) {
   const box = $('#log');
   const div = document.createElement('div');
@@ -257,34 +277,37 @@ function stateLabel(s) {
 
 // ---------- 访问密钥门禁 ----------
 async function loadConfig() {
-  const r = await api('GET', '/api/config');
-  appConfig = r.data || {};
-  if (appConfig.accessKeyRequired) {
+  $('#backendUrl').value = localStorage.getItem(LS_BASE) || 'http://127.0.0.1:3000';
+  $('#accessTokenInput').value = accessToken();
+  try {
+    const r = await api('GET', '/api/config', undefined, { noAuth: true });
+    appConfig = r.data || {};
+    if (appConfig.tokenRequired && !accessToken()) {
+      showView('gate');
+      return;
+    }
+  } catch (e) {
     showView('gate');
-  } else {
-    await checkSession();
-  }
-}
-
-$('#gateBtn').addEventListener('click', async () => {
-  const key = $('#gateKey').value.trim();
-  const r = await api('POST', '/api/access/verify', { key });
-  if (r.data.ok) {
-    sessionStorage.setItem('vrcn_gate', '1');
-    $('#gateMsg').textContent = '';
-    await checkSession();
-  } else {
-    $('#gateMsg').textContent = '密钥错误';
-  }
-});
-
-// ---------- 会话 / 登录 ----------
-async function checkSession() {
-  if (appConfig.accessKeyRequired && sessionStorage.getItem('vrcn_gate') !== '1') {
-    showView('gate');
+    $('#gateMsg').textContent = '\u65e0\u6cd5\u8fde\u63a5\u540e\u7aef: ' + e.message;
     return;
   }
+  await checkSession();
+}
+
+$('#connectBtn').addEventListener('click', () => {
+  const t = saveConnection();
+  if (!t) {
+    showView('gate');
+    $('#gateMsg').textContent = '未填写访问令牌, 无法连接';
+    return;
+  }
+  $('#gateMsg').textContent = '已保存, 正在连接...';
+  setTimeout(() => location.reload(), 150);
+});
+// ---------- 会话 / 登录 ----------
+async function checkSession() {
   const r = await api('GET', '/api/session');
+  if (r.status === 401) { showView('gate'); return; }
   if (r.data.loggedIn && r.data.user) {
     currentUser = r.data.user;
     enterMain();
@@ -388,7 +411,7 @@ function renderFriends() {
     row.dataset.id = f.friend_vrchat_id;
     const initial = escapeHtml((f.display_name || '?').charAt(0).toUpperCase());
     const avatarHtml = f.avatarKey
-      ? "<img class=avatar src='/api/avatar/" + encodeURIComponent(f.avatarKey) + "' loading='lazy' alt='' onerror=\"this.style.display='none';this.nextElementSibling.style.display='flex'\"><div class='avatar-fallback'>" + initial + '</div>'
+      ? "<img class=avatar src='" + avatarUrl(f.avatarKey) + "' loading='lazy' alt='' onerror=\"this.style.display='none';this.nextElementSibling.style.display='flex'\"><div class='avatar-fallback'>" + initial + '</div>'
       : "<div class='avatar-fallback' style='display:flex'>" + initial + '</div>';
     const worldTxt = f.world_id === 'private' ? '私密世界' : (f.world_name || '');
     row.innerHTML =
@@ -457,7 +480,7 @@ $('#forceSnapshot').addEventListener('click', async () => {
 async function loadSettings() {
   const r = await api('GET', '/api/settings');
   const s = r.data.settings || {};
-  $('#statusOnly').checked = s.status_only_mode === 1;
+  $('#sSmtpEnabled').value = s.smtp_enabled ? '1' : '0';
   $('#sEmail').value = s.email || '';
   $('#sSmtpHost').value = s.smtp_host || '';
   $('#sSmtpPort').value = s.smtp_port || 587;
@@ -478,11 +501,14 @@ async function loadSettings() {
   $('#sWebhookContentType').value = s.webhook_content_type || 'application/json';
   $('#sWebhookHeaders').value = s.webhook_headers || '';
   $('#sWebhookBody').value = s.webhook_body_template || '';
+  $('#sQqEnabled').value = s.qq_enabled ? '1' : '0';
+  $('#sQqAppId').value = s.qq_app_id || '';
+  $('#sQqAppSecret').placeholder = s.qq_app_secret ? '已配置(留空保持不变)' : '未配置';
 }
 
 $('#saveSettings').addEventListener('click', async () => {
   const body = {
-    status_only_mode: $('#statusOnly').checked ? 1 : 0,
+    smtp_enabled: $('#sSmtpEnabled').value === '1' ? 1 : 0,
     email: $('#sEmail').value.trim() || null,
     smtp_host: $('#sSmtpHost').value.trim() || null,
     smtp_port: parseInt($('#sSmtpPort').value, 10) || null,
@@ -500,12 +526,16 @@ $('#saveSettings').addEventListener('click', async () => {
     webhook_method: $('#sWebhookMethod').value || 'POST',
     webhook_content_type: $('#sWebhookContentType').value.trim() || 'application/json',
     webhook_headers: $('#sWebhookHeaders').value.trim() || null,
-    webhook_body_template: $('#sWebhookBody').value.trim() || null
+    webhook_body_template: $('#sWebhookBody').value.trim() || null,
+    qq_enabled: $('#sQqEnabled').value === '1' ? 1 : 0,
+    qq_app_id: $('#sQqAppId').value.trim() || null
   };
   const pass = $('#sSmtpPass').value;
   if (pass) body.smtp_pass = pass;
   const token = $('#sGotifyToken').value;
   if (token) body.gotify_app_token = token;
+  const qqSecret = $('#sQqAppSecret').value;
+  if (qqSecret) body.qq_app_secret = qqSecret;
   const r = await api('PUT', '/api/settings', body);
   $('#settingsMsg').textContent = r.data.ok ? '已保存' : (r.data.error || '保存失败');
   if (r.data.ok) {
@@ -525,6 +555,7 @@ bindTest('email', '#testEmail');
 bindTest('gotify', '#testGotify');
 bindTest('ntfy', '#testNtfy');
 bindTest('webhook', '#testWebhook');
+bindTest('qq', '#testQq');
 
 // ---------- 状态与事件 ----------
 async function loadStatus() {
@@ -537,7 +568,13 @@ async function loadStatus() {
   else { ws.textContent = '未连接/重连中'; ws.className = 'badge warn'; }
   $('#stMonitored').textContent = d.loggedIn ? '查看好友页' : '-';
   $('#stSnapshot').textContent = d.lastSnapshotAt ? new Date(d.lastSnapshotAt).toLocaleTimeString() : '-';
-  $('#stStatusOnly').textContent = d.user && d.user.status_only_mode === 1 ? '是' : '否';
+  const qqInfo = $('#qqBindInfo');
+  if (d.qq && d.qq.configured) {
+    const bound = d.qq.bound ? (d.qq.bound.nickname || d.qq.bound.openid) : null;
+    qqInfo.textContent = (d.qq.connected ? 'WS已连接' : 'WS未连接') + (bound ? ', 已绑定: ' + bound : ', 未绑定(给机器人发消息)') + (d.qq.lastError ? ', 错误: ' + d.qq.lastError : '');
+  } else {
+    qqInfo.textContent = '未配置';
+  }
 }
 
 function startStatus() {
@@ -547,7 +584,7 @@ function startStatus() {
 
 function connectEvents() {
   if (window.__evt) window.__evt.close();
-  const evt = new EventSource('/api/events');
+  const evt = new EventSource(baseUrl() + '/api/events?token=' + encodeURIComponent(accessToken()));
   window.__evt = evt;
   evt.addEventListener('notification', (e) => {
     const d = JSON.parse(e.data);

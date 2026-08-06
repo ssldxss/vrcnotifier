@@ -52,43 +52,48 @@ function setup(opts = {}) {
     logger: silent,
     fetchImpl: opts.avatarFetch || (async () => {
       avatarCalls.n++;
-      return { status: 200, headers: { get: (k) => (String(k).toLowerCase() === 'content-type' ? 'image/png' : '') }, arrayBuffer: async () => Buffer.from('AVATARPNG') };
+      const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from('AVATARPNG')]);
+      return { status: 200, headers: { get: (k) => (String(k).toLowerCase() === 'content-type' ? 'image/png' : '') }, arrayBuffer: async () => png };
     })
   });
   const { app, autoLogin } = createApp({
     db, notifier, pipeline, monitor, sessionStore,
     vrcapiFactory: (jar) => (jar ? { ...vrcapi, jar } : vrcapi),
     avatarCache,
-    config: { accessKey: opts.accessKey || null, confirmDelayMs: 30000, dedupeWindowMs: 30000, snapshotIntervalMs: 600000, watchdogMs: 600000 },
+    config: { accessToken: opts.accessToken || null, confirmDelayMs: 30000, dedupeWindowMs: 30000, snapshotIntervalMs: 600000, watchdogMs: 600000 },
     logger: opts.logger || silent,
     now: opts.now || (() => 1000000),
     publicDir: null
   });
   const server = app.listen(0);
   const base = 'http://127.0.0.1:' + server.address().port;
-  return { db, bus, vrcapi, pipeline, notifier, monitor, sessionStore, app, autoLogin, server, base, notifications, avatarCache, avatarCalls };
+  return { db, bus, vrcapi, pipeline, notifier, monitor, sessionStore, app, autoLogin, server, base, notifications, avatarCache, avatarCalls, accessToken: opts.accessToken || null };
 }
 
 async function close(t) { await new Promise((r) => t.server.close(r)); }
 
+function authHeaders(t) {
+  return t.accessToken ? { 'Authorization': 'Bearer ' + t.accessToken } : {};
+}
+
 async function post(t, path, body) {
   const res = await fetch(t.base + path, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders(t) },
     body: JSON.stringify(body || {})
   });
   return { status: res.status, data: await res.json() };
 }
 
 async function get(t, path) {
-  const res = await fetch(t.base + path);
+  const res = await fetch(t.base + path, { headers: authHeaders(t) });
   return { status: res.status, data: await res.json() };
 }
 
 async function put(t, path, body) {
   const res = await fetch(t.base + path, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders(t) },
     body: JSON.stringify(body || {})
   });
   return { status: res.status, data: await res.json() };
@@ -97,11 +102,11 @@ async function put(t, path, body) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 test('config endpoint exposes app config and access key requirement', async (t) => {
-  const ctx = setup({ accessKey: 'secret123' });
+  const ctx = setup({ accessToken: 'secret123' });
   t.after(() => close(ctx));
   const { status, data } = await get(ctx, '/api/config');
   assert.equal(status, 200);
-  assert.equal(data.accessKeyRequired, true);
+  assert.equal(data.tokenRequired, true);
   assert.ok(data.watchdogMs > 0);
   // 访问密钥校验
   const bad = await post(ctx, '/api/access/verify', { key: 'wrong' });
@@ -285,19 +290,18 @@ test('settings get masks secrets, put stores plaintext', async (t) => {
   const ctx = setup();
   t.after(() => close(ctx));
   await post(ctx, '/api/login', { username: 'me', password: 'pw' });
-  const r = await put(ctx, '/api/settings', { email: 'a@b.c', smtp_host: 'smtp.x', smtp_user: 'uu', smtp_pass: 'secret123', gotify_enabled: true, gotify_app_token: 'tok', status_only_mode: true });
+  const r = await put(ctx, '/api/settings', { email: 'a@b.c', smtp_host: 'smtp.x', smtp_user: 'uu', smtp_pass: 'secret123', gotify_enabled: true, gotify_app_token: 'tok' });
   assert.equal(r.status, 200);
-  const row = ctx.db.getUserByVrcId('usr_me');
+  const row = ctx.db.getGlobalSettings();
   assert.equal(row.smtp_pass, 'secret123');
   assert.equal(row.gotify_app_token, 'tok');
-  assert.equal(row.status_only_mode, 1);
   const g = await get(ctx, '/api/settings');
   assert.equal(g.data.settings.email, 'a@b.c');
   assert.notEqual(g.data.settings.smtp_pass, 'secret123');
   assert.ok(g.data.settings.smtp_pass); // 已配置(掩码)
   // 掩码占位符再次提交不清空
   await put(ctx, '/api/settings', { smtp_pass: g.data.settings.smtp_pass });
-  assert.equal(ctx.db.getUserByVrcId('usr_me').smtp_pass, 'secret123');
+  assert.equal(ctx.db.getGlobalSettings().smtp_pass, 'secret123');
 });
 
 test('test notification endpoint calls notifier with stored secrets', async (t) => {
@@ -456,12 +460,13 @@ test('avatar endpoint: 401 / whitelist / download / cache hit / immutable', asyn
   assert.equal(r.status, 200);
   assert.equal(r.headers.get('content-type'), 'image/png');
   assert.ok((r.headers.get('cache-control') || '').includes('immutable'));
-  assert.equal(await r.text(), 'AVATARPNG');
+  assert.ok((await r.text()).includes('AVATARPNG'));
   assert.equal(ctx.avatarCalls.n, 1, '首次应下载一次');
   // 再次: 缓存命中, 不再下载
   r = await fetch(ctx.base + '/api/avatar/file_aaa-111_1_256');
   assert.equal(r.status, 200);
-  assert.equal(await r.text(), 'AVATARPNG');
+  assert.ok((await r.text()).includes('AVATARPNG'));
+  assert.equal(r.headers.get('content-type'), 'image/png', 'cache hit must keep image content type');
   assert.equal(ctx.avatarCalls.n, 1, '缓存命中不应再次下载');
 });
 
@@ -497,6 +502,38 @@ test('avatar key works when only full image url is available (auto-converted to 
   assert.equal(f1.avatarKey, 'file_ccc-333_5_256');
   const r = await fetch(ctx.base + '/api/avatar/file_ccc-333_5_256');
   assert.equal(r.status, 200);
-  assert.equal(await r.text(), 'AVATARPNG');
+  assert.ok((await r.text()).includes('AVATARPNG'));
   assert.equal(ctx.avatarCalls.n, 1);
+});
+
+test('qq settings stored and masked; status includes qq info', async (t) => {
+  const ctx = setup();
+  t.after(() => close(ctx));
+  await post(ctx, '/api/login', { username: 'me', password: 'pw' });
+  const r = await put(ctx, '/api/settings', { qq_enabled: 1, qq_app_id: 'app1', qq_app_secret: 'sec123' });
+  assert.equal(r.status, 200);
+  const row = ctx.db.getGlobalSettings();
+  assert.equal(row.qq_enabled, 1);
+  assert.equal(row.qq_app_id, 'app1');
+  assert.equal(row.qq_app_secret, 'sec123');
+  const g = await get(ctx, '/api/settings');
+  assert.equal(g.data.settings.qq_app_id, 'app1');
+  assert.notEqual(g.data.settings.qq_app_secret, 'sec123');
+  assert.ok(g.data.settings.qq_app_secret); // 掩码
+  // 提交掩码值不应覆盖已保存的真实值
+  await put(ctx, '/api/settings', { qq_app_secret: g.data.settings.qq_app_secret });
+  assert.equal(ctx.db.getGlobalSettings().qq_app_secret, 'sec123');
+  const st = await get(ctx, '/api/status');
+  assert.equal(st.status, 200);
+  assert.ok('qq' in st.data);
+});
+
+test('qq test endpoint works via notifier', async (t) => {
+  const ctx = setup();
+  t.after(() => close(ctx));
+  await post(ctx, '/api/login', { username: 'me', password: 'pw' });
+  await put(ctx, '/api/settings', { qq_enabled: 1, qq_app_id: 'app1', qq_app_secret: 'sec' });
+  const r = await post(ctx, '/api/test/qq', {});
+  assert.equal(r.status, 200);
+  assert.equal(r.data.ok, true);
 });

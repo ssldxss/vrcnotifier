@@ -37,9 +37,8 @@ function classifyTransition(prev, next, opts = {}) {
   if (a === 'active' && b === 'online') return { changeType: 'web端上线', notifyField: 'notify_online', needsConfirm: false };
   if (a === 'online' && b === 'active') return { changeType: '下线至web端', notifyField: 'notify_offline', needsConfirm: true };
   if (a === 'online' && b === 'online') {
-    // 世界变化(仅可看到世界的状态; 新世界必须可见; 旧世界必须已知)
-    if (!opts.statusOnlyMode &&
-        VISIBLE_WORLD_STATUSES.includes(prev.status) && VISIBLE_WORLD_STATUSES.includes(next.status)) {
+    // 世界变化(全量解析; 可见世界状态下新旧世界均已知且不同才通知)
+    if (VISIBLE_WORLD_STATUSES.includes(prev.status) && VISIBLE_WORLD_STATUSES.includes(next.status)) {
       const oldId = prev.worldId || null;
       const newId = next.worldId || null;
       const newVisible = newId && newId !== 'private';
@@ -150,4 +149,4 @@ function buildChange(transition, prev, next) {
   };
 }
 
-module.exports = { deriveStateFromLocation, deriveStateFromSnapshot, classifyTransition, applyChange, GAME_STATUSES, VISIBLE_WORLD_STATUSES };
+module.exports = { deriveStateFromLocation, deriveStateFromSnapshot, classifyTransition, applyChange };

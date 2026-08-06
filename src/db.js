@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 // SQLite 仓储层 (node:sqlite DatabaseSync)。
 
 const { DatabaseSync } = require('node:sqlite');
@@ -11,14 +11,6 @@ CREATE TABLE IF NOT EXISTS users (
   saved_username TEXT,
   display_name TEXT,
   avatar_url TEXT,
-  email TEXT,
-  smtp_host TEXT, smtp_port INTEGER, smtp_secure INTEGER, smtp_user TEXT, smtp_pass TEXT,
-  email_subject_template TEXT, email_body_template TEXT,
-  gotify_enabled INTEGER DEFAULT 0, gotify_server_url TEXT, gotify_app_token TEXT, gotify_priority INTEGER DEFAULT 5,
-  ntfy_enabled INTEGER DEFAULT 0, ntfy_server_url TEXT DEFAULT 'https://ntfy.sh', ntfy_topic TEXT, ntfy_priority INTEGER DEFAULT 3,
-  webhook_enabled INTEGER DEFAULT 0, webhook_url TEXT, webhook_method TEXT DEFAULT 'POST',
-  webhook_headers TEXT, webhook_body_template TEXT, webhook_content_type TEXT DEFAULT 'application/json',
-  status_only_mode INTEGER DEFAULT 0,
   remember_me INTEGER DEFAULT 0,
   cookie_data TEXT,
   created_at TEXT DEFAULT (datetime('now')),
@@ -53,6 +45,14 @@ CREATE TABLE IF NOT EXISTS monitor_config (
 );
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT DEFAULT (datetime('now')));
 CREATE TABLE IF NOT EXISTS notif_dedupe (key TEXT PRIMARY KEY, created_at INTEGER);
+CREATE TABLE IF NOT EXISTS qq_bindings (
+  user_id INTEGER NOT NULL,
+  app_id TEXT NOT NULL,
+  openid TEXT NOT NULL,
+  nickname TEXT,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, app_id)
+);
 CREATE TABLE IF NOT EXISTS world_cache (
   world_id TEXT PRIMARY KEY,
   world_name TEXT NOT NULL,
@@ -62,21 +62,24 @@ CREATE TABLE IF NOT EXISTS world_cache (
 
 /** 设置字段白名单: 列名 -> 类型(int|str) */
 const SETTING_COLUMNS = {
-  email: 'str', smtp_host: 'str', smtp_port: 'int', smtp_secure: 'int', smtp_user: 'str', smtp_pass: 'str',
+  email: 'str', smtp_enabled: 'int', smtp_host: 'str', smtp_port: 'int', smtp_secure: 'int', smtp_user: 'str', smtp_pass: 'str',
   email_subject_template: 'str', email_body_template: 'str',
   gotify_enabled: 'int', gotify_server_url: 'str', gotify_app_token: 'str', gotify_priority: 'int',
   ntfy_enabled: 'int', ntfy_server_url: 'str', ntfy_topic: 'str', ntfy_priority: 'int',
   webhook_enabled: 'int', webhook_url: 'str', webhook_method: 'str', webhook_headers: 'str',
   webhook_body_template: 'str', webhook_content_type: 'str',
-  status_only_mode: 'int'
+  qq_enabled: 'int', qq_app_id: 'str', qq_app_secret: 'str'
 };
 
 function createDb(location = ':memory:') {
   const db = new DatabaseSync(location);
   db.exec('PRAGMA journal_mode = WAL');
   db.exec(SCHEMA);
-  // 旧库迁移: friends 表补 avatar_thumb_url 列(已存在则忽略)
+  // 旧库补充: friends 表补 avatar_thumb_url 列(已存在则忽略)
   try { db.exec('ALTER TABLE friends ADD COLUMN avatar_thumb_url TEXT'); } catch (e) { /* 已存在 */ }
+
+
+
 
   const stmt = {
     upsertUser: db.prepare(`INSERT INTO users (vrchat_user_id, username, display_name, avatar_url)
@@ -134,26 +137,66 @@ function createDb(location = ':memory:') {
     getSetting: db.prepare('SELECT value FROM settings WHERE key = ?'),
     setSetting: db.prepare(`INSERT INTO settings (key, value) VALUES (?, ?)
       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')`),
+    listSettings: db.prepare('SELECT key, value FROM settings'),
     markNotified: db.prepare('INSERT OR IGNORE INTO notif_dedupe (key, created_at) VALUES (?, ?)'),
     getWorldCache: db.prepare('SELECT world_id, world_name, updated_at FROM world_cache WHERE world_id = ?'),
     upsertWorldCache: db.prepare('INSERT INTO world_cache (world_id, world_name, updated_at) VALUES (?, ?, ?) ON CONFLICT(world_id) DO UPDATE SET world_name = excluded.world_name, updated_at = excluded.updated_at'),
-    isDuplicate: db.prepare('SELECT created_at FROM notif_dedupe WHERE key = ?')
+    isDuplicate: db.prepare('SELECT created_at FROM notif_dedupe WHERE key = ?'),
+    upsertQqBinding: db.prepare('INSERT INTO qq_bindings (user_id, app_id, openid, nickname, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(user_id, app_id) DO UPDATE SET openid = excluded.openid, nickname = excluded.nickname, updated_at = excluded.updated_at'),
+    getQqBinding: db.prepare('SELECT * FROM qq_bindings WHERE user_id = ? AND app_id = ?')
   };
 
-  function updateUserSettings(dbId, fields) {
-    const sets = [];
-    const params = [];
+  // 通知设置全局化: 统一写入 settings 表(key-value)
+  function updateGlobalSettings(fields) {
     for (const [key, value] of Object.entries(fields)) {
       if (!(key in SETTING_COLUMNS)) continue;
       const type = SETTING_COLUMNS[key];
-      const v = value === undefined || value === null ? null : (type === 'int' ? (typeof value === 'number' ? value : (value ? 1 : 0)) : String(value));
-      sets.push(`${key} = ?`);
-      params.push(v);
+      const v = value === undefined || value === null ? null : (type === 'int' ? String(Math.trunc(Number(value) || 0)) : String(value));
+      stmt.setSetting.run(key, v);
     }
-    if (sets.length === 0) return;
-    params.push(dbId);
-    db.prepare(`UPDATE users SET ${sets.join(', ')}, updated_at = datetime('now') WHERE id = ?`).run(...params);
   }
+
+  function getGlobalSettings() {
+    const out = {};
+    for (const r of stmt.listSettings.all()) {
+      if (!(r.key in SETTING_COLUMNS)) continue;
+      const type = SETTING_COLUMNS[r.key];
+      out[r.key] = r.value === null || r.value === undefined ? null : (type === 'int' ? Number(r.value) || 0 : String(r.value));
+    }
+    return out;
+  }
+
+  // 旧库迁移: users 表的历史通知列 -> settings 表(取最近更新用户的值), 随后删除旧列
+  (function migrateNotifyColumns() {
+    try {
+      const userCols = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name);
+      const legacy = userCols.filter((c) => c in SETTING_COLUMNS);
+      if (legacy.length === 0) return;
+      const latest = db.prepare('SELECT * FROM users ORDER BY updated_at DESC, id DESC LIMIT 1').get();
+      for (const col of legacy) {
+        if (stmt.getSetting.get(col)) continue;
+        const v = latest ? latest[col] : null;
+        if (v !== null && v !== undefined) {
+          const norm = SETTING_COLUMNS[col] === 'int' ? String(Math.trunc(Number(v) || 0)) : String(v);
+          stmt.setSetting.run(col, norm);
+        }
+      }
+      for (const col of legacy) {
+        try { db.exec(`ALTER TABLE users DROP COLUMN ${col}`); } catch (e) { /* 删除失败忽略 */ }
+      }
+    } catch (e) { /* 迁移失败不影响启动 */ }
+  })();
+
+  // 规范化历史 int 值(旧版本可能存成 REAL 文本如 587.0)
+  (function normalizeIntSettings() {
+    try {
+      for (const r of stmt.listSettings.all()) {
+        if (!(r.key in SETTING_COLUMNS) || SETTING_COLUMNS[r.key] !== 'int' || r.value === null) continue;
+        const norm = String(Math.trunc(Number(r.value) || 0));
+        if (norm !== String(r.value)) stmt.setSetting.run(r.key, norm);
+      }
+    } catch (e) { /* 规范化失败不影响启动 */ }
+  })();
 
   return {
     // users
@@ -171,7 +214,14 @@ function createDb(location = ':memory:') {
       stmt.saveCookies.run(cookieData, username ?? null, dbId);
     },
     clearCookies(dbId) { stmt.clearCookies.run(dbId); },
-    updateUserSettings,
+    // QQ \u673a\u5668\u4eba\u7ed1\u5b9a (\u6bcf\u7528\u6237\u6bcf app \u4e00\u4efd)
+    upsertQqBinding(dbId, { appId, openid, nickname, at }) {
+      stmt.upsertQqBinding.run(dbId, appId, openid, nickname ?? null, at ?? Date.now());
+      return stmt.getQqBinding.get(dbId, appId);
+    },
+    getQqBinding: (dbId, appId) => stmt.getQqBinding.get(dbId, appId) || null,
+    updateGlobalSettings,
+    getGlobalSettings,
     // friends
     upsertFriend(dbId, friendVrcId, fields) {
       const existing = stmt.getFriend.get(dbId, friendVrcId);

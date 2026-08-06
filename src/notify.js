@@ -2,13 +2,19 @@
 // 通知渠道: 邮件(Gotify/NTFY/Webhook) 发送器。
 
 const nodemailer = require('nodemailer');
-const { buildEmail, buildGotify, buildNtfy, buildWebhook, encodeRfc2047 } = require('./templates');
+const { buildEmail, buildGotify, buildNtfy, buildQq, buildWebhook, encodeRfc2047 } = require('./templates');
 
-function createNotifier({ logger = null, fetchImpl = fetch, createTransport = null, now = Date.now } = {}) {
+function createNotifier({ logger = null, fetchImpl = fetch, createTransport = null, now = Date.now, qq = null, getSettings = null } = {}) {
   const log = logger || { info: () => {}, warn: () => {}, error: () => {} };
 
+  // 通知配置统一来自全局 settings 表
+  function globalConfig(user) {
+    const settings = getSettings ? (getSettings() || {}) : {};
+    return { id: user && user.id, ...settings };
+  }
+
   async function sendEmail(user, change) {
-    if (!user.smtp_host || !user.smtp_user || !user.smtp_pass || !user.email) {
+    if (!user.smtp_enabled || !user.smtp_host || !user.smtp_user || !user.smtp_pass || !user.email) {
       return { ok: false, reason: '未配置SMTP或收件邮箱' };
     }
     try {
@@ -115,14 +121,31 @@ function createNotifier({ logger = null, fetchImpl = fetch, createTransport = nu
     }
   }
 
+  async function sendQq(user, change) {
+    if (!qq || !user.qq_enabled || !user.qq_app_id || !user.qq_app_secret) {
+      return { ok: false, reason: '未配置QQ机器人' };
+    }
+    try {
+      const q = buildQq(change);
+      const text = q.title + '\n' + q.message;
+      const result = await qq.sendText(user.id, text);
+      return result || { ok: false, reason: '发送失败' };
+    } catch (e) {
+      log.error(`[通知] QQ 推送失败: ${e.message}`);
+      return { ok: false, reason: e.message };
+    }
+  }
+
   async function sendAll(user, change) {
-    const [email, gotify, ntfy, webhook] = await Promise.all([
-      sendEmail(user, change), sendGotify(user, change), sendNtfy(user, change), sendWebhook(user, change)
+    const cfg = globalConfig(user);
+    const [email, gotify, ntfy, webhook, qqRes] = await Promise.all([
+      sendEmail(cfg, change), sendGotify(cfg, change), sendNtfy(cfg, change), sendWebhook(cfg, change), sendQq(cfg, change)
     ]);
-    return { email, gotify, ntfy, webhook };
+    return { email, gotify, ntfy, webhook, qq: qqRes };
   }
 
   async function sendTest(user, kind) {
+    const cfg = globalConfig(user);
     const testChange = {
       friendName: '测试好友',
       oldStatus: 'offline', newStatus: 'active',
@@ -134,15 +157,16 @@ function createNotifier({ logger = null, fetchImpl = fetch, createTransport = nu
       avatarUrl: '', eventType: 'test'
     };
     switch (kind) {
-      case 'email': return sendEmail(user, testChange);
-      case 'gotify': return sendGotify(user, testChange);
-      case 'ntfy': return sendNtfy(user, testChange);
-      case 'webhook': return sendWebhook(user, testChange);
+      case 'email': return sendEmail(cfg, testChange);
+      case 'gotify': return sendGotify(cfg, testChange);
+      case 'ntfy': return sendNtfy(cfg, testChange);
+      case 'webhook': return sendWebhook(cfg, testChange);
+      case 'qq': return sendQq(cfg, testChange);
       default: return { ok: false, reason: '未知渠道' };
     }
   }
 
-  return { sendEmail, sendGotify, sendNtfy, sendWebhook, sendAll, sendTest };
+  return { sendEmail, sendGotify, sendNtfy, sendWebhook, sendQq, sendAll, sendTest };
 }
 
 module.exports = { createNotifier };

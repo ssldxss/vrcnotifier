@@ -23,6 +23,23 @@ function toThumbUrl(url) {
   }
 }
 
+// 本地缓存文件无扩展名, 按魔数推断图片类型
+function detectImageType(filePath) {
+  try {
+    const fd = fs.openSync(filePath, 'r');
+    const buf = Buffer.alloc(12);
+    fs.readSync(fd, buf, 0, 12, 0);
+    fs.closeSync(fd);
+    if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return 'image/png';
+    if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'image/jpeg';
+    if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46) return 'image/gif';
+    if (buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WEBP') return 'image/webp';
+    return null;
+  } catch (e) {
+    return null;
+  }
+}
+
 function createAvatarCache({ dir, logger = null, fetchImpl = fetch, userAgent = 'vrcnotifier/1.0', ttlMs = 30 * 24 * 3600 * 1000 }) {
   const log = logger || { info: () => {}, warn: () => {}, error: () => {} };
   const inFlight = new Map(); // key -> Promise
@@ -117,4 +134,4 @@ function createAvatarCache({ dir, logger = null, fetchImpl = fetch, userAgent = 
   return { thumbKeyFromUrl, cached, touch, serve, sweep, dir };
 }
 
-module.exports = { createAvatarCache, toThumbUrl };
+module.exports = { createAvatarCache, toThumbUrl, detectImageType };

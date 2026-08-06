@@ -59,6 +59,7 @@ const DEFAULT_EMAIL_BODY = `
 </div>`;
 
 const DEFAULT_GOTIFY_MESSAGE = '好友 {friendName} {changeType}\n\n状态: {oldStatus} → {newStatus}\n世界: {newWorld}\n自定义状态: {newStatusDescription}\n\n时间: {timestamp}';
+const DEFAULT_QQ_MESSAGE = '状态: {oldStatus} → {newStatus}\n世界: {oldWorld} → {newWorld}\n自定义状态: {oldStatusDescription} → {newStatusDescription}\n平台: {oldPlatform} → {newPlatform}\n时间: {timestamp}';
 
 function buildEmail(change, opts = {}) {
   const vars = buildChangeVars(change);
@@ -84,6 +85,13 @@ function buildNtfy(change, opts = {}) {
   const title = opts.titleTemplate ? renderTemplate(opts.titleTemplate, vars) : `${change.friendName} ${change.changeType}`;
   const message = opts.messageTemplate ? renderTemplate(opts.messageTemplate, vars) : renderTemplate(DEFAULT_GOTIFY_MESSAGE, vars);
   return { title, message, priority: opts.priority == null ? 3 : opts.priority, tags: null };
+}
+
+function buildQq(change, opts = {}) {
+  const vars = buildChangeVars(change);
+  const title = opts.titleTemplate ? renderTemplate(opts.titleTemplate, vars) : `${change.changeType}: ${change.friendName}`;
+  const message = opts.messageTemplate ? renderTemplate(opts.messageTemplate, vars) : renderTemplate(DEFAULT_QQ_MESSAGE, vars);
+  return { title, message };
 }
 
 function buildWebhook(change, opts = {}) {
@@ -121,5 +129,5 @@ function buildWebhook(change, opts = {}) {
 
 module.exports = {
   renderTemplate, statusLabel, encodeRfc2047, buildChangeVars,
-  buildEmail, buildGotify, buildNtfy, buildWebhook
+  buildEmail, buildGotify, buildNtfy, buildQq, buildWebhook
 };
