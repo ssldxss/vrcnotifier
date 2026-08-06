@@ -83,6 +83,27 @@ test('non-image response is rejected and not cached', async () => {
   assert.equal(c.cached('k1'), null);
 });
 
+test('rejects image larger than 2MB and does not cache', async () => {
+  const dir = tmpDir();
+  const big = Buffer.alloc(2 * 1024 * 1024 + 1, 1);
+  const c = createAvatarCache({ dir, fetchImpl: async () => ({ status: 200, headers: { get: () => 'image/png' }, arrayBuffer: async () => big }) });
+  await assert.rejects(() => c.serve('k1', THUMB), (err) => err.code === 'DOWNLOAD');
+  assert.equal(c.cached('k1'), null);
+});
+
+test('download aborts after timeout and does not cache', async () => {
+  const dir = tmpDir();
+  const c = createAvatarCache({
+    dir,
+    downloadTimeoutMs: 50,
+    fetchImpl: (url, opts) => new Promise((resolve, reject) => {
+      opts.signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })));
+    })
+  });
+  await assert.rejects(() => c.serve('k1', THUMB), (err) => err.code === 'DOWNLOAD');
+  assert.equal(c.cached('k1'), null);
+});
+
 test('sweep removes stale files by mtime, keeps recently touched', async () => {
   const dir = tmpDir();
   const c = createAvatarCache({ dir, ttlMs: 1000, fetchImpl: imgFetch() });

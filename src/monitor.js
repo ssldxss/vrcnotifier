@@ -5,7 +5,6 @@ const { EventEmitter } = require('node:events');
 const { deriveStateFromSnapshot, applyChange } = require('./state');
 const { parseLocation } = require('./location');
 const { formatLocalTime, createLogger } = require('./util');
-const { toThumbUrl } = require('./avatar');
 
 function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger = null, now = Date.now }) {
   const log = logger || createLogger('monitor');
@@ -83,8 +82,7 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
     const monitored = new Set((await monitoredConfigs(user)).map((c) => c.friend_vrchat_id));
     if (!monitored.has(friendVrcId)) return;
 
-    const bucket = Math.floor(now() / dedupeWindowMs);
-    const key = `${user.id}|${friendVrcId}|${change.changeType}|${change.newWorldId || ''}|${bucket}`;
+    const key = `${user.id}|${friendVrcId}|${change.changeType}|${change.newWorldId || ''}`;
     if (db.isDuplicate(key, dedupeWindowMs, now())) return;
     db.markNotified(key, now());
 
@@ -110,7 +108,7 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
   // ---------- 状态落地 ----------
   async function applyFriendInput(user, friendVrcId, input) {
     // 头像统一走 /api/1/image/ 缩略图: 优先显式缩略图 URL, 缺失时由原图 URL 转换
-    const thumbUrl = input.avatarThumbUrl || toThumbUrl(input.avatarUrl) || null;
+    const thumbUrl = input.avatarThumbUrl || null;
     const existed = db.getFriend(user.id, friendVrcId);
     if (!existed) {
       db.upsertFriend(user.id, friendVrcId, {

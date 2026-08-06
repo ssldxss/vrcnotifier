@@ -71,10 +71,13 @@ const SETTING_COLUMNS = {
   qq_enabled: 'int', qq_app_id: 'str', qq_app_secret: 'str'
 };
 
-function createDb(location = ':memory:') {
+const MAX_DEDUPE_ROWS = 100000;
+
+function createDb(location = ':memory:', opts = {}) {
   const db = new DatabaseSync(location);
   db.exec('PRAGMA journal_mode = WAL');
   db.exec(SCHEMA);
+  const maxDedupeRows = opts.maxDedupeRows ?? MAX_DEDUPE_ROWS;
   // 旧库补充: friends 表补 avatar_thumb_url 列(已存在则忽略)
   try { db.exec('ALTER TABLE friends ADD COLUMN avatar_thumb_url TEXT'); } catch (e) { /* 已存在 */ }
 
@@ -138,7 +141,10 @@ function createDb(location = ':memory:') {
     setSetting: db.prepare(`INSERT INTO settings (key, value) VALUES (?, ?)
       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')`),
     listSettings: db.prepare('SELECT key, value FROM settings'),
-    markNotified: db.prepare('INSERT OR IGNORE INTO notif_dedupe (key, created_at) VALUES (?, ?)'),
+    markNotified: db.prepare(`INSERT INTO notif_dedupe (key, created_at) VALUES (?, ?)
+      ON CONFLICT(key) DO UPDATE SET created_at = excluded.created_at`),
+    countNotified: db.prepare('SELECT COUNT(*) AS c FROM notif_dedupe'),
+    trimNotified: db.prepare('DELETE FROM notif_dedupe WHERE key IN (SELECT key FROM notif_dedupe ORDER BY created_at ASC, key ASC LIMIT ?)'),
     getWorldCache: db.prepare('SELECT world_id, world_name, updated_at FROM world_cache WHERE world_id = ?'),
     upsertWorldCache: db.prepare('INSERT INTO world_cache (world_id, world_name, updated_at) VALUES (?, ?, ?) ON CONFLICT(world_id) DO UPDATE SET world_name = excluded.world_name, updated_at = excluded.updated_at'),
     isDuplicate: db.prepare('SELECT created_at FROM notif_dedupe WHERE key = ?'),
@@ -262,7 +268,11 @@ function createDb(location = ':memory:') {
     getWorldCache(worldId) { const r = stmt.getWorldCache.get(worldId); return r || null; },
     upsertWorldCache(worldId, worldName, atMs = Date.now()) { stmt.upsertWorldCache.run(worldId, worldName, atMs); },
     // dedupe
-    markNotified(key, atMs = Date.now()) { stmt.markNotified.run(key, atMs); },
+    markNotified(key, atMs = Date.now()) {
+      stmt.markNotified.run(key, atMs);
+      const { c } = stmt.countNotified.get();
+      if (c > maxDedupeRows) stmt.trimNotified.run(c - maxDedupeRows);
+    },
     isDuplicate(key, windowMs, atMs = Date.now()) {
       const r = stmt.isDuplicate.get(key);
       return !!r && r.created_at > atMs - windowMs;

@@ -7,7 +7,7 @@ const { randomBytes } = require('node:crypto');
 const { CookieJar } = require('./cookiejar');
 const { parseLocation } = require('./location');
 const { deriveStateFromSnapshot } = require('./state');
-const { toThumbUrl, detectImageType } = require('./avatar');
+const { detectImageType } = require('./avatar');
 
 const MASK = '••••••••';
 const SECRET_FIELDS = new Set(['smtp_pass', 'gotify_app_token', 'qq_app_secret']);
@@ -86,6 +86,10 @@ function createApp({
   async function finalizeLogin(vrcapi, currentUser, { rememberMe, username }) {
     if (current) {
       try { monitor.deactivateUser(current.userId); } catch (e) { log.warn(`[server] 旧会话停用失败: ${e.message}`); }
+      if (current.cookieCtx) {
+        current.cookieCtx.cancelled = true;
+        if (current.cookieCtx.timer) clearTimeout(current.cookieCtx.timer);
+      }
       current = null;
     }
     const userId = currentUser.id;
@@ -326,14 +330,16 @@ function createApp({
       let updated = 0;
       for (const [id, f] of merged) {
         const loc = parseLocation(f.location);
-        const worldId = loc.isReal ? loc.worldId : (f.location === 'private' ? 'private' : null);
+        const existing = db.getFriend(current.dbId, id);
+        const worldId = loc.isReal ? loc.worldId : (f.location === 'private' ? 'private' : (f.location === 'traveling' && existing ? existing.world_id : null));
+        const worldName = worldId && existing && existing.world_id === worldId ? existing.world_name : null;
           const r = db.upsertFriend(current.dbId, id, {
             displayName: f.displayName,
             avatarUrl: f.currentAvatarImageUrl || null,
-            avatarThumbUrl: f.profilePicOverrideThumbnail || toThumbUrl(f.currentAvatarThumbnailImageUrl) || toThumbUrl(f.currentAvatarImageUrl),
+            avatarThumbUrl: f.profilePicOverrideThumbnail || f.currentAvatarThumbnailImageUrl || null,
             state: deriveStateFromSnapshot(f, currentUser),
           status: f.status || 'active',
-          worldId, worldName: null,
+          worldId, worldName,
           statusDescription: f.statusDescription || null,
           platform: f.platform || null,
           lastSeen: now()

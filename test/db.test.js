@@ -5,7 +5,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { createDb } = require('../src/db');
 
-function newDb() { return createDb(':memory:'); }
+function newDb(opts) { return createDb(':memory:', opts); }
 
 test('users: upsert, get by vrc id, settings update', () => {
   const db = newDb();
@@ -113,6 +113,19 @@ test('settings get/set and notif dedupe window', () => {
   db.markNotified('k1', t);
   assert.equal(db.isDuplicate('k1', 30000, t + 10000), true);
   assert.equal(db.isDuplicate('k1', 30000, t + 40000), false); // 窗口外
+});
+
+test('notif dedupe slides window on re-trigger and caps row count', () => {
+  const db = newDb({ maxDedupeRows: 5 });
+  const t = 100000;
+  db.markNotified('k1', t);
+  assert.equal(db.isDuplicate('k1', 30000, t + 10000), true);
+  db.markNotified('k1', t + 10000); // slide: re-trigger refreshes window
+  assert.equal(db.isDuplicate('k1', 30000, t + 35000), true);
+  assert.equal(db.isDuplicate('k1', 30000, t + 45000), false);
+  for (let i = 0; i < 6; i++) db.markNotified(`k${i}`, t + i);
+  assert.equal(db.isDuplicate('k0', 30000, t + 10), false, 'oldest row trimmed');
+  assert.equal(db.isDuplicate('k5', 30000, t + 10), true);
 });
 
 test('world_cache: upsert, get, overwrite', () => {

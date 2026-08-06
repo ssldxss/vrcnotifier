@@ -19,5 +19,5 @@ test('createLogger prefixes timestamp and level', () => {
   const log = createLogger('test', (s) => out.push(s));
   log.info('hello %s', 'x');
   assert.equal(out.length, 1);
-  assert.match(out[0], /^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\] \[test\] \[info\] hello x$/);
+  assert.match(out[0], /^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\] \[test\] \[info\] hello %s x$/);
 });

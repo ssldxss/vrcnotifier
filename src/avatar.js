@@ -5,10 +5,12 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-const MAX_BYTES = 10 * 1024 * 1024; // 单张上限, 防止异常大文件
+const MAX_BYTES = 2 * 1024 * 1024; // 单张上限, 防止异常大文件
 
 // 统一头像图片到 /api/1/image/ 形态:
 // 已是缩略图 -> 原样; 原图 /file/{fileId}/{version}/file -> /image/{fileId}/{version}/256; 其他 -> null
+const DOWNLOAD_TIMEOUT_MS = 10 * 1000;
+
 function toThumbUrl(url) {
   if (!url) return null;
   try {
@@ -40,7 +42,7 @@ function detectImageType(filePath) {
   }
 }
 
-function createAvatarCache({ dir, logger = null, fetchImpl = fetch, userAgent = 'vrcnotifier/1.0', ttlMs = 30 * 24 * 3600 * 1000 }) {
+function createAvatarCache({ dir, logger = null, fetchImpl = fetch, userAgent = 'vrcnotifier/1.0', ttlMs = 30 * 24 * 3600 * 1000, downloadTimeoutMs = DOWNLOAD_TIMEOUT_MS }) {
   const log = logger || { info: () => {}, warn: () => {}, error: () => {} };
   const inFlight = new Map(); // key -> Promise
 
@@ -75,11 +77,15 @@ function createAvatarCache({ dir, logger = null, fetchImpl = fetch, userAgent = 
   }
 
   async function download(key, url) {
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), downloadTimeoutMs);
     let res;
     try {
-      res = await fetchImpl(url, { headers: { 'User-Agent': userAgent, Accept: 'image/*' } });
+      res = await fetchImpl(url, { headers: { 'User-Agent': userAgent, Accept: 'image/*' }, signal: ac.signal });
     } catch (e) {
       throw Object.assign(new Error(`下载失败: ${e.message}`), { code: 'DOWNLOAD' });
+    } finally {
+      clearTimeout(timer);
     }
     if (res.status !== 200) {
       throw Object.assign(new Error(`下载失败: HTTP ${res.status}`), { code: 'DOWNLOAD' });

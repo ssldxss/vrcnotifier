@@ -142,7 +142,7 @@ test('snapshot stores avatar image and thumb urls separately', async () => {
   assert.equal(f.avatar_thumb_url, 'https://api.vrchat.cloud/api/1/image/file_a/1/256');
 });
 
-test('snapshot converts full image url to /image/ thumb when thumb missing', async () => {
+test('snapshot leaves thumb null when only full image url present', async () => {
   const t = setup({
     onlineFriends: [onlineFriend('usr_f1', {
       currentAvatarImageUrl: 'https://api.vrchat.cloud/api/1/file/file_b/3/file',
@@ -154,7 +154,7 @@ test('snapshot converts full image url to /image/ thumb when thumb missing', asy
   await t.monitor.activateUser(user, t.vrcapi);
   const f = t.db.getFriend(user.id, 'usr_f1');
   assert.equal(f.avatar_url, 'https://api.vrchat.cloud/api/1/file/file_b/3/file');
-  assert.equal(f.avatar_thumb_url, 'https://api.vrchat.cloud/api/1/image/file_b/3/256');
+  assert.equal(f.avatar_thumb_url, null);
 });
 
 test('runSnapshot returns ok:false when API call fails, ok:true on success', async () => {

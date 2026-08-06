@@ -211,6 +211,20 @@ test('saving cookies for another user replaces the previous saved cookie', async
   assert.equal(ctx.db.getSavedLogin().vrchat_user_id, 'usr_B');
 });
 
+test('switching login cancels the old session debounced cookie save', async (t) => {
+  const ctx = setup();
+  t.after(() => close(ctx));
+  await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: true });
+  // simulate an in-flight API response swapping cookies on the old session
+  if (ctx.vrcapi._cookiesChanged) ctx.vrcapi._cookiesChanged(ctx.vrcapi.jar);
+  ctx.vrcapi.login = async () => ({ id: 'usr_B', displayName: 'B', currentAvatarImageUrl: null });
+  await post(ctx, '/api/login', { username: 'other', password: 'pw', rememberMe: true });
+  await sleep(2500);
+  const saved = ctx.db.getSavedLogin();
+  assert.ok(saved, 'a saved login must exist');
+  assert.equal(saved.vrchat_user_id, 'usr_B', 'old session debounce must not overwrite the new user');
+});
+
 
 test('saved session auto-restores on fresh app instance (GET /api/session)', async (t) => {
   const ctx = setup();
@@ -284,6 +298,27 @@ test('friends refresh refetches and caches friend rows', async (t) => {
   const row = ctx.db.getFriend(ctx.db.getUserByVrcId('usr_me').id, 'usr_new');
   assert.ok(row);
   assert.equal(row.state, 'offline');
+});
+
+test('friends refresh keeps world name when world unchanged and uses thumb url directly', async (t) => {
+  const ctx = setup();
+  t.after(() => close(ctx));
+  await post(ctx, '/api/login', { username: 'me', password: 'pw' });
+  const uid = ctx.db.getUserByVrcId('usr_me').id;
+  ctx.db.upsertFriend(uid, 'usr_f1', { displayName: 'F1', state: 'online', status: 'active', worldId: 'wrld_a', worldName: 'WorldA', platform: 'standalonewindows' });
+  ctx.vrcapi.friends = async () => [{ id: 'usr_f1', displayName: 'F1', location: 'wrld_a:1~region(us)', status: 'active', currentAvatarImageUrl: 'https://api.vrchat.cloud/api/1/file/file_a/1/file', currentAvatarThumbnailImageUrl: 'https://api.vrchat.cloud/api/1/image/file_a/1/256' }];
+  const r = await post(ctx, '/api/friends/refresh', {});
+  assert.equal(r.status, 200);
+  const row = ctx.db.getFriend(uid, 'usr_f1');
+  assert.equal(row.world_id, 'wrld_a');
+  assert.equal(row.world_name, 'WorldA');
+  assert.equal(row.avatar_thumb_url, 'https://api.vrchat.cloud/api/1/image/file_a/1/256');
+  // world changed -> name cleared, next snapshot will resolve
+  ctx.vrcapi.friends = async () => [{ id: 'usr_f1', displayName: 'F1', location: 'wrld_b:1~region(jp)', status: 'active' }];
+  await post(ctx, '/api/friends/refresh', {});
+  const row2 = ctx.db.getFriend(uid, 'usr_f1');
+  assert.equal(row2.world_id, 'wrld_b');
+  assert.equal(row2.world_name, null);
 });
 
 test('settings get masks secrets, put stores plaintext', async (t) => {
@@ -488,7 +523,7 @@ test('avatar endpoint: download failure returns 502 and is not cached', async (t
   assert.equal(r.status, 502);
 });
 
-test('avatar key works when only full image url is available (auto-converted to /image/)', async (t) => {
+test('avatar key requires a thumb url (full image url alone produces no key)', async (t) => {
   const ctx = setup({
     onlineFriends: [{
       id: 'usr_f1', displayName: 'F1', location: 'wrld_a:1', status: 'active', platform: 'x',
@@ -499,11 +534,10 @@ test('avatar key works when only full image url is available (auto-converted to 
   await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: false });
   const fl = await get(ctx, '/api/friends');
   const f1 = fl.data.friends.find((f) => f.friend_vrchat_id === 'usr_f1');
-  assert.equal(f1.avatarKey, 'file_ccc-333_5_256');
+  assert.equal(f1.avatarKey, null);
   const r = await fetch(ctx.base + '/api/avatar/file_ccc-333_5_256');
-  assert.equal(r.status, 200);
-  assert.ok((await r.text()).includes('AVATARPNG'));
-  assert.equal(ctx.avatarCalls.n, 1);
+  assert.equal(r.status, 404);
+  assert.equal(ctx.avatarCalls.n, 0);
 });
 
 test('qq settings stored and masked; status includes qq info', async (t) => {

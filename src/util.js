@@ -14,18 +14,10 @@ function formatDateSafe(d = new Date()) {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
 
-/** 极简 printf: 仅支持 %s, 依次替换 */
-function sprintf(fmt, args) {
-  let i = 0;
-  return String(fmt).replace(/%s/g, () => (i < args.length ? String(args[i++]) : ''));
-}
-
 /** 创建带时间戳与级别前缀的日志器; out 可注入(默认 console.log) */
 function createLogger(prefix = '', out = console.log) {
   const emit = (level, args) => {
-    const msg = args.length > 1 && typeof args[0] === 'string' && args[0].includes('%s')
-      ? sprintf(args[0], args.slice(1))
-      : args.map((a) => (typeof a === 'string' ? a : JSON.stringify(a))).join(' ');
+    const msg = args.map((a) => (typeof a === 'string' ? a : JSON.stringify(a))).join(' ');
     out(`[${formatLocalTime()}] ${prefix ? `[${prefix}] ` : ''}[${level}] ${msg}`);
   };
   return {
