@@ -11,7 +11,7 @@
     "frontend": "node serve.js"
   },
   "engines": {
-    "node": ">=22.5.0"
+    "node": ">=22.13.0"
   },
   "license": "MIT",
   "dependencies": {

@@ -321,6 +321,19 @@ test('friends refresh keeps world name when world unchanged and uses thumb url d
   assert.equal(row2.world_name, null);
 });
 
+test('friends refresh writes private world for private location', async (t) => {
+  const ctx = setup();
+  t.after(() => close(ctx));
+  await post(ctx, '/api/login', { username: 'me', password: 'pw' });
+  const uid = ctx.db.getUserByVrcId('usr_me').id;
+  ctx.vrcapi.friends = async () => [{ id: 'usr_f1', displayName: 'F1', location: 'private', status: 'active' }];
+  await post(ctx, '/api/friends/refresh', {});
+  const row = ctx.db.getFriend(uid, 'usr_f1');
+  assert.equal(row.state, 'online');
+  assert.equal(row.world_id, 'private');
+  assert.equal(row.world_name, '私密世界');
+});
+
 test('settings get masks secrets, put stores plaintext', async (t) => {
   const ctx = setup();
   t.after(() => close(ctx));

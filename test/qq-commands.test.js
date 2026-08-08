@@ -1,0 +1,59 @@
+'use strict';
+const test = require('node:test');
+const assert = require('node:assert');
+const { createQqCommands, buildOnlineList, statusEmoji } = require('../src/qq-commands');
+const { createDb } = require('../src/db');
+
+test('statusEmoji maps VRC statuses to VRCX-consistent circles', () => {
+  assert.equal(statusEmoji('active'), '🟢');
+  assert.equal(statusEmoji('join me'), '🔵');
+  assert.equal(statusEmoji('ask me'), '🟠');
+  assert.equal(statusEmoji('busy'), '🔴');
+  assert.equal(statusEmoji('unknown'), '⚪');
+});
+
+test('buildOnlineList only includes game-online friends with name/world/emoji', () => {
+  const friends = [
+    { friend_vrchat_id: 'usr_a', display_name: 'Alice', state: 'online', status: 'active', world_name: 'The Black Cat' },
+    { friend_vrchat_id: 'usr_b', display_name: 'Bob', state: 'online', status: 'join me', world_name: '私密世界' },
+    { friend_vrchat_id: 'usr_c', display_name: 'Carol', state: 'active', status: 'active', world_name: 'Web' },
+    { friend_vrchat_id: 'usr_d', display_name: 'Dave', state: 'offline', status: 'busy', world_name: null }
+  ];
+  const { text, markdown } = buildOnlineList(friends);
+  assert.ok(text.startsWith('【在线列表】2 人在线'));
+  assert.ok(text.includes('🟢 Alice'));
+  assert.ok(text.includes('🔵 Bob'));
+  assert.ok(text.includes('私密世界'));
+  assert.ok(!text.includes('Carol'));
+  assert.ok(!text.includes('Dave'));
+  assert.ok(!text.includes('🟢在线'));
+  assert.ok(markdown.includes('| 昵称 | 世界 |'));
+  assert.ok(markdown.includes('| :--- | :--- |'));
+  assert.ok(markdown.includes('| 🟢 Alice | The Black Cat |'));
+  assert.ok(markdown.includes('| 🔵 Bob | 私密世界 |'));
+  assert.ok(!markdown.includes('🟢在线'));
+});
+
+test('buildOnlineList empty returns no-online message', () => {
+  const r = buildOnlineList([{ state: 'offline' }]);
+  assert.ok(r.text.includes('没有游戏在线'));
+  assert.equal(r.markdown, undefined);
+});
+
+test('createQqCommands: 任意输入都直接输出在线列表', async () => {
+  const db = createDb(':memory:');
+  const id = db.upsertUser('usr_me', { username: 'me', displayName: '我', avatarUrl: null });
+  db.upsertFriend(id, 'usr_a', { displayName: 'Alice', state: 'online', status: 'active', worldName: 'WorldX' });
+  db.upsertFriend(id, 'usr_b', { displayName: 'Bob', state: 'offline', status: 'busy', worldName: null });
+  const handler = createQqCommands({ db, logger: { info: () => {}, warn: () => {}, error: () => {} } });
+  // 任意输入都直接输出在线列表(首次提示由绑定消息承担)
+  for (const text of ['你好', '/在线列表', '好友', '随便聊聊']) {
+    const reply = await handler({ dbId: id, content: text, openid: 'openid_x' });
+    assert.ok(reply.text.includes('Alice'));
+    assert.ok(reply.markdown.includes('| 🟢 Alice | WorldX |'));
+    assert.ok(!reply.text.includes('Bob'));
+  }
+  // 其他 openid 同样直接输出表格
+  const another = await handler({ dbId: id, content: '随便聊聊', openid: 'openid_y' });
+  assert.ok(another.text.includes('Alice'));
+});

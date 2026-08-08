@@ -64,10 +64,11 @@ function createPipelineManager(opts) {
     const c = parsed && parsed.content;
     const parts = [`type=${type}`];
     if (c && typeof c === 'object') {
-      const id = c.user && c.user.id || c.userId || c.userid || '';
+      const id = c.user && c.user.id || c.userId || c.userid || c.senderUserId || '';
       if (id) parts.push(`userId=${id}`);
       if (typeof c.location === 'string') parts.push(`location=${c.location}`);
       if (c.user && c.user.displayName) parts.push(`displayName=${c.user.displayName}`);
+      if (typeof c.title === 'string' && c.title) parts.push(`title=${c.title.slice(0, 40)}`);
     } else if (typeof c === 'string' && c) {
       parts.push(`content=${c.slice(0, 40)}`);
     }

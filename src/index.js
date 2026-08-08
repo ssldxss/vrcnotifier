@@ -11,6 +11,7 @@ const { createNotifier } = require('./notify');
 const { createPipelineManager } = require('./pipeline');
 const { createMonitor } = require('./monitor');
 const { createQqManager } = require('./qq');
+const { createQqCommands } = require('./qq-commands');
 const { createAvatarCache } = require('./avatar');
 const { createApp } = require('./server');
 
@@ -120,8 +121,10 @@ function buildApplication(opts = {}) {
     retryMaxMs: config.ws.reconnectMaxMs,
     jitterMs: config.ws.jitterMs
   }));
+  const qqCommands = createQqCommands({ db, logger });
   const qq = opts.qq || createQqManager({
     db, logger,
+    onCommand: qqCommands,
     getSettings: () => db.getGlobalSettings(),
     config: {
       tokenUrl: opts.qqTokenUrl || null,

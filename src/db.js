@@ -56,7 +56,9 @@ CREATE TABLE IF NOT EXISTS qq_bindings (
 CREATE TABLE IF NOT EXISTS world_cache (
   world_id TEXT PRIMARY KEY,
   world_name TEXT NOT NULL,
-  updated_at INTEGER NOT NULL
+  updated_at INTEGER NOT NULL,
+  fail_count INTEGER NOT NULL DEFAULT 0,
+  retry_at INTEGER NOT NULL DEFAULT 0
 );
 `;
 
@@ -80,6 +82,9 @@ function createDb(location = ':memory:', opts = {}) {
   const maxDedupeRows = opts.maxDedupeRows ?? MAX_DEDUPE_ROWS;
   // 旧库补充: friends 表补 avatar_thumb_url 列(已存在则忽略)
   try { db.exec('ALTER TABLE friends ADD COLUMN avatar_thumb_url TEXT'); } catch (e) { /* 已存在 */ }
+  // 旧库补充: world_cache 补失败退避列(已存在则忽略)
+  try { db.exec('ALTER TABLE world_cache ADD COLUMN fail_count INTEGER NOT NULL DEFAULT 0'); } catch (e) { /* 已存在 */ }
+  try { db.exec('ALTER TABLE world_cache ADD COLUMN retry_at INTEGER NOT NULL DEFAULT 0'); } catch (e) { /* 已存在 */ }
 
 
 
@@ -145,8 +150,12 @@ function createDb(location = ':memory:', opts = {}) {
       ON CONFLICT(key) DO UPDATE SET created_at = excluded.created_at`),
     countNotified: db.prepare('SELECT COUNT(*) AS c FROM notif_dedupe'),
     trimNotified: db.prepare('DELETE FROM notif_dedupe WHERE key IN (SELECT key FROM notif_dedupe ORDER BY created_at ASC, key ASC LIMIT ?)'),
-    getWorldCache: db.prepare('SELECT world_id, world_name, updated_at FROM world_cache WHERE world_id = ?'),
-    upsertWorldCache: db.prepare('INSERT INTO world_cache (world_id, world_name, updated_at) VALUES (?, ?, ?) ON CONFLICT(world_id) DO UPDATE SET world_name = excluded.world_name, updated_at = excluded.updated_at'),
+    getWorldCache: db.prepare('SELECT world_id, world_name, updated_at, fail_count, retry_at FROM world_cache WHERE world_id = ?'),
+    upsertWorldCache: db.prepare(`INSERT INTO world_cache (world_id, world_name, updated_at, fail_count, retry_at)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(world_id) DO UPDATE SET
+        world_name = excluded.world_name, updated_at = excluded.updated_at,
+        fail_count = excluded.fail_count, retry_at = excluded.retry_at`),
     isDuplicate: db.prepare('SELECT created_at FROM notif_dedupe WHERE key = ?'),
     upsertQqBinding: db.prepare('INSERT INTO qq_bindings (user_id, app_id, openid, nickname, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(user_id, app_id) DO UPDATE SET openid = excluded.openid, nickname = excluded.nickname, updated_at = excluded.updated_at'),
     getQqBinding: db.prepare('SELECT * FROM qq_bindings WHERE user_id = ? AND app_id = ?')
@@ -266,7 +275,7 @@ function createDb(location = ':memory:', opts = {}) {
     setSetting(key, value) { stmt.setSetting.run(key, value); },
     // world cache
     getWorldCache(worldId) { const r = stmt.getWorldCache.get(worldId); return r || null; },
-    upsertWorldCache(worldId, worldName, atMs = Date.now()) { stmt.upsertWorldCache.run(worldId, worldName, atMs); },
+    upsertWorldCache(worldId, worldName, atMs = Date.now(), failCount = 0, retryAt = 0) { stmt.upsertWorldCache.run(worldId, worldName, atMs, failCount, retryAt); },
     // dedupe
     markNotified(key, atMs = Date.now()) {
       stmt.markNotified.run(key, atMs);

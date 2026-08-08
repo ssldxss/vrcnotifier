@@ -332,7 +332,7 @@ function createApp({
         const loc = parseLocation(f.location);
         const existing = db.getFriend(current.dbId, id);
         const worldId = loc.isReal ? loc.worldId : (f.location === 'private' ? 'private' : (f.location === 'traveling' && existing ? existing.world_id : null));
-        const worldName = worldId && existing && existing.world_id === worldId ? existing.world_name : null;
+        const worldName = worldId === 'private' ? '私密世界' : (worldId && existing && existing.world_id === worldId ? existing.world_name : null);
           const r = db.upsertFriend(current.dbId, id, {
             displayName: f.displayName,
             avatarUrl: f.currentAvatarImageUrl || null,

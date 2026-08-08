@@ -66,7 +66,7 @@ test('sendGotify posts correct payload with token param', async () => {
     assert.equal(req.method, 'POST');
     assert.ok(req.url.includes('token=gtok'));
     const body = JSON.parse(req.body);
-    assert.equal(body.title, '阿猫 上线');
+    assert.equal(body.title, '上线: 阿猫');
     assert.equal(body.priority, 7);
     assert.ok(body.message.includes('咖啡厅'));
   } finally { server.close(); }
@@ -83,7 +83,7 @@ test('sendNtfy posts to topic with RFC2047 title header', async () => {
     assert.equal(req.headers['content-type'], 'text/plain');
     assert.match(req.headers['title'], /^=\?UTF-8\?B\?/);
     assert.equal(req.headers['priority'], '4');
-    assert.ok(req.body.includes('阿猫'));
+    assert.ok(req.body.includes('咖啡厅'));
   } finally { server.close(); }
 });
 

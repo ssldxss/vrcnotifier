@@ -5,6 +5,7 @@
 
 const WebSocket = require('ws');
 const { buildQq } = require('./templates');
+const { STARTUP_TEXT } = require('./qq-commands');
 
 const DEFAULT_TOKEN_URL = 'https://bots.qq.com/app/getAppAccessToken';
 const DEFAULT_API_BASE = 'https://api.sgroup.qq.com';
@@ -14,7 +15,7 @@ const INTENTS = 1 << 25;
 const MAX_TEXT_LEN = 2000;
 
 function createQqManager(opts = {}) {
-  const { db, logger = null, fetchImpl = fetch, WsClient = WebSocket, now = Date.now, config = {}, getSettings = null } = opts;
+  const { db, logger = null, fetchImpl = fetch, WsClient = WebSocket, now = Date.now, config = {}, getSettings = null, onCommand = null } = opts;
   const log = logger || { info: () => {}, warn: () => {}, error: () => {} };
   const tokenUrl = config.tokenUrl || DEFAULT_TOKEN_URL;
   const apiBase = (config.apiBase || DEFAULT_API_BASE).replace(/\/+$/, '');
@@ -116,13 +117,38 @@ function createQqManager(opts = {}) {
     }
   }
 
+  // 每次服务器启动连接成功后, 向已绑定用户推送启动说明(重连不重复)
+  function notifyStartup(bot) {
+    if (bot.startupSent) return;
+    bot.startupSent = true;
+    const binding = db.getQqBinding(bot.dbId, bot.appId);
+    if (!binding || !binding.openid) return;
+    sendText(bot.dbId, STARTUP_TEXT).then((r) => {
+      if (!r.ok && r.reason) log.warn(`[qq] 启动通知发送失败: ${r.reason}`);
+    });
+  }
+
   // 被动回复(绑定欢迎语等), 失败只告警不影响主流程
-  async function sendPassive(bot, openid, msgId, text) {
-    try {
-      await postMessage(bot, openid, { msg_type: 0, content: truncate(text), msg_id: msgId });
-    } catch (e) {
-      log.warn(`[qq] 被动回复失败: ${e.message}`);
+  // reply 支持字符串或 { text, markdown }: 有 markdown 走 msg_type=2, 失败回退文本
+  async function sendPassive(bot, openid, msgId, reply) {
+    const sendTextReply = async (content) => {
+      try {
+        await postMessage(bot, openid, { msg_type: 0, content: truncate(content), msg_id: msgId });
+      } catch (e) {
+        log.warn(`[qq] 被动回复失败: ${e.message}`);
+      }
+    };
+    if (reply && typeof reply === 'object' && reply.markdown) {
+      try {
+        await postMessage(bot, openid, { msg_type: 2, markdown: { content: truncate(reply.markdown) }, msg_id: msgId });
+        return;
+      } catch (e) {
+        log.warn(`[qq] Markdown 被动回复失败, 回退文本: ${e.message}`);
+      }
+      await sendTextReply(reply.text || '');
+      return;
     }
+    await sendTextReply(typeof reply === 'string' ? reply : String(reply || ''));
   }
 
   // ---------- WebSocket 网关 ----------
@@ -170,6 +196,37 @@ function createQqManager(opts = {}) {
     if (bot.ackWatchTimer.unref) bot.ackWatchTimer.unref();
   }
 
+  const recentMsgIds = new Map(); // msgId -> ts: 相同 msg_id 可能重复推送, 结合时间窗口去重
+  function isDuplicateMsgId(msgId) {
+    if (!msgId) return false;
+    const ts = recentMsgIds.get(msgId);
+    if (ts && now() - ts < 60000) return true;
+    recentMsgIds.set(msgId, now());
+    if (recentMsgIds.size > 500) {
+      for (const [k, v] of [...recentMsgIds]) if (now() - v >= 60000) recentMsgIds.delete(k);
+    }
+    return false;
+  }
+
+  // 已绑定用户的命令处理: 命中返回 true(已回复), 否则 false 走默认提示
+  function tryCommand(bot, d) {
+    const content = String(d.content || '').trim();
+    const author = d.author || {};
+    const openid = author.user_openid || author.id;
+    if (!content || !openid) return Promise.resolve(false);
+    if (isDuplicateMsgId(d.id)) return Promise.resolve(true); // 重复推送, 忽略
+    if (!onCommand) return Promise.resolve(false);
+    return onCommand({ dbId: bot.dbId, openid, nickname: author.username || '', content, msgId: d.id })
+      .then((reply) => {
+        if (reply) { sendPassive(bot, openid, d.id, reply); return true; }
+        return false;
+      })
+      .catch((e) => {
+        log.error(`[qq] 命令处理失败: ${e.message}`);
+        return false;
+      });
+  }
+
   function handleC2c(bot, d, eventType) {
     const author = d.author || {};
     const openid = author.user_openid || author.id;
@@ -180,11 +237,13 @@ function createQqManager(opts = {}) {
       db.upsertQqBinding(bot.dbId, { appId: bot.appId, openid, nickname, at: now() });
       log.info(`[qq] 已绑定QQ用户 ${nickname || openid} (${eventType}) appId=${bot.appId}`);
       if (eventType === 'C2C_MESSAGE_CREATE' && d.id) {
-        sendPassive(bot, openid, d.id, '绑定成功! 好友动态将推送到这里。');
+        sendPassive(bot, openid, d.id, '绑定成功! 输入任意消息查看在线列表');
       }
     } else if (existing.openid === openid) {
       if (eventType === 'C2C_MESSAGE_CREATE' && d.id) {
-        sendPassive(bot, openid, d.id, '已绑定, 好友动态将推送到这里。');
+        tryCommand(bot, d).then((handled) => {
+          if (!handled) sendPassive(bot, openid, d.id, '已绑定, 输入任意消息查看在线列表');
+        });
       }
     } else if (eventType === 'C2C_MESSAGE_CREATE' && d.id) {
       sendPassive(bot, openid, d.id, '该机器人已绑定其他用户, 无法使用。');
@@ -198,6 +257,7 @@ function createQqManager(opts = {}) {
       bot.ready = true;
       bot.lastError = null;
       log.info(`[qq] 鉴权成功 appId=${bot.appId}`);
+      notifyStartup(bot);
       return;
     }
     if (t === 'C2C_MESSAGE_CREATE' || t === 'C2C_MSG_RECEIVE') {
@@ -328,7 +388,7 @@ function createQqManager(opts = {}) {
       dbId, appId: user.qq_app_id, appSecret: user.qq_app_secret,
       ws: null, ready: false, token: null, tokenExpiresAt: 0, tokenPromise: null,
       seq: null, heartbeatIntervalMs: 0, heartbeatTimer: null, ackWatchTimer: null,
-      reconnectTimer: null, attempt: 0, stopped: false, lastError: null,
+      reconnectTimer: null, attempt: 0, stopped: false, lastError: null, startupSent: false,
       lastRecvAt: 0, lastAckAt: 0
     };
     bots.set(dbId, bot);

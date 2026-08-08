@@ -140,6 +140,10 @@ test('world_cache: upsert, get, overwrite', () => {
   assert.equal(db.getWorldCache('wrld_a').updated_at, 2000);
   db.upsertWorldCache('wrld_b', '未知世界', 3000);
   assert.equal(db.getWorldCache('wrld_b').world_name, '未知世界');
+  db.upsertWorldCache('wrld_c', '未知世界', 3000, 3, 9000);
+  const c3 = db.getWorldCache('wrld_c');
+  assert.equal(c3.fail_count, 3);
+  assert.equal(c3.retry_at, 9000);
 });
 
 test('legacy db migration moves notify columns into settings', () => {

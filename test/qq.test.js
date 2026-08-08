@@ -196,6 +196,133 @@ test('WS: 收到 C2C_MESSAGE_CREATE 自动绑定并被动回复', async () => {
   } finally { await platform.close(); }
 });
 
+test('WS: 已绑定用户发命令 -> onCommand 被动回复, 重复 msg_id 不重复回复', async () => {
+  const platform = await startQqPlatform({ appId: 'app1', clientSecret: 'sec1', token: 'tok1' });
+  const db = createDb(':memory:');
+  db.upsertQqBinding(1, { appId: 'app1', openid: 'openid_me', nickname: '我的昵称', at: 1 });
+  const onCommand = async ({ content }) => (content.includes('在线') ? '【在线列表】1 人在线\n🟢 Alice  WorldX' : null);
+  const qq = createQqManager({
+    db, logger: silent, onCommand,
+    fetchImpl: async (u, i) => fetch(u, i),
+    now: () => Date.now(),
+    config: { tokenUrl: platform.base + '/app/getAppAccessToken', apiBase: platform.base, wsUrl: platform.wsUrl }
+  });
+  try {
+    qq.sync(1, { qq_enabled: 1, qq_app_id: 'app1', qq_app_secret: 'sec1' });
+    await sleep(250);
+    platform.state.httpCalls.length = 0; // 清掉 READY 后的启动推送, 只留命令回复
+    const frame = (id, content) => JSON.stringify({
+      op: 0, s: 2, t: 'C2C_MESSAGE_CREATE',
+      d: { id, content, author: { id: 'openid_me', user_openid: 'openid_me', username: '我的昵称' } }
+    });
+    platform.state.connections[0].ws.send(frame('ROBOT.msg2', '/在线列表'));
+    await sleep(250);
+    const replies = platform.state.httpCalls.filter((c) => c.url.includes('/v2/users/openid_me/messages'));
+    assert.ok(replies.length >= 1, '被动回复已发送');
+    const body = JSON.parse(replies[0].body);
+    assert.equal(body.msg_id, 'ROBOT.msg2');
+    assert.ok(body.content.includes('【在线列表】'));
+    assert.equal(body.keyboard, undefined, '不再携带按钮键盘');
+    // 相同 msg_id 重复推送 -> 不重复回复
+    platform.state.httpCalls.length = 0;
+    platform.state.connections[0].ws.send(frame('ROBOT.msg2', '/在线列表'));
+    await sleep(200);
+    const after = platform.state.httpCalls.filter((c) => c.url.includes('/v2/users/openid_me/messages'));
+    assert.equal(after.length, 0, '重复 msg_id 不重复回复');
+    qq.stopAll();
+  } finally { await platform.close(); }
+});
+
+test('WS: onCommand 返回 markdown 对象 -> 发 msg_type=2', async () => {
+  const platform = await startQqPlatform({ appId: 'app1', clientSecret: 'sec1', token: 'tok1' });
+  const db = createDb(':memory:');
+  db.upsertQqBinding(1, { appId: 'app1', openid: 'openid_me', nickname: '我的昵称', at: 1 });
+  const onCommand = async ({ content }) => (content.includes('在线')
+    ? { text: '【在线列表】1 人在线\n🟢 Alice  WorldX', markdown: '### 在线列表 (1)\n\n| 昵称 | 世界 |\n| :--- | :--- |\n| 🟢 Alice | WorldX |' }
+    : null);
+  const qq = createQqManager({
+    db, logger: silent, onCommand,
+    fetchImpl: async (u, i) => fetch(u, i),
+    now: () => Date.now(),
+    config: { tokenUrl: platform.base + '/app/getAppAccessToken', apiBase: platform.base, wsUrl: platform.wsUrl }
+  });
+  try {
+    qq.sync(1, { qq_enabled: 1, qq_app_id: 'app1', qq_app_secret: 'sec1' });
+    await sleep(250);
+    platform.state.httpCalls.length = 0; // 清掉 READY 后的启动推送, 只留命令回复
+    platform.state.connections[0].ws.send(JSON.stringify({
+      op: 0, s: 2, t: 'C2C_MESSAGE_CREATE',
+      d: { id: 'ROBOT.msg3', content: '/在线列表', author: { id: 'openid_me', user_openid: 'openid_me', username: '我的昵称' } }
+    }));
+    await sleep(250);
+    const replies = platform.state.httpCalls.filter((c) => c.url.includes('/v2/users/openid_me/messages'));
+    assert.ok(replies.length >= 1, 'markdown 回复已发送');
+    const body = JSON.parse(replies[0].body);
+    assert.equal(body.msg_type, 2);
+    assert.ok(body.markdown.content.includes('| 🟢 Alice | WorldX |'));
+    assert.equal(body.keyboard, undefined, '不再携带按钮键盘');
+    qq.stopAll();
+  } finally { await platform.close(); }
+});
+
+test('WS: markdown 被动回复失败回退文本消息', async () => {
+  const platform = await startQqPlatform({
+    appId: 'app1', clientSecret: 'sec1', token: 'tok1',
+    failMessage: { status: 400, code: 1, message: 'bad request' }
+  });
+  const db = createDb(':memory:');
+  db.upsertQqBinding(1, { appId: 'app1', openid: 'openid_me', nickname: '我的昵称', at: 1 });
+  const onCommand = async () => ({
+    text: '【在线列表】1 人在线\n🟢 Alice  WorldX',
+    markdown: '### 在线列表 (1)\n\n| 昵称 | 世界 |\n| :--- | :--- |\n| 🟢 Alice | WorldX |'
+  });
+  const qq = createQqManager({
+    db, logger: silent, onCommand,
+    fetchImpl: async (u, i) => fetch(u, i),
+    now: () => Date.now(),
+    config: { tokenUrl: platform.base + '/app/getAppAccessToken', apiBase: platform.base, wsUrl: platform.wsUrl }
+  });
+  try {
+    qq.sync(1, { qq_enabled: 1, qq_app_id: 'app1', qq_app_secret: 'sec1' });
+    await sleep(250);
+    platform.state.httpCalls.length = 0; // 清掉 READY 后的启动推送, 只留命令回复
+    platform.state.connections[0].ws.send(JSON.stringify({
+      op: 0, s: 2, t: 'C2C_MESSAGE_CREATE',
+      d: { id: 'ROBOT.msg4', content: '/在线列表', author: { id: 'openid_me', user_openid: 'openid_me', username: '我的昵称' } }
+    }));
+    await sleep(250);
+    const calls = platform.state.httpCalls.filter((c) => c.url.includes('/v2/users/openid_me/messages'));
+    assert.ok(calls.length >= 2, '先 markdown 后回退文本');
+    assert.equal(JSON.parse(calls[0].body).msg_type, 2);
+    assert.equal(JSON.parse(calls[1].body).msg_type, 0);
+    assert.ok(JSON.parse(calls[1].body).content.includes('【在线列表】'));
+    qq.stopAll();
+  } finally { await platform.close(); }
+});
+
+test('WS: 连接成功后向已绑定用户推送启动说明(重连不重复)', async () => {
+  const platform = await startQqPlatform({ appId: 'app1', clientSecret: 'sec1', token: 'tok1' });
+  const db = createDb(':memory:');
+  db.upsertQqBinding(1, { appId: 'app1', openid: 'openid_me', nickname: '我的昵称', at: 1 });
+  const qq = makeManager({ db, now: () => Date.now() }, platform);
+  try {
+    qq.sync(1, { qq_enabled: 1, qq_app_id: 'app1', qq_app_secret: 'sec1' });
+    await sleep(250);
+    const msgs = platform.state.httpCalls.filter((c) => c.url.includes('/v2/users/openid_me/messages'));
+    assert.equal(msgs.length, 1, '启动推送恰好一条');
+    const body = JSON.parse(msgs[0].body);
+    assert.equal(body.msg_type, 0);
+    assert.ok(body.content.includes('服务已启动'));
+    assert.ok(body.content.includes('输入任意'));
+    // 断开重连后不再重复推送
+    platform.state.connections[0].ws.terminate();
+    await sleep(400);
+    const after = platform.state.httpCalls.filter((c) => c.url.includes('/v2/users/openid_me/messages'));
+    assert.equal(after.length, 1, '重连不重复推送');
+    qq.stopAll();
+  } finally { await platform.close(); }
+});
+
 test('WS: 心跳按 heartbeat_interval 发送且携带 seq', async () => {
   const platform = await startQqPlatform({ appId: 'app1', clientSecret: 'sec1', token: 'tok1', heartbeatIntervalMs: 40 });
   const db = createDb(':memory:');
