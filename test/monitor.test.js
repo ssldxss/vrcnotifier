@@ -35,7 +35,7 @@ function setup(opts = {}) {
     db, notifier, pipeline, bus,
     logger: { info: () => {}, warn: () => {}, error: () => {} },
     now: opts.now || (() => 1000000),
-    config: { confirmDelayMs: 30000, dedupeWindowMs: 30000, snapshotIntervalMs: 600000, watchdogMs: 600000, statusCoalesceMs: opts.statusCoalesceMs ?? 3000 }
+    config: { confirmDelayMs: opts.confirmDelayMs ?? 30000, dedupeWindowMs: 30000, snapshotIntervalMs: 600000, watchdogMs: 600000, statusCoalesceMs: opts.statusCoalesceMs ?? 3000 }
   });
   return { db, bus, events, notifications, qqTexts, notifier, vrcapi, pipeline, monitor };
 }
@@ -155,6 +155,26 @@ test('WS friend-offline: pending confirm after delay; cancel on revert', async (
   await tset.monitor.handlePipelineEvent(user.vrchat_user_id, '5', { type: 'friend-offline', content: { userId: 'usr_f1', platform: '' } });
   assert.equal(tset.notifications.length, 1);
   assert.equal(tset.notifications[0].change.changeType, '下线');
+});
+
+test('pending 到期自动调 API 验证并确认下线', async () => {
+  const t = setup({ confirmDelayMs: 20, now: () => Date.now(), onlineFriends: [onlineFriend('usr_f1')] });
+  const user = addUser(t.db);
+  addConfig(t.db, user.id, 'usr_f1');
+  await t.monitor.activateUser(user, t.vrcapi);
+  // 先上线建基线
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '1', { type: 'friend-online', content: { userId: 'usr_f1', location: 'wrld_a:1', user: { id: 'usr_f1', displayName: 'F1', status: 'active' } } });
+  t.notifications.length = 0;
+  // 下线 → pending, 不通知
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '2', { type: 'friend-offline', content: { userId: 'usr_f1', platform: '' } });
+  assert.equal(t.notifications.length, 0);
+  // API 验证返回 offline → 到期确认下线
+  t.vrcapi.me = async () => ({ id: 'usr_me', onlineFriends: [], activeFriends: [], offlineFriends: ['usr_f1'] });
+  await new Promise((r) => setTimeout(r, 120));
+  assert.equal(t.notifications.length, 1, 'pending 到期 API 验证后确认下线');
+  assert.equal(t.notifications[0].change.changeType, '下线');
+  const f = t.db.getFriend(user.id, 'usr_f1');
+  assert.equal(f.pending_state, null);
 });
 
 test('standard mode monitors all enabled friends without limit', async () => {
@@ -706,4 +726,19 @@ test('system: recovery pushed after reconnect + snapshot done', async () => {
   t.monitor.events.emit('ws-open', { userId: user.vrchat_user_id, wasFailing: true });
   assert.equal(t.qqTexts.length, 1, '故障恢复后推送恢复说明');
   assert.ok(t.qqTexts[0].text.includes('服务已恢复'));
+});
+
+test('system: watchdog reconnect does not push recovery/connected notifications', async () => {
+  const t = setup({ onlineFriends: [onlineFriend('usr_f1')] });
+  const user = addUser(t.db);
+  addConfig(t.db, user.id, 'usr_f1');
+  await t.monitor.activateUser(user, t.vrcapi);
+  t.monitor.events.emit('ws-open', { userId: user.vrchat_user_id, wasFailing: false }); // 启动
+  t.qqTexts.length = 0;
+  t.notifications.length = 0;
+  t.monitor.events.emit('ws-close', { userId: user.vrchat_user_id });
+  t.notifications.length = 0; // 清掉断开通知, 只看 watchdog 重连本身
+  t.monitor.events.emit('ws-open', { userId: user.vrchat_user_id, wasFailing: true, isWatchdog: true });
+  assert.equal(t.qqTexts.length, 0, 'watchdog 重连不推恢复说明');
+  assert.equal(t.notifications.length, 0, 'watchdog 重连不推已连接');
 });

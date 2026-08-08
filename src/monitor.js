@@ -31,6 +31,7 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
   const running = new Set();          // userId: 快照进行中(并发触发直接忽略)
   const awaitingSnapshot = new Set(); // userId: ws 重连成功后等待全量对账, 期间忽略 WS 消息
   const pendingStatus = new Map();     // friendId: 状态变化合并中(待 friend-location 执行)
+  const pendingTimers = new Map();     // friendId: 下线 pending 到期自动验证定时器
   const connState = new Map();         // userId -> { open, snapshotDone, startupSent, recovering }
 
   function stateOf(userId) {
@@ -84,12 +85,13 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
     }
   }
 
-  bus.on('ws-open', ({ userId, wasFailing }) => {
+  bus.on('ws-open', ({ userId, wasFailing, isWatchdog }) => {
     const st = stateOf(userId);
     st.open = true;
-    if (wasFailing) st.recovering = true;
+    if (wasFailing && !isWatchdog) st.recovering = true;
     const s = sessions.get(userId);
     if (!s) return;
+    if (isWatchdog) return; // watchdog 强制重连: 不推送恢复/已连接通知
     if (st.startupSent && !st.recovering) {
       sysNotify(s.user, '✅ VRChat 已连接', '');
     } else {
@@ -123,6 +125,8 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
   function deactivateUser(vrcId) {
     sessions.delete(vrcId);
     pipeline.disconnect(vrcId);
+    for (const [fid, timer] of pendingTimers) { clearTimeout(timer); }
+    pendingTimers.clear();
     log.info(`[monitor] 停用用户 ${vrcId}`);
   }
 
@@ -309,6 +313,36 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
   }
 
   // ---------- 状态落地 ----------
+  // 下线 pending 到期(confirmDelayMs)后调 /auth/user 验证真实状态, 再走一次状态机
+  function schedulePendingCheck(user, friendVrcId) {
+    const old = pendingTimers.get(friendVrcId);
+    if (old) clearTimeout(old);
+    const timer = setTimeout(async () => {
+      pendingTimers.delete(friendVrcId);
+      const session = sessions.get(user.vrchat_user_id);
+      if (!session) return;
+      try {
+        const cu = await session.vrcapi.me({ noRetry: true });
+        let state = null;
+        if (cu && Array.isArray(cu.onlineFriends) && cu.onlineFriends.includes(friendVrcId)) state = 'online';
+        else if (cu && Array.isArray(cu.activeFriends) && cu.activeFriends.includes(friendVrcId)) state = 'active';
+        else if (cu && Array.isArray(cu.offlineFriends) && cu.offlineFriends.includes(friendVrcId)) state = 'offline';
+        if (!state) return;
+        log.info(`[monitor] pending 到期验证 ${friendVrcId} -> ${state}`);
+        await applyFriendInput(user, friendVrcId, { state }, { eventType: 'pending-check' });
+      } catch (e) {
+        log.warn(`[monitor] pending 验证失败 ${friendVrcId}: ${e.message}`);
+      }
+    }, confirmDelayMs);
+    if (timer.unref) timer.unref();
+    pendingTimers.set(friendVrcId, timer);
+  }
+
+  function clearPendingCheck(friendVrcId) {
+    const timer = pendingTimers.get(friendVrcId);
+    if (timer) { clearTimeout(timer); pendingTimers.delete(friendVrcId); }
+  }
+
   async function applyFriendInput(user, friendVrcId, input, opts = {}) {
     // 头像统一走 /api/1/image/ 缩略图: 优先显式缩略图 URL, 缺失时由原图 URL 转换
     const thumbUrl = input.avatarThumbUrl || null;
@@ -327,6 +361,8 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
         state: input.state, status: input.status, worldId: input.worldId,
         worldName: input.worldName, statusDescription: input.statusDescription, platform: input.platform
       }, { now, confirmDelayMs });
+      if (result.dbUpdate.pending_state) schedulePendingCheck(user, friendVrcId);
+      else clearPendingCheck(friendVrcId);
       if (result.notify) {
         await dispatchChange(user, friendVrcId, { ...result.change, friendId: friendVrcId }, opts.eventType);
       }
@@ -342,6 +378,8 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
       worldName: input.worldName, statusDescription: input.statusDescription, platform: input.platform
     }, { now, confirmDelayMs });
     db.updateFriendState(cur.id, { ...result.dbUpdate, last_seen: now() });
+    if (result.dbUpdate.pending_state) schedulePendingCheck(user, friendVrcId);
+    else clearPendingCheck(friendVrcId);
     if (result.notify) {
       await dispatchChange(user, friendVrcId, { ...result.change, friendId: friendVrcId, newWorldId: result.dbUpdate.world_id }, opts.eventType);
     }

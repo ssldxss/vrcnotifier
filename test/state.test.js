@@ -30,8 +30,8 @@ test('classifyTransition: online/offline upgrades and downgrades', () => {
   assert.deepEqual(classifyTransition(F({ state: 'online' }), F({ state: 'offline' }), {}), { changeType: '下线', notifyField: 'notify_offline', needsConfirm: true });
   assert.deepEqual(classifyTransition(F({ state: 'offline' }), F({ state: 'active' }), {}), { changeType: 'web端上线', notifyField: 'notify_online', needsConfirm: false }); // 网页端上线
   assert.equal(classifyTransition(F({ state: 'active' }), F({ state: 'offline' }), {}), null); // web 下线不通知
-  assert.equal(classifyTransition(F({ state: 'active' }), F({ state: 'online', status: 'active' }), {}), null); // 网页在线进入游戏, 不视为上线
-  assert.deepEqual(classifyTransition(F({ state: 'online' }), F({ state: 'active' }), {}), { changeType: '下线至web端', notifyField: 'notify_offline', needsConfirm: true });
+  assert.deepEqual(classifyTransition(F({ state: 'active' }), F({ state: 'online', status: 'active' }), {}), { changeType: '上线', notifyField: 'notify_online', needsConfirm: false }); // 网页在线进入游戏 = 上线
+  assert.deepEqual(classifyTransition(F({ state: 'online' }), F({ state: 'active' }), {}), { changeType: '下线', notifyField: 'notify_offline', needsConfirm: true }); // 退出游戏但网页在线 = 下线
 });
 
 test('classifyTransition: status change among game statuses', () => {
@@ -107,6 +107,14 @@ test('applyChange: downgrade starts pending, second call after delay confirms', 
   const second = applyChange({ ...F({ state: 'online', status: 'active' }), pending_state: 'offline', pending_at: 60000 }, F({ state: 'offline' }), { now: () => t, confirmDelayMs: 30000 });
   assert.equal(second.notify, true);
   assert.equal(second.change.changeType, '下线');
+});
+
+test('applyChange: pending retargets to new non-online state and restarts timer', () => {
+  // online->active 挂 pending 后, active->offline: 不取消, 更新 pending 目标并重新计时
+  const r = applyChange({ ...F({ state: 'active' }), pending_state: 'active', pending_at: 0 }, F({ state: 'offline' }), { now: () => 5000, confirmDelayMs: 30000 });
+  assert.equal(r.notify, false);
+  assert.equal(r.dbUpdate.pending_state, 'offline');
+  assert.equal(r.dbUpdate.pending_at, 5000);
 });
 
 test('applyChange: snapshot upgrade within dedupe still notifies (dedupe handled upstream)', () => {

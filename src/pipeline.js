@@ -39,6 +39,7 @@ function createPipelineManager(opts) {
         displayName: displayName || '',
         stopped: false,
         attempt: 0,
+        watchdogForced: false,
         failedSince: null,
         notified: false
       };
@@ -141,13 +142,15 @@ function createPipelineManager(opts) {
     ws.on('open', () => {
       log.info(`[ws] 已连接 userId=${userId}`);
       const wasFailing = conn.notified || !!conn.failedSince;
+      const isWatchdog = !!conn.watchdogForced;
+      conn.watchdogForced = false;
       conn.attempt = 0;
       conn.failedSince = null;
       conn.notified = false;
       conn.lastMessageAt = now();
       startPing(conn);
       if (onOpen) {
-        try { onOpen(userId, conn.displayName, wasFailing); } catch (e) { log.error(`[ws] onOpen 错误 userId=${userId}: ${e.message}`); }
+        try { onOpen(userId, conn.displayName, wasFailing, isWatchdog); } catch (e) { log.error(`[ws] onOpen 错误 userId=${userId}: ${e.message}`); }
       }
       if (wasFailing && onReconnect) {
         try { onReconnect(userId, conn.displayName); } catch (e) { log.error(`[ws] onReconnect 错误 userId=${userId}: ${e.message}`); }
@@ -224,6 +227,7 @@ function createPipelineManager(opts) {
   function forceReconnect(userId) {
     const conn = conns.get(userId);
     if (!conn || conn.stopped) return;
+    conn.watchdogForced = true; // watchdog 强制重连: 成功后不推送恢复/已连接通知
     if (conn.reconnectTimer) { clearTimeout(conn.reconnectTimer); conn.reconnectTimer = null; }
     conn.attempt = 0;
     if (conn.ws) {

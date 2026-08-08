@@ -33,8 +33,8 @@ function classifyTransition(prev, next, opts = {}) {
   if (a === 'online' && b === 'offline') return { changeType: '下线', notifyField: 'notify_offline', needsConfirm: true };
   if (a === 'offline' && b === 'active') return { changeType: 'web端上线', notifyField: 'notify_online', needsConfirm: false }; // 网页端上线
   if (a === 'active' && b === 'offline') return null; // 网页下线, 不通知
-  if (a === 'active' && b === 'online') return null; // 网页在线进入游戏, 不视为上线
-  if (a === 'online' && b === 'active') return { changeType: '下线至web端', notifyField: 'notify_offline', needsConfirm: true };
+  if (a === 'active' && b === 'online') return { changeType: '上线', notifyField: 'notify_online', needsConfirm: false }; // 网页在线进入游戏 = 上线
+  if (a === 'online' && b === 'active') return { changeType: '下线', notifyField: 'notify_offline', needsConfirm: true }; // 退出游戏但网页在线 = 下线
   if (a === 'online' && b === 'online') {
     // 世界变化(全量解析; 可见世界状态下新旧世界均已知且不同才通知)
     // world/location changed -> notify (incl. private, unknown origin, any status)
@@ -95,9 +95,15 @@ function applyChange(prevDb, incoming, opts = {}) {
 
   const transition = classifyTransition(prev, next, opts);
 
-  // 1) pending 未决时状态偏离目标 → 视为抖动回退, 取消 pending 且不通知
-  if (prevDb.pending_state && next.state !== prevDb.pending_state) {
+  // 1) pending 未决时回到 online → 视为抖动回退, 取消 pending 且不通知
+  if (prevDb.pending_state && next.state === 'online') {
     return { notify: false, change: null, dbUpdate }; // dbUpdate 已清空 pending
+  }
+  // 1.5) pending 未决且变为其他非 online 状态(offline<->active) → 更新 pending 目标并重新计时
+  if (prevDb.pending_state && next.state !== prevDb.pending_state) {
+    dbUpdate.pending_state = next.state;
+    dbUpdate.pending_at = now();
+    return { notify: false, change: null, dbUpdate };
   }
 
   // 2) pending 未决且状态再次到达目标状态 → 按确认窗口判定是否真正确认
@@ -105,7 +111,7 @@ function applyChange(prevDb, incoming, opts = {}) {
     const pendingAt = prevDb.pending_at || 0;
     if (now() - pendingAt >= confirmDelayMs) {
       const confirmed = transition || {
-        changeType: prevDb.pending_state === 'offline' ? '下线' : '下线至web端',
+        changeType: '下线',
         notifyField: 'notify_offline',
         needsConfirm: false
       };
