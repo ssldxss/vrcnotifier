@@ -3,7 +3,7 @@
 
 const express = require('express');
 const path = require('node:path');
-const { randomBytes } = require('node:crypto');
+const { randomBytes, timingSafeEqual } = require('node:crypto');
 const { CookieJar } = require('./cookiejar');
 const { parseLocation } = require('./location');
 const { deriveStateFromSnapshot } = require('./state');
@@ -52,9 +52,15 @@ function createApp({
   function maskUser(row) {
     if (!row) return null;
     const out = { ...row };
-    out.cookie_data = undefined;
     delete out.cookie_data;
     return out;
+  }
+
+  // 恒时比较访问令牌, 避免时序侧信道(本地单用户场景也统一使用)
+  function tokenEquals(a, b) {
+    const ba = Buffer.from(String(a || ''));
+    const bb = Buffer.from(String(b || ''));
+    return ba.length === bb.length && timingSafeEqual(ba, bb);
   }
 
   function maskSettings(row) {
@@ -98,10 +104,10 @@ function createApp({
       displayName: currentUser.displayName || null,
       avatarUrl: currentUser.currentAvatarImageUrl || null
     });
-      const cookieCtx = { cancelled: false, timer: null };
-      if (rememberMe) {
-        db.saveCookies(dbId, vrcapi.jar.serialize(), username);
-        if (typeof vrcapi.setCookiesChanged === 'function') {
+    const cookieCtx = { cancelled: false, timer: null };
+    if (rememberMe) {
+      db.saveCookies(dbId, vrcapi.jar.serialize(), username);
+      if (typeof vrcapi.setCookiesChanged === 'function') {
         vrcapi.setCookiesChanged(() => {
           if (cookieCtx.cancelled) return;
           if (cookieCtx.timer) clearTimeout(cookieCtx.timer);
@@ -109,13 +115,13 @@ function createApp({
             cookieCtx.timer = null;
             if (cookieCtx.cancelled) return;
             try { db.saveCookies(dbId, vrcapi.jar.serialize(), username || null); } catch (e) { log.warn(`[server] cookie 保存失败: ${e.message}`); }
-            }, 2000);
-          });
-        }
-      } else {
-        // 不记住我: 清除该账号已存的 cookie, 避免下次启动仍用旧 cookie 自动登录
-        db.clearCookies(dbId);
+          }, 2000);
+        });
       }
+    } else {
+      // 不记住我: 清除该账号已存的 cookie, 避免下次启动仍用旧 cookie 自动登录
+      db.clearCookies(dbId);
+    }
     const user = db.getUserByDbId(dbId);
     current = { userId, dbId, vrcapi, cookieCtx };
     sessionStore.set(userId, vrcapi);
@@ -127,10 +133,10 @@ function createApp({
     if (current) return;
     const saved = db.getSavedLogin();
     if (!saved || !saved.cookie_data) return;
-      const jar = CookieJar.deserialize(saved.cookie_data);
-      const vrcapi = vrcapiFactory(jar);
-      try {
-        const user = await vrcapi.me({ noRetry: true }); // 自动登录快速失败, 避免 cookie 失效时无限退避
+    const jar = CookieJar.deserialize(saved.cookie_data);
+    const vrcapi = vrcapiFactory(jar);
+    try {
+      const user = await vrcapi.me({ noRetry: true }); // 自动登录快速失败, 避免 cookie 失效时无限退避
       if (!user || !user.id) return;
       await finalizeLogin(vrcapi, user, { rememberMe: true, username: saved.saved_username || null });
       log.info(`[server] 自动登录成功: ${user.displayName || user.id}`);
@@ -172,7 +178,7 @@ function createApp({
     const header = req.headers.authorization || '';
     const bearer = header.startsWith('Bearer ') ? header.slice(7).trim() : '';
     const queryToken = req.query.token ? String(req.query.token) : '';
-    if ((bearer || queryToken) && (bearer || queryToken) === config.accessToken) return next();
+    if (tokenEquals(bearer || queryToken, config.accessToken)) return next();
     log.warn('[server] 访问被拒绝: 缺少或错误的访问令牌');
     return res.status(401).json({ error: '访问被拒绝: 缺少或错误的访问令牌' });
   });
@@ -192,7 +198,7 @@ function createApp({
   app.post('/api/access/verify', (req, res) => {
     const { key } = req.body || {};
     if (!config.accessToken) return res.json({ ok: true });
-    const ok = key === config.accessToken;
+    const ok = tokenEquals(key, config.accessToken);
     if (ok) log.info('[server] 访问令牌验证成功');
     else log.warn('[server] 访问令牌验证失败');
     return res.json({ ok });

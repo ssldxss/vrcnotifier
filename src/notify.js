@@ -3,6 +3,7 @@
 
 const nodemailer = require('nodemailer');
 const { buildEmail, buildGotify, buildNtfy, buildQq, buildWebhook, encodeRfc2047 } = require('./templates');
+const { formatLocalTime } = require('./util');
 
 function createNotifier({ logger = null, fetchImpl = fetch, createTransport = null, now = Date.now, qq = null, getSettings = null } = {}) {
   const log = logger || { info: () => {}, warn: () => {}, error: () => {} };
@@ -153,7 +154,7 @@ function createNotifier({ logger = null, fetchImpl = fetch, createTransport = nu
       changeType: '测试通知',
       oldStatusDescription: '无', newStatusDescription: '这是一条测试通知',
       oldPlatform: 'unknown', newPlatform: 'standalonewindows',
-      timestamp: new Date(now()).toLocaleString('zh-CN'),
+      timestamp: formatLocalTime(now()),
       avatarUrl: '', eventType: 'test'
     };
     switch (kind) {

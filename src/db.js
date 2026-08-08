@@ -85,10 +85,6 @@ function createDb(location = ':memory:', opts = {}) {
   // 旧库补充: world_cache 补失败退避列(已存在则忽略)
   try { db.exec('ALTER TABLE world_cache ADD COLUMN fail_count INTEGER NOT NULL DEFAULT 0'); } catch (e) { /* 已存在 */ }
   try { db.exec('ALTER TABLE world_cache ADD COLUMN retry_at INTEGER NOT NULL DEFAULT 0'); } catch (e) { /* 已存在 */ }
-
-
-
-
   const stmt = {
     upsertUser: db.prepare(`INSERT INTO users (vrchat_user_id, username, display_name, avatar_url)
       VALUES (?, ?, ?, ?)
@@ -290,7 +286,3 @@ function createDb(location = ':memory:', opts = {}) {
 }
 
 module.exports = { createDb };
-
-
-
-

@@ -153,7 +153,7 @@ function buildApplication(opts = {}) {
     },
     onMessage: (userId, raw, parsed) => monitor.handlePipelineEvent(userId, raw, parsed),
     onReconnect: (userId) => {
-      monitor.handleWsReconnect(userId).catch((e) => log.error(`[monitor] 重连对账失败 userId=${userId}: ${e.message}`));
+      monitor.handleWsReconnect(userId).catch((e) => logger.error(`[monitor] 重连对账失败 userId=${userId}: ${e.message}`));
     },
     wsUrl: (token) => `${config.wsBaseUrl.replace(/\/+$/, '')}?authToken=${encodeURIComponent(token)}`,
     userAgent: config.userAgent,

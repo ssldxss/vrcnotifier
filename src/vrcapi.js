@@ -46,7 +46,7 @@ function createVrcApi({ baseUrl = 'https://api.vrchat.cloud/api/1', userAgent = 
     }
   }
 
-  async function attemptRequest(path, { method = 'GET', auth, body, params, type = 'userProfile' } = {}) {
+  async function attemptRequest(path, { method = 'GET', auth, body, params } = {}) {
     const base = baseUrl.endsWith('/') ? baseUrl : baseUrl + '/';
     const url = new URL(String(path).replace(/^\//, ''), base);
     if (params) for (const [k, v] of Object.entries(params)) url.searchParams.set(k, String(v));
@@ -145,5 +145,4 @@ function createVrcApi({ baseUrl = 'https://api.vrchat.cloud/api/1', userAgent = 
 }
 
 module.exports = { createVrcApi, ApiError };
-
 

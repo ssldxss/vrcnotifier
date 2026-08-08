@@ -1,17 +1,11 @@
 ﻿const test = require('node:test');
 const assert = require('node:assert');
-const { formatLocalTime, formatDateSafe, createLogger } = require('../src/util');
+const { formatLocalTime, createLogger } = require('../src/util');
 
 test('formatLocalTime returns local YYYY-MM-DD HH:mm:ss', () => {
   const d = new Date(2026, 0, 2, 3, 4, 5); // local
   const s = formatLocalTime(d.getTime());
   assert.match(s, /^2026-01-02 03:04:05$/);
-});
-
-test('formatDateSafe returns dashes not slashes', () => {
-  const d = new Date(2026, 0, 2, 3, 4, 5);
-  assert.match(formatDateSafe(d), /^2026-01-02 03:04:05$/);
-  assert.ok(!formatDateSafe(d).includes('/'));
 });
 
 test('createLogger prefixes timestamp and level', () => {
