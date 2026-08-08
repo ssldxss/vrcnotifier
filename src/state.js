@@ -2,7 +2,6 @@
 // 好友状态机: 状态派生、转移分类、pending-offline 防闪烁确认。
 
 const GAME_STATUSES = ['active', 'join me', 'ask me', 'busy'];
-const VISIBLE_WORLD_STATUSES = ['active', 'join me'];
 
 /** 由 location 字符串派生 presence 状态 */
 function deriveStateFromLocation(location) {
@@ -38,13 +37,11 @@ function classifyTransition(prev, next, opts = {}) {
   if (a === 'online' && b === 'active') return { changeType: '下线至web端', notifyField: 'notify_offline', needsConfirm: true };
   if (a === 'online' && b === 'online') {
     // 世界变化(全量解析; 可见世界状态下新旧世界均已知且不同才通知)
-    if (VISIBLE_WORLD_STATUSES.includes(prev.status) && VISIBLE_WORLD_STATUSES.includes(next.status)) {
-      const oldId = prev.worldId || null;
-      const newId = next.worldId || null;
-      const newVisible = newId && newId !== 'private';
-      if (oldId && newVisible && oldId !== newId) {
-        return { changeType: '切换世界', notifyField: 'notify_world_change', needsConfirm: false };
-      }
+    // world/location changed -> notify (incl. private, unknown origin, any status)
+    const oldId = prev.worldId || null;
+    const newId = next.worldId || null;
+    if (oldId !== newId) {
+      return { changeType: '切换世界', notifyField: 'notify_world_change', needsConfirm: false };
     }
     // 游戏在线四态间切换
     if (GAME_STATUSES.includes(prev.status) && GAME_STATUSES.includes(next.status) && prev.status !== next.status) {

@@ -206,22 +206,28 @@ test('traveling preserves world so A->traveling->B still notifies world change',
   assert.equal(t.notifications[0].change.newWorld, '世界_wrld_b');
 });
 
-test('private -> traveling -> public world notifies world change with private as old', async () => {
+test('world -> private -> traveling -> public notifies each world change', async () => {
   const t = setup({ onlineFriends: [onlineFriend('usr_f1')] });
   const user = addUser(t.db);
   addConfig(t.db, user.id, 'usr_f1');
   await t.monitor.activateUser(user, t.vrcapi);
   t.notifications.length = 0;
+  // wrld_a -> private: notifies (any change)
   await t.monitor.handlePipelineEvent(user.vrchat_user_id, '1', { type: 'friend-location', content: { userId: 'usr_f1', location: 'private', user: { id: 'usr_f1', displayName: 'F1', status: 'active' } } });
-  assert.equal(t.notifications.length, 0);
-  assert.equal(t.db.getFriend(user.id, 'usr_f1').world_id, 'private');
-  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '2', { type: 'friend-location', content: { userId: 'usr_f1', location: 'traveling', user: { id: 'usr_f1', displayName: 'F1', status: 'active' } } });
-  assert.equal(t.notifications.length, 0);
-  assert.equal(t.db.getFriend(user.id, 'usr_f1').world_id, 'private', 'traveling 时保留 private');
-  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '3', { type: 'friend-location', content: { userId: 'usr_f1', location: 'wrld_5c240791:97628~hidden(usr_f1)~region(jp)', user: { id: 'usr_f1', displayName: 'F1', status: 'active' } } });
   assert.equal(t.notifications.length, 1);
   assert.equal(t.notifications[0].change.changeType, '切换世界');
-  assert.equal(t.notifications[0].change.oldWorld, '私密世界');
+  assert.equal(t.notifications[0].change.oldWorld, '世界_wrld_a');
+  assert.equal(t.notifications[0].change.newWorld, '私密世界');
+  assert.equal(t.db.getFriend(user.id, 'usr_f1').world_id, 'private');
+  // private -> traveling: preserves private, no change
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '2', { type: 'friend-location', content: { userId: 'usr_f1', location: 'traveling', user: { id: 'usr_f1', displayName: 'F1', status: 'active' } } });
+  assert.equal(t.notifications.length, 1);
+  assert.equal(t.db.getFriend(user.id, 'usr_f1').world_id, 'private', 'traveling 时保留 private');
+  // traveling(private) -> public world: notifies with private as old
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '3', { type: 'friend-location', content: { userId: 'usr_f1', location: 'wrld_5c240791:97628~hidden(usr_f1)~region(jp)', user: { id: 'usr_f1', displayName: 'F1', status: 'active' } } });
+  assert.equal(t.notifications.length, 2);
+  assert.equal(t.notifications[1].change.changeType, '切换世界');
+  assert.equal(t.notifications[1].change.oldWorld, '私密世界');
 });
 
 test('snapshot with private location: online state, no world API call', async () => {

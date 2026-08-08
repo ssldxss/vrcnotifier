@@ -39,25 +39,32 @@ test('classifyTransition: status change among game statuses', () => {
   assert.deepEqual(r, { changeType: '状态变化', notifyField: 'notify_status_change', needsConfirm: false });
 });
 
-test('classifyTransition: world change only for visible statuses and known old world', () => {
-  const r = classifyTransition(
+test('classifyTransition: any world/location change notifies (incl private, unknown origin, any status)', () => {
+  const W = { changeType: '切换世界', notifyField: 'notify_world_change', needsConfirm: false };
+  // known world -> new world
+  assert.deepEqual(classifyTransition(
     F({ state: 'online', status: 'active', worldId: 'wrld_a', worldName: 'A' }),
-    F({ state: 'online', status: 'active', worldId: 'wrld_b', worldName: 'B' }),
-    {}
-  );
-  assert.deepEqual(r, { changeType: '切换世界', notifyField: 'notify_world_change', needsConfirm: false });
-  // 旧世界未知(首次获取) → 静默
-  assert.equal(classifyTransition(
+    F({ state: 'online', status: 'active', worldId: 'wrld_b', worldName: 'B' }), {}), W);
+  // unknown old world (first sight) -> notifies too
+  assert.deepEqual(classifyTransition(
     F({ state: 'online', status: 'active', worldId: null }),
-    F({ state: 'online', status: 'active', worldId: 'wrld_b', worldName: 'B' }), {}), null);
-  // busy 状态看不到世界 → 不通知世界变化
-  assert.equal(classifyTransition(
+    F({ state: 'online', status: 'active', worldId: 'wrld_b', worldName: 'B' }), {}), W);
+  // busy status world change -> notifies too
+  assert.deepEqual(classifyTransition(
     F({ state: 'online', status: 'busy', worldId: 'wrld_a' }),
-    F({ state: 'online', status: 'busy', worldId: 'wrld_b' }), {}), null);
-  // 新世界为 private → 不通知(看不到)
+    F({ state: 'online', status: 'busy', worldId: 'wrld_b' }), {}), W);
+  // world -> private -> notifies too
+  assert.deepEqual(classifyTransition(
+    F({ state: 'online', status: 'active', worldId: 'wrld_a', worldName: 'A' }),
+    F({ state: 'online', status: 'active', worldId: 'private', worldName: null }), {}), W);
+  // private -> public world -> notifies
+  assert.deepEqual(classifyTransition(
+    F({ state: 'online', status: 'active', worldId: 'private' }),
+    F({ state: 'online', status: 'active', worldId: 'wrld_b', worldName: 'B' }), {}), W);
+  // world unchanged -> silent
   assert.equal(classifyTransition(
     F({ state: 'online', status: 'active', worldId: 'wrld_a', worldName: 'A' }),
-    F({ state: 'online', status: 'active', worldId: 'private', worldName: null }), {}), null);
+    F({ state: 'online', status: 'active', worldId: 'wrld_a', worldName: 'A' }), {}), null);
 });
 
 test('classifyTransition: custom status change when nothing else changed', () => {
