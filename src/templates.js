@@ -27,7 +27,7 @@ function encodeRfc2047(text) {
 }
 
 function isVrcNotification(change) {
-  return !!(change && change.eventType === 'vrc_notification');
+  return !!(change && (change.eventType === 'vrc_notification' || change.eventType === 'vrc_system'));
 }
 
 const NOTIFICATION_MESSAGE = '{notificationBody}\n发送者: {friendName}\n{categoryOrWorld}\n时间: {timestamp}';

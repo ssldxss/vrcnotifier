@@ -5,6 +5,7 @@ const { EventEmitter } = require('node:events');
 const { deriveStateFromSnapshot, applyChange } = require('./state');
 const { parseLocation } = require('./location');
 const { formatLocalTime, createLogger } = require('./util');
+const { STARTUP_TEXT } = require('./qq-commands');
 
 function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger = null, now = Date.now }) {
   const log = logger || createLogger('monitor');
@@ -17,6 +18,7 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
   const WORLD_NAME_RETRY_BASE_MS = config.worldNameRetryBaseMs ?? 5000; // 与 WS 重连一致的退避起步
   const WORLD_NAME_RETRY_MAX_MS = config.worldNameRetryMaxMs ?? 3600 * 1000; // 退避封顶 1h, 封顶后保持不回退
   const UNKNOWN_WORLD_NAME = '未知世界';
+  const RECOVERY_TEXT = '✅ 服务已恢复, 好友监控运行中\n输入任意消息即可查看在线列表';
   const snapshotIntervalMs = config.snapshotIntervalMs ?? 3600 * 1000;
   const watchdogMs = config.watchdogMs ?? 10 * 60 * 1000;
   const watchdogCheckMs = config.watchdogCheckMs ?? 60 * 1000;
@@ -29,6 +31,82 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
   const running = new Set();          // userId: 快照进行中(并发触发直接忽略)
   const awaitingSnapshot = new Set(); // userId: ws 重连成功后等待全量对账, 期间忽略 WS 消息
   const pendingStatus = new Map();     // friendId: 状态变化合并中(待 friend-location 执行)
+  const connState = new Map();         // userId -> { open, snapshotDone, startupSent, recovering }
+
+  function stateOf(userId) {
+    let st = connState.get(userId);
+    if (!st) {
+      st = { open: false, snapshotDone: false, startupSent: false, recovering: false };
+      connState.set(userId, st);
+    }
+    return st;
+  }
+
+  // 系统事件(WS 断开/连接/会话失效)推送到全部通知渠道
+  async function sysNotify(user, title, body) {
+    const change = {
+      changeType: '系统通知',
+      friendName: 'vrcnotifier',
+      oldStatus: '未知', newStatus: '未知',
+      oldWorld: '-', newWorld: '-',
+      oldStatusDescription: '无', newStatusDescription: body || '',
+      oldPlatform: 'unknown', newPlatform: 'unknown',
+      notificationTitle: title,
+      notificationBody: body || '',
+      eventType: 'vrc_system',
+      timestamp: formatLocalTime(now())
+    };
+    try {
+      await notifier.sendAll({ ...user }, change);
+    } catch (e) {
+      log.error(`[monitor] 系统通知失败: ${e.message}`);
+    }
+  }
+
+  // 启动(首次 ws 连接+对账完成)与恢复(重连+对账完成)推送 QQ 说明
+  function maybeSendLifecycle(user) {
+    const st = stateOf(user.vrchat_user_id);
+    if (!st.open || !st.snapshotDone) return;
+    const sendQq = (text, what) => {
+      log.info(`[monitor] ${what} userId=${user.vrchat_user_id}`);
+      notifier.sendQqText(user.id, text)
+        .then((r) => { if (r && !r.ok && r.reason) log.warn(`[monitor] ${what}发送失败: ${r.reason}`); })
+        .catch((e) => log.error(`[monitor] ${what}发送失败: ${e.message}`));
+    };
+    if (!st.startupSent) {
+      st.startupSent = true;
+      sendQq(STARTUP_TEXT, '启动说明');
+      return;
+    }
+    if (st.recovering) {
+      st.recovering = false;
+      sendQq(RECOVERY_TEXT, '恢复说明');
+    }
+  }
+
+  bus.on('ws-open', ({ userId, wasFailing }) => {
+    const st = stateOf(userId);
+    st.open = true;
+    if (wasFailing) st.recovering = true;
+    const s = sessions.get(userId);
+    if (!s) return;
+    if (st.startupSent && !st.recovering) {
+      sysNotify(s.user, '✅ VRChat 已连接', '');
+    } else {
+      maybeSendLifecycle(s.user);
+    }
+  });
+
+  bus.on('ws-close', ({ userId }) => {
+    stateOf(userId).open = false;
+    const s = sessions.get(userId);
+    if (s) sysNotify(s.user, '⚠️ VRChat 连接断开', '将自动重连');
+  });
+
+  bus.on('session-expired', ({ userId }) => {
+    const s = sessions.get(userId);
+    if (s) sysNotify(s.user, '⚠️ VRChat 会话失效', '监控已停用, 请重新登录');
+  });
 
   // ---------- 会话 ----------
   function activeUsers() {
@@ -152,8 +230,8 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
   // VRChat 站内通知(notification / notification-v2) -> 复用通知渠道推送
   async function dispatchVrcNotification(user, n, vrcapi) {
     if (!n || !n.id) return;
-    // 自我邀请/自我通知: 发送者与登录用户相同则不推送
-    if (n.senderUserId && n.senderUserId === user.vrchat_user_id) return;
+    // 无发送者(如订阅频道公告)或发送者是自己 -> 不推送, 只推送明确来自其他用户的通知
+    if (!n.senderUserId || n.senderUserId === user.vrchat_user_id) return;
     const key = `${user.id}|notif|${n.id}`;
     if (db.isDuplicate(key, dedupeWindowMs, now())) return;
     db.markNotified(key, now());
@@ -473,6 +551,8 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
       }
 
       events.emit('snapshot', { userId, count: merged.size, at: now() });
+      stateOf(userId).snapshotDone = true;
+      maybeSendLifecycle(user); // 首次/恢复: ws 已连接且对账成功 -> 推送启动/恢复说明
       log.info(`[monitor] 快照完成 userId=${userId}, 好友 ${merged.size} 人`);
       return { ok: true, count: merged.size };
     } finally {

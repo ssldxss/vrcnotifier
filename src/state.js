@@ -31,9 +31,9 @@ function classifyTransition(prev, next, opts = {}) {
   const b = next.state;
   if (a === 'offline' && b === 'online') return { changeType: '上线', notifyField: 'notify_online', needsConfirm: false };
   if (a === 'online' && b === 'offline') return { changeType: '下线', notifyField: 'notify_offline', needsConfirm: true };
-  if (a === 'offline' && b === 'active') return null; // 网页上线, 不通知
+  if (a === 'offline' && b === 'active') return { changeType: 'web端上线', notifyField: 'notify_online', needsConfirm: false }; // 网页端上线
   if (a === 'active' && b === 'offline') return null; // 网页下线, 不通知
-  if (a === 'active' && b === 'online') return { changeType: 'web端上线', notifyField: 'notify_online', needsConfirm: false };
+  if (a === 'active' && b === 'online') return null; // 网页在线进入游戏, 不视为上线
   if (a === 'online' && b === 'active') return { changeType: '下线至web端', notifyField: 'notify_offline', needsConfirm: true };
   if (a === 'online' && b === 'online') {
     // 世界变化(全量解析; 可见世界状态下新旧世界均已知且不同才通知)

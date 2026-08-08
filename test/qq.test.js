@@ -300,7 +300,7 @@ test('WS: markdown 被动回复失败回退文本消息', async () => {
   } finally { await platform.close(); }
 });
 
-test('WS: 连接成功后向已绑定用户推送启动说明(重连不重复)', async () => {
+test('WS: READY 鉴权成功不主动推送(启动说明由 monitor 在 VRChat 连接+对账后触发)', async () => {
   const platform = await startQqPlatform({ appId: 'app1', clientSecret: 'sec1', token: 'tok1' });
   const db = createDb(':memory:');
   db.upsertQqBinding(1, { appId: 'app1', openid: 'openid_me', nickname: '我的昵称', at: 1 });
@@ -309,16 +309,7 @@ test('WS: 连接成功后向已绑定用户推送启动说明(重连不重复)',
     qq.sync(1, { qq_enabled: 1, qq_app_id: 'app1', qq_app_secret: 'sec1' });
     await sleep(250);
     const msgs = platform.state.httpCalls.filter((c) => c.url.includes('/v2/users/openid_me/messages'));
-    assert.equal(msgs.length, 1, '启动推送恰好一条');
-    const body = JSON.parse(msgs[0].body);
-    assert.equal(body.msg_type, 0);
-    assert.ok(body.content.includes('服务已启动'));
-    assert.ok(body.content.includes('输入任意'));
-    // 断开重连后不再重复推送
-    platform.state.connections[0].ws.terminate();
-    await sleep(400);
-    const after = platform.state.httpCalls.filter((c) => c.url.includes('/v2/users/openid_me/messages'));
-    assert.equal(after.length, 1, '重连不重复推送');
+    assert.equal(msgs.length, 0, 'READY 后不主动推送启动说明');
     qq.stopAll();
   } finally { await platform.close(); }
 });

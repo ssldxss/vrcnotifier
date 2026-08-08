@@ -60,7 +60,7 @@ function setup(opts = {}) {
     db, notifier, pipeline, monitor, sessionStore,
     vrcapiFactory: (jar) => (jar ? { ...vrcapi, jar } : vrcapi),
     avatarCache,
-    config: { accessToken: opts.accessToken || null, confirmDelayMs: 30000, dedupeWindowMs: 30000, snapshotIntervalMs: 600000, watchdogMs: 600000 },
+    config: { accessToken: opts.accessToken || null, confirmDelayMs: 30000, dedupeWindowMs: 30000, snapshotIntervalMs: 600000, watchdogMs: 600000, autoLoginRetryBaseMs: opts.autoLoginRetryBaseMs ?? 5000, autoLoginRetryMaxMs: opts.autoLoginRetryMaxMs ?? 3600000, autoLoginRetryJitterMs: opts.autoLoginRetryJitterMs ?? 1000 },
     logger: opts.logger || silent,
     now: opts.now || (() => 1000000),
     publicDir: null
@@ -583,4 +583,44 @@ test('qq test endpoint works via notifier', async (t) => {
   const r = await post(ctx, '/api/test/qq', {});
   assert.equal(r.status, 200);
   assert.equal(r.data.ok, true);
+});
+
+test('auto login with expired cookie notifies session expired once', async (t) => {
+  const ctx = setup();
+  t.after(() => close(ctx));
+  const jar = new CookieJar();
+  jar.setCookies(['auth=token123'], 'https://api.vrchat.cloud');
+  const uid = ctx.db.upsertUser('usr_me', { username: 'me', displayName: '我', avatarUrl: null });
+  ctx.db.saveCookies(uid, jar.serialize(), 'me');
+  ctx.vrcapi.me = async () => { const e = new Error('"Missing Credentials"'); e.status = 401; throw e; };
+  ctx.notifications.length = 0;
+  await get(ctx, '/api/session'); // 触发 tryAutoLogin -> 401
+  const sys = ctx.notifications.filter((n) => n.change.eventType === 'vrc_system');
+  assert.equal(sys.length, 1, '自动登录 401 推送一次会话失效');
+  assert.ok(sys[0].change.notificationTitle.includes('会话失效'));
+  assert.equal(sys[0].user.id, uid);
+  // 再次触发不再重复推送
+  await get(ctx, '/api/session');
+  assert.equal(ctx.notifications.filter((n) => n.change.eventType === 'vrc_system').length, 1, '不重复推送');
+});
+
+test('auto login 401 retries with backoff until success', async (t) => {
+  const ctx = setup({ autoLoginRetryBaseMs: 5, autoLoginRetryMaxMs: 10, autoLoginRetryJitterMs: 0 });
+  t.after(() => close(ctx));
+  const jar = new CookieJar();
+  jar.setCookies(['auth=token123'], 'https://api.vrchat.cloud');
+  const uid = ctx.db.upsertUser('usr_me', { username: 'me', displayName: '我', avatarUrl: null });
+  ctx.db.saveCookies(uid, jar.serialize(), 'me');
+  let calls = 0;
+  ctx.vrcapi.me = async () => {
+    calls++;
+    if (calls === 1) { const e = new Error('"Missing Credentials"'); e.status = 401; throw e; }
+    return { id: 'usr_me', displayName: '我', onlineFriends: [], activeFriends: [], offlineFriends: [] };
+  };
+  await get(ctx, '/api/session'); // 首次 401 -> 调度后台重试
+  assert.equal(calls, 1);
+  await sleep(80); // 等待退避重试成功
+  assert.ok(calls >= 2, '401 后按退避重试直到成功');
+  const r = await get(ctx, '/api/session');
+  assert.equal(r.data.loggedIn, true, '重试成功后自动登录完成');
 });

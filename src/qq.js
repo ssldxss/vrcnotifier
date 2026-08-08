@@ -5,7 +5,6 @@
 
 const WebSocket = require('ws');
 const { buildQq } = require('./templates');
-const { STARTUP_TEXT } = require('./qq-commands');
 
 const DEFAULT_TOKEN_URL = 'https://bots.qq.com/app/getAppAccessToken';
 const DEFAULT_API_BASE = 'https://api.sgroup.qq.com';
@@ -115,17 +114,6 @@ function createQqManager(opts = {}) {
       log.error(`[通知] QQ 推送失败: ${e.message}`);
       return { ok: false, reason: e.message };
     }
-  }
-
-  // 每次服务器启动连接成功后, 向已绑定用户推送启动说明(重连不重复)
-  function notifyStartup(bot) {
-    if (bot.startupSent) return;
-    bot.startupSent = true;
-    const binding = db.getQqBinding(bot.dbId, bot.appId);
-    if (!binding || !binding.openid) return;
-    sendText(bot.dbId, STARTUP_TEXT).then((r) => {
-      if (!r.ok && r.reason) log.warn(`[qq] 启动通知发送失败: ${r.reason}`);
-    });
   }
 
   // 被动回复(绑定欢迎语等), 失败只告警不影响主流程
@@ -257,7 +245,6 @@ function createQqManager(opts = {}) {
       bot.ready = true;
       bot.lastError = null;
       log.info(`[qq] 鉴权成功 appId=${bot.appId}`);
-      notifyStartup(bot);
       return;
     }
     if (t === 'C2C_MESSAGE_CREATE' || t === 'C2C_MSG_RECEIVE') {
@@ -388,7 +375,7 @@ function createQqManager(opts = {}) {
       dbId, appId: user.qq_app_id, appSecret: user.qq_app_secret,
       ws: null, ready: false, token: null, tokenExpiresAt: 0, tokenPromise: null,
       seq: null, heartbeatIntervalMs: 0, heartbeatTimer: null, ackWatchTimer: null,
-      reconnectTimer: null, attempt: 0, stopped: false, lastError: null, startupSent: false,
+      reconnectTimer: null, attempt: 0, stopped: false, lastError: null,
       lastRecvAt: 0, lastAckAt: 0
     };
     bots.set(dbId, bot);

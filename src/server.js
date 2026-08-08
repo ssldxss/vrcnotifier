@@ -8,6 +8,7 @@ const { CookieJar } = require('./cookiejar');
 const { parseLocation } = require('./location');
 const { deriveStateFromSnapshot } = require('./state');
 const { detectImageType } = require('./avatar');
+const { formatLocalTime } = require('./util');
 
 const MASK = '••••••••';
 const SECRET_FIELDS = new Set(['smtp_pass', 'gotify_app_token', 'qq_app_secret']);
@@ -40,7 +41,14 @@ function createApp({
   let current = null;        // { userId, dbId, vrcapi }
   const pending2fa = new Map();
   let lastSnapshotAt = null;
+  let sessionExpiredNotified = false; // 自动登录 401 只推送一次, 登录成功后重置
+  let autoLoginRetryTimer = null;
+  let autoLoginRetryAttempt = 0;
+  let autoLoginInFlight = false;
   const sseClients = new Set();
+  const autoLoginRetryBaseMs = config.autoLoginRetryBaseMs ?? 5000;
+  const autoLoginRetryMaxMs = config.autoLoginRetryMaxMs ?? 3600000;
+  const autoLoginRetryJitterMs = config.autoLoginRetryJitterMs ?? 1000;
 
   // 好友行附带头像 key(前端零解析)
   function friendRow(f) {
@@ -90,6 +98,9 @@ function createApp({
   }
 
   async function finalizeLogin(vrcapi, currentUser, { rememberMe, username }) {
+    sessionExpiredNotified = false;
+    if (autoLoginRetryTimer) { clearTimeout(autoLoginRetryTimer); autoLoginRetryTimer = null; }
+    autoLoginRetryAttempt = 0;
     if (current) {
       try { monitor.deactivateUser(current.userId); } catch (e) { log.warn(`[server] 旧会话停用失败: ${e.message}`); }
       if (current.cookieCtx) {
@@ -130,18 +141,71 @@ function createApp({
   }
 
   async function tryAutoLogin() {
-    if (current) return;
+    if (current || autoLoginInFlight) return;
     const saved = db.getSavedLogin();
     if (!saved || !saved.cookie_data) return;
+    autoLoginInFlight = true;
+    try {
+      await attemptAutoLogin(saved);
+    } finally {
+      autoLoginInFlight = false;
+    }
+  }
+
+  // 单次自动登录尝试; 401/网络/5xx/429 失败后调度后台退避重试, 直到成功
+  async function attemptAutoLogin(saved) {
     const jar = CookieJar.deserialize(saved.cookie_data);
     const vrcapi = vrcapiFactory(jar);
     try {
-      const user = await vrcapi.me({ noRetry: true }); // 自动登录快速失败, 避免 cookie 失效时无限退避
-      if (!user || !user.id) return;
-      await finalizeLogin(vrcapi, user, { rememberMe: true, username: saved.saved_username || null });
-      log.info(`[server] 自动登录成功: ${user.displayName || user.id}`);
+      const user = await vrcapi.me({ noRetry: true });
+      if (user && user.id) {
+        await finalizeLogin(vrcapi, user, { rememberMe: true, username: saved.saved_username || null });
+        log.info(`[server] 自动登录成功: ${user.displayName || user.id}`);
+        return;
+      }
     } catch (e) {
-      log.warn(`[server] 自动登录失败(会话可能已过期): ${e.message}`);
+      const retryable = e && (e.status === 401 || e.status === 429 || e.status === 0 || e.status === -1 || (e.status >= 500 && e.status < 600));
+      log.warn(`[server] 自动登录失败(${e.message})${retryable ? ', 按退避重试' : ''}`);
+      if (e && e.status === 401) await notifySessionExpired(saved);
+      if (retryable) scheduleAutoLoginRetry(saved);
+    }
+  }
+
+  function scheduleAutoLoginRetry(saved) {
+    if (autoLoginRetryTimer || current) return;
+    const delay = Math.min(autoLoginRetryBaseMs * Math.pow(2, autoLoginRetryAttempt), autoLoginRetryMaxMs) + Math.floor(Math.random() * autoLoginRetryJitterMs);
+    autoLoginRetryAttempt++;
+    log.warn(`[server] 自动登录 ${delay}ms 后重试(第 ${autoLoginRetryAttempt} 次)`);
+    autoLoginRetryTimer = setTimeout(() => {
+      autoLoginRetryTimer = null;
+      if (current) return;
+      attemptAutoLogin(saved).catch((e) => log.warn(`[server] 自动登录重试异常: ${e.message}`));
+    }, delay);
+    if (autoLoginRetryTimer.unref) autoLoginRetryTimer.unref();
+  }
+
+  // 自动登录 cookie 失效: 推送系统通知(与 monitor 的 401 通知一致, 只推一次)
+  async function notifySessionExpired(savedRow) {
+    if (sessionExpiredNotified) return;
+    sessionExpiredNotified = true;
+    const change = {
+      changeType: '系统通知',
+      friendName: 'vrcnotifier',
+      oldStatus: '未知', newStatus: '未知',
+      oldWorld: '-', newWorld: '-',
+      oldStatusDescription: '无', newStatusDescription: '监控已停用, 请重新登录',
+      oldPlatform: 'unknown', newPlatform: 'unknown',
+      notificationTitle: '⚠️ VRChat 会话失效',
+      notificationBody: '监控已停用, 请重新登录',
+      eventType: 'vrc_system',
+      timestamp: formatLocalTime(now())
+    };
+    try {
+      const forSend = { id: savedRow.id, ...db.getGlobalSettings() };
+      log.info(`[server] 自动登录会话失效, 已推送通知`);
+      await notifier.sendAll(forSend, change);
+    } catch (err) {
+      log.warn(`[server] 会话失效通知失败: ${err.message}`);
     }
   }
 
@@ -254,6 +318,8 @@ function createApp({
 
   app.post('/api/logout', async (req, res) => {
     if (!current) return res.json({ ok: true });
+    if (autoLoginRetryTimer) { clearTimeout(autoLoginRetryTimer); autoLoginRetryTimer = null; }
+    autoLoginRetryAttempt = 0;
     const { userId, dbId } = current;
     if (current.cookieCtx) {
       current.cookieCtx.cancelled = true;

@@ -161,6 +161,24 @@ test('sendQq without config or manager returns not-configured', async () => {
   assert.equal(r2.ok, false);
 });
 
+test('sendQqText delegates to qq manager with raw text', async () => {
+  const sent = [];
+  const qq = { sendText: async (dbId, text) => { sent.push({ dbId, text }); return { ok: true }; } };
+  const notifier = createNotifier({ qq, getSettings: () => ({}) });
+  const r = await notifier.sendQqText(3, '✅ 服务已启动\n输入任意消息');
+  assert.equal(r.ok, true);
+  assert.deepEqual(sent, [{ dbId: 3, text: '✅ 服务已启动\n输入任意消息' }]);
+  const r2 = await notifier.sendQqText(3, 'x');
+  assert.equal(r2.ok, true);
+});
+
+test('sendQqText without qq manager returns not-configured', async () => {
+  const notifier = createNotifier({ qq: null, getSettings: () => ({}) });
+  const r = await notifier.sendQqText(3, 'hi');
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /未配置/);
+});
+
 test('sendTest qq uses test change', async () => {
   const sent = [];
   const qq = { sendText: async (dbId, text) => { sent.push(text); return { ok: true }; } };

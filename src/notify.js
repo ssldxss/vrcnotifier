@@ -137,6 +137,18 @@ function createNotifier({ logger = null, fetchImpl = fetch, createTransport = nu
     }
   }
 
+  /** 直接向绑定 QQ 用户发送原始文本(启动/恢复等系统消息, 不经模板) */
+  async function sendQqText(dbId, text) {
+    if (!qq) return { ok: false, reason: '未配置QQ机器人' };
+    try {
+      const result = await qq.sendText(dbId, text);
+      return result || { ok: false, reason: '发送失败' };
+    } catch (e) {
+      log.error(`[通知] QQ 文本推送失败: ${e.message}`);
+      return { ok: false, reason: e.message };
+    }
+  }
+
   async function sendAll(user, change) {
     const cfg = globalConfig(user);
     const [email, gotify, ntfy, webhook, qqRes] = await Promise.all([
@@ -167,7 +179,7 @@ function createNotifier({ logger = null, fetchImpl = fetch, createTransport = nu
     }
   }
 
-  return { sendEmail, sendGotify, sendNtfy, sendWebhook, sendQq, sendAll, sendTest };
+  return { sendEmail, sendGotify, sendNtfy, sendWebhook, sendQq, sendQqText, sendAll, sendTest };
 }
 
 module.exports = { createNotifier };

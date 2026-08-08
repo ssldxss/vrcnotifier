@@ -12,8 +12,10 @@ function setup(opts = {}) {
   bus.on('session-expired', (e) => events.push({ kind: 'session-expired', ...e }));
   bus.on('snapshot', (e) => events.push({ kind: 'snapshot', ...e }));
   const notifications = [];
+  const qqTexts = [];
   const notifier = {
-    sendAll: async (user, change) => { notifications.push({ user, change }); return { email: { ok: true }, gotify: { ok: true }, ntfy: { ok: true }, webhook: { ok: true } }; }
+    sendAll: async (user, change) => { notifications.push({ user, change }); return { email: { ok: true }, gotify: { ok: true }, ntfy: { ok: true }, webhook: { ok: true } }; },
+    sendQqText: async (dbId, text) => { qqTexts.push({ dbId, text }); return { ok: true }; }
   };
   const vrcapi = {
     me: async () => opts.currentUser || { id: 'usr_me', onlineFriends: [], activeFriends: [], offlineFriends: [] },
@@ -35,7 +37,7 @@ function setup(opts = {}) {
     now: opts.now || (() => 1000000),
     config: { confirmDelayMs: 30000, dedupeWindowMs: 30000, snapshotIntervalMs: 600000, watchdogMs: 600000, statusCoalesceMs: opts.statusCoalesceMs ?? 3000 }
   });
-  return { db, bus, events, notifications, notifier, vrcapi, pipeline, monitor };
+  return { db, bus, events, notifications, qqTexts, notifier, vrcapi, pipeline, monitor };
 }
 
 function addUser(db, { vrcId = 'usr_me', displayName = '我' } = {}) {
@@ -529,10 +531,13 @@ test('WS notification-v2 pushes to channels; update/delete only log; same id ded
   // same id within window -> dedupe
   await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'y', n1);
   assert.equal(t.notifications.length, 1);
-  // new id -> pushes; no sender -> 'VRChat'
-  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'z', { type: 'notification-v2', content: { id: 'notif_2', category: 'invite', title: 'inv', message: 'come' } });
+  // new id with sender -> pushes
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'z', { type: 'notification-v2', content: { id: 'notif_2', category: 'invite', senderUserId: 'usr_f2', title: 'inv', message: 'come' } });
   assert.equal(t.notifications.length, 2);
-  assert.equal(t.notifications[1].change.friendName, 'VRChat');
+  assert.equal(t.notifications[1].change.friendName, 'usr_f2');
+  // no sender (订阅频道公告) -> 不推送
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'a1', { type: 'notification-v2', content: { id: 'notif_announce', category: 'system', title: 'Succubus Club: 大酒店开门啦', message: '今日大营业' } });
+  assert.equal(t.notifications.length, 2, '无发送者的公告不推送');
   // friend display name preferred when known
   t.db.upsertFriend(user.id, 'usr_f9', { displayName: '好友九', state: 'offline' });
   await t.monitor.handlePipelineEvent(user.vrchat_user_id, 't', { type: 'notification-v2', content: { id: 'notif_3', category: 'message', senderUserId: 'usr_f9', title: 'msg', message: 'yo' } });
@@ -587,11 +592,11 @@ test('notification-v2 with title == message does not duplicate body', async () =
   const user = addUser(t.db);
   await t.monitor.activateUser(user, t.vrcapi);
   t.notifications.length = 0;
-  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'a', { type: 'notification-v2', content: { id: 'n1', category: 'invite', title: '世界邀请', message: '世界邀请' } });
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'a', { type: 'notification-v2', content: { id: 'n1', category: 'invite', senderUserId: 'usr_f1', title: '世界邀请', message: '世界邀请' } });
   assert.equal(t.notifications.length, 1);
   assert.equal(t.notifications[0].change.notificationTitle, '世界邀请');
   assert.equal(t.notifications[0].change.notificationBody, '');
-  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'b', { type: 'notification-v2', content: { id: 'n2', category: 'invite', title: '世界邀请', message: '' } });
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'b', { type: 'notification-v2', content: { id: 'n2', category: 'invite', senderUserId: 'usr_f1', title: '世界邀请', message: '' } });
   assert.equal(t.notifications[1].change.notificationBody, '');
 });
 
@@ -609,7 +614,7 @@ test('notification-v2 world invite shows world name instead of category', async 
   assert.ok(!t.notifications[0].change.categoryOrWorld.includes('分类:'));
   assert.ok(worldCalls >= 1);
   // non-invite keeps category line
-  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'b', { type: 'notification-v2', content: { id: 'n2', category: 'friendRequest', title: '好友请求', message: 'hi' } });
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'b', { type: 'notification-v2', content: { id: 'n2', category: 'friendRequest', senderUserId: 'usr_f1', title: '好友请求', message: 'hi' } });
   assert.equal(t.notifications[1].change.categoryOrWorld, '');
 });
 
@@ -633,7 +638,7 @@ test('notification-v2 invite parses JSON string details for worldName', async ()
   await t.monitor.activateUser(user, t.vrcapi);
   t.notifications.length = 0;
   t.vrcapi.world = async (id) => ({ id, name: '世界_' + id });
-  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'a', { type: 'notification-v2', content: { id: 'n1', category: 'invite', title: '世界邀请', details: JSON.stringify({ worldId: 'wrld_str', worldName: '字符串世界' }) } });
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'a', { type: 'notification-v2', content: { id: 'n1', category: 'invite', senderUserId: 'usr_f1', title: '世界邀请', details: JSON.stringify({ worldId: 'wrld_str', worldName: '字符串世界' }) } });
   assert.equal(t.notifications[0].change.notificationWorld, '字符串世界');
 });
 
@@ -643,9 +648,62 @@ test('notification-v2 invite resolves nested details.invite worldName', async ()
   await t.monitor.activateUser(user, t.vrcapi);
   t.notifications.length = 0;
   t.vrcapi.world = async (id) => ({ id, name: '世界_' + id });
-  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'a', { type: 'notification-v2', content: { id: 'n1', category: 'invite', title: '世界邀请', details: { invite: { worldId: 'wrld_nest', worldName: '嵌套世界' } } } });
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'a', { type: 'notification-v2', content: { id: 'n1', category: 'invite', senderUserId: 'usr_f1', title: '世界邀请', details: { invite: { worldId: 'wrld_nest', worldName: '嵌套世界' } } } });
   assert.equal(t.notifications[0].change.notificationWorld, '嵌套世界');
   // 只有 worldId 时回退调世界 API
-  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'b', { type: 'notification-v2', content: { id: 'n2', category: 'invite', title: '世界邀请', details: { worldId: 'wrld_onlyid' } } });
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'b', { type: 'notification-v2', content: { id: 'n2', category: 'invite', senderUserId: 'usr_f1', title: '世界邀请', details: { worldId: 'wrld_onlyid' } } });
   assert.equal(t.notifications[1].change.notificationWorld, '世界_wrld_onlyid');
+});
+
+test('system: startup pushed after ws-open + first snapshot done', async () => {
+  const t = setup({ onlineFriends: [onlineFriend('usr_f1')] });
+  const user = addUser(t.db);
+  addConfig(t.db, user.id, 'usr_f1');
+  await t.monitor.activateUser(user, t.vrcapi); // snapshotDone = true, ws 未连接
+  t.qqTexts.length = 0;
+  t.monitor.events.emit('ws-open', { userId: user.vrchat_user_id, wasFailing: false });
+  assert.equal(t.qqTexts.length, 1, '首次 ws 连接 + 首次对账完成 -> 推送启动说明');
+  assert.ok(t.qqTexts[0].text.includes('服务已启动'));
+  assert.ok(t.qqTexts[0].text.includes('输入任意'));
+  // 重复 open 不再推启动
+  t.monitor.events.emit('ws-open', { userId: user.vrchat_user_id, wasFailing: false });
+  assert.equal(t.qqTexts.length, 1, '启动说明只推一次');
+});
+
+test('system: ws disconnect / reconnect / 401 push system notifications', async () => {
+  const t = setup();
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+  const evt = t.monitor.events;
+  evt.emit('ws-open', { userId: user.vrchat_user_id, wasFailing: false }); // 完成启动
+  // 断开
+  t.notifications.length = 0;
+  evt.emit('ws-close', { userId: user.vrchat_user_id });
+  assert.equal(t.notifications.length, 1);
+  assert.equal(t.notifications[0].change.eventType, 'vrc_system');
+  assert.ok(t.notifications[0].change.notificationTitle.includes('断开'));
+  // 普通重连成功(已启动且非故障) -> 已连接
+  t.notifications.length = 0;
+  evt.emit('ws-open', { userId: user.vrchat_user_id, wasFailing: false });
+  assert.equal(t.notifications.length, 1);
+  assert.ok(t.notifications[0].change.notificationTitle.includes('已连接'));
+  // 401 会话失效
+  t.notifications.length = 0;
+  evt.emit('session-expired', { userId: user.vrchat_user_id, reason: 'Missing Credentials' });
+  assert.equal(t.notifications.length, 1);
+  assert.ok(t.notifications[0].change.notificationTitle.includes('会话失效'));
+});
+
+test('system: recovery pushed after reconnect + snapshot done', async () => {
+  const t = setup({ onlineFriends: [onlineFriend('usr_f1')] });
+  const user = addUser(t.db);
+  addConfig(t.db, user.id, 'usr_f1');
+  await t.monitor.activateUser(user, t.vrcapi);
+  t.monitor.events.emit('ws-open', { userId: user.vrchat_user_id, wasFailing: false }); // 启动
+  t.qqTexts.length = 0;
+  // 断开后重连成功(wasFailing)且对账已完成 -> 恢复说明
+  t.monitor.events.emit('ws-close', { userId: user.vrchat_user_id });
+  t.monitor.events.emit('ws-open', { userId: user.vrchat_user_id, wasFailing: true });
+  assert.equal(t.qqTexts.length, 1, '故障恢复后推送恢复说明');
+  assert.ok(t.qqTexts[0].text.includes('服务已恢复'));
 });

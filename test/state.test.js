@@ -28,9 +28,9 @@ test('deriveStateFromSnapshot prefers currentUser arrays then location', () => {
 test('classifyTransition: online/offline upgrades and downgrades', () => {
   assert.deepEqual(classifyTransition(F({ state: 'offline' }), F({ state: 'online', status: 'active' }), {}), { changeType: '上线', notifyField: 'notify_online', needsConfirm: false });
   assert.deepEqual(classifyTransition(F({ state: 'online' }), F({ state: 'offline' }), {}), { changeType: '下线', notifyField: 'notify_offline', needsConfirm: true });
-  assert.equal(classifyTransition(F({ state: 'offline' }), F({ state: 'active' }), {}), null); // web 上线不通知
+  assert.deepEqual(classifyTransition(F({ state: 'offline' }), F({ state: 'active' }), {}), { changeType: 'web端上线', notifyField: 'notify_online', needsConfirm: false }); // 网页端上线
   assert.equal(classifyTransition(F({ state: 'active' }), F({ state: 'offline' }), {}), null); // web 下线不通知
-  assert.deepEqual(classifyTransition(F({ state: 'active' }), F({ state: 'online', status: 'active' }), {}), { changeType: 'web端上线', notifyField: 'notify_online', needsConfirm: false });
+  assert.equal(classifyTransition(F({ state: 'active' }), F({ state: 'online', status: 'active' }), {}), null); // 网页在线进入游戏, 不视为上线
   assert.deepEqual(classifyTransition(F({ state: 'online' }), F({ state: 'active' }), {}), { changeType: '下线至web端', notifyField: 'notify_offline', needsConfirm: true });
 });
 

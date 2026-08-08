@@ -10,6 +10,7 @@ function createPipelineManager(opts) {
     getToken, onMessage, wsUrl, userAgent,
     now = Date.now, logger = null,
     onConnectFailure = null, onConnectRecovered = null, onReconnect = null,
+    onOpen = null, onClose = null,
     WsClient = WebSocket,
     config = {}
   } = opts;
@@ -145,6 +146,9 @@ function createPipelineManager(opts) {
       conn.notified = false;
       conn.lastMessageAt = now();
       startPing(conn);
+      if (onOpen) {
+        try { onOpen(userId, conn.displayName, wasFailing); } catch (e) { log.error(`[ws] onOpen 错误 userId=${userId}: ${e.message}`); }
+      }
       if (wasFailing && onReconnect) {
         try { onReconnect(userId, conn.displayName); } catch (e) { log.error(`[ws] onReconnect 错误 userId=${userId}: ${e.message}`); }
       }
@@ -188,6 +192,9 @@ function createPipelineManager(opts) {
       if (conn.stopped) {
         conns.delete(userId);
         return;
+      }
+      if (onClose) {
+        try { onClose(userId); } catch (e) { log.error(`[ws] onClose 错误 userId=${userId}: ${e.message}`); }
       }
       log.info(`[ws] 断开 userId=${userId}`);
       scheduleReconnect(userId, conn);
@@ -253,4 +260,3 @@ function createPipelineManager(opts) {
 }
 
 module.exports = { createPipelineManager };
-

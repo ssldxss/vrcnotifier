@@ -155,6 +155,8 @@ function buildApplication(opts = {}) {
     onReconnect: (userId) => {
       monitor.handleWsReconnect(userId).catch((e) => logger.error(`[monitor] 重连对账失败 userId=${userId}: ${e.message}`));
     },
+    onOpen: (userId, displayName, wasFailing) => bus.emit('ws-open', { userId, displayName, wasFailing }),
+    onClose: (userId) => bus.emit('ws-close', { userId }),
     wsUrl: (token) => `${config.wsBaseUrl.replace(/\/+$/, '')}?authToken=${encodeURIComponent(token)}`,
     userAgent: config.userAgent,
     logger,
