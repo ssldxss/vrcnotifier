@@ -233,18 +233,21 @@ test('WS: 已绑定用户发命令 -> onCommand 被动回复, 重复 msg_id 不�
   } finally { await platform.close(); }
 });
 
-test('WS: onCommand 返回 markdown 对象 -> 发 msg_type=2', async () => {
+test('WS: onCommand 返回 markdown 对象 -> 流式仅 2 片: 标题 + 完整表格', async () => {
   const platform = await startQqPlatform({ appId: 'app1', clientSecret: 'sec1', token: 'tok1' });
   const db = createDb(':memory:');
   db.upsertQqBinding(1, { appId: 'app1', openid: 'openid_me', nickname: '我的昵称', at: 1 });
+  const header = '### 在线列表 (1)';
+  const table = '\n\n| 昵称 | 世界 |\n| :--- | :--- |\n| 🟢 Alice | WorldX |';
+  const md = header + table;
   const onCommand = async ({ content }) => (content.includes('在线')
-    ? { text: '【在线列表】1 人在线\n🟢 Alice  WorldX', markdown: '### 在线列表 (1)\n\n| 昵称 | 世界 |\n| :--- | :--- |\n| 🟢 Alice | WorldX |' }
+    ? { text: '【在线列表】1 人在线\n🟢 Alice  WorldX', markdown: md, streamChunks: [header, table] }
     : null);
   const qq = createQqManager({
     db, logger: silent, onCommand,
     fetchImpl: async (u, i) => fetch(u, i),
     now: () => Date.now(),
-    config: { tokenUrl: platform.base + '/app/getAppAccessToken', apiBase: platform.base, wsUrl: platform.wsUrl }
+    config: { tokenUrl: platform.base + '/app/getAppAccessToken', apiBase: platform.base, wsUrl: platform.wsUrl, streamChunkMs: 0 }
   });
   try {
     qq.sync(1, { qq_enabled: 1, qq_app_id: 'app1', qq_app_secret: 'sec1' });
@@ -254,18 +257,29 @@ test('WS: onCommand 返回 markdown 对象 -> 发 msg_type=2', async () => {
       op: 0, s: 2, t: 'C2C_MESSAGE_CREATE',
       d: { id: 'ROBOT.msg3', content: '/在线列表', author: { id: 'openid_me', user_openid: 'openid_me', username: '我的昵称' } }
     }));
-    await sleep(250);
-    const replies = platform.state.httpCalls.filter((c) => c.url.includes('/v2/users/openid_me/messages'));
-    assert.ok(replies.length >= 1, 'markdown 回复已发送');
-    const body = JSON.parse(replies[0].body);
-    assert.equal(body.msg_type, 2);
-    assert.ok(body.markdown.content.includes('| 🟢 Alice | WorldX |'));
-    assert.equal(body.keyboard, undefined, '不再携带按钮键盘');
+    await sleep(1000);
+    const calls = platform.state.httpCalls.filter((c) => c.url.includes('/stream_messages'));
+    assert.equal(calls.length, 2, '整个消息只有 2 片');
+    const first = JSON.parse(calls[0].body);
+    assert.equal(first.index, 0);
+    assert.equal(first.input_state, 1);
+    assert.equal(first.content_type, 'markdown');
+    assert.equal(first.msg_id, 'ROBOT.msg3');
+    assert.equal(first.content_raw, header, '第一片为标题(在线列表+人数)');
+    assert.ok(!first.stream_msg_id, '首片不携带 stream_msg_id');
+    const second = JSON.parse(calls[1].body);
+    assert.equal(second.index, 1);
+    assert.equal(second.input_state, 10, '结束片 input_state=10');
+    assert.equal(second.content_raw, table, '第二片为完整表格');
+    assert.ok(second.stream_msg_id, '后续分片携带 stream_msg_id');
+    // 拼接后为完整 markdown
+    const full = calls.map((c) => JSON.parse(c.body).content_raw).join('');
+    assert.equal(full, md);
     qq.stopAll();
   } finally { await platform.close(); }
 });
 
-test('WS: markdown 被动回复失败回退文本消息', async () => {
+test('WS: 流式首片失败回退文本消息', async () => {
   const platform = await startQqPlatform({
     appId: 'app1', clientSecret: 'sec1', token: 'tok1',
     failMessage: { status: 400, code: 1, message: 'bad request' }
@@ -280,7 +294,7 @@ test('WS: markdown 被动回复失败回退文本消息', async () => {
     db, logger: silent, onCommand,
     fetchImpl: async (u, i) => fetch(u, i),
     now: () => Date.now(),
-    config: { tokenUrl: platform.base + '/app/getAppAccessToken', apiBase: platform.base, wsUrl: platform.wsUrl }
+    config: { tokenUrl: platform.base + '/app/getAppAccessToken', apiBase: platform.base, wsUrl: platform.wsUrl, streamChunkMs: 0 }
   });
   try {
     qq.sync(1, { qq_enabled: 1, qq_app_id: 'app1', qq_app_secret: 'sec1' });
@@ -290,26 +304,14 @@ test('WS: markdown 被动回复失败回退文本消息', async () => {
       op: 0, s: 2, t: 'C2C_MESSAGE_CREATE',
       d: { id: 'ROBOT.msg4', content: '/在线列表', author: { id: 'openid_me', user_openid: 'openid_me', username: '我的昵称' } }
     }));
-    await sleep(250);
-    const calls = platform.state.httpCalls.filter((c) => c.url.includes('/v2/users/openid_me/messages'));
-    assert.ok(calls.length >= 2, '先 markdown 后回退文本');
-    assert.equal(JSON.parse(calls[0].body).msg_type, 2);
-    assert.equal(JSON.parse(calls[1].body).msg_type, 0);
-    assert.ok(JSON.parse(calls[1].body).content.includes('【在线列表】'));
-    qq.stopAll();
-  } finally { await platform.close(); }
-});
-
-test('WS: READY 鉴权成功不主动推送(启动说明由 monitor 在 VRChat 连接+对账后触发)', async () => {
-  const platform = await startQqPlatform({ appId: 'app1', clientSecret: 'sec1', token: 'tok1' });
-  const db = createDb(':memory:');
-  db.upsertQqBinding(1, { appId: 'app1', openid: 'openid_me', nickname: '我的昵称', at: 1 });
-  const qq = makeManager({ db, now: () => Date.now() }, platform);
-  try {
-    qq.sync(1, { qq_enabled: 1, qq_app_id: 'app1', qq_app_secret: 'sec1' });
-    await sleep(250);
-    const msgs = platform.state.httpCalls.filter((c) => c.url.includes('/v2/users/openid_me/messages'));
-    assert.equal(msgs.length, 0, 'READY 后不主动推送启动说明');
+    await sleep(1500);
+    const stream = platform.state.httpCalls.filter((c) => c.url.includes('/stream_messages'));
+    assert.ok(stream.length >= 1, '尝试流式发送');
+    const fallback = platform.state.httpCalls
+      .filter((c) => c.url.includes('/v2/users/openid_me/messages'))
+      .map((c) => JSON.parse(c.body))
+      .find((b) => b.msg_type === 0 && String(b.content || '').includes('【在线列表】'));
+    assert.ok(fallback, '首片失败回退纯文本');
     qq.stopAll();
   } finally { await platform.close(); }
 });

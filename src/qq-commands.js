@@ -32,8 +32,11 @@ function buildOnlineList(friends) {
   }));
   const nameW = Math.max(...rows.map((r) => displayWidth(r.name)));
   const text = `【在线列表】${online.length} 人在线\n${rows.map((r) => `${r.emoji} ${padEnd(r.name, nameW)}  ${r.world}`).join('\n')}`;
-  const markdown = `### 在线列表 (${online.length})\n\n| 昵称 | 世界 |\n| :--- | :--- |\n${rows.map((r) => `| ${r.emoji} ${r.name} | ${r.world} |`).join('\n')}`;
-  return { text, markdown };
+  const header = `### 在线列表 (${online.length})`;
+  const table = `| 昵称 | 世界 |\n| :--- | :--- |\n${rows.map((r) => `| ${r.emoji} ${r.name} | ${r.world} |`).join('\n')}`;
+  const markdown = `${header}\n\n${table}`;
+  // 流式输出: 第一片标题, 第二片完整表格
+  return { text, markdown, streamChunks: [header, `\n\n${table}`] };
 }
 
 function createQqCommands({ db, logger = null }) {

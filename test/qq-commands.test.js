@@ -19,7 +19,8 @@ test('buildOnlineList only includes game-online friends with name/world/emoji', 
     { friend_vrchat_id: 'usr_c', display_name: 'Carol', state: 'active', status: 'active', world_name: 'Web' },
     { friend_vrchat_id: 'usr_d', display_name: 'Dave', state: 'offline', status: 'busy', world_name: null }
   ];
-  const { text, markdown } = buildOnlineList(friends);
+  const r = buildOnlineList(friends);
+  const { text, markdown } = r;
   assert.ok(text.startsWith('【在线列表】2 人在线'));
   assert.ok(text.includes('🟢 Alice'));
   assert.ok(text.includes('🔵 Bob'));
@@ -32,6 +33,12 @@ test('buildOnlineList only includes game-online friends with name/world/emoji', 
   assert.ok(markdown.includes('| 🟢 Alice | The Black Cat |'));
   assert.ok(markdown.includes('| 🔵 Bob | 私密世界 |'));
   assert.ok(!markdown.includes('🟢在线'));
+  // 流式 2 片: 标题 + 完整表格
+  assert.equal(r.streamChunks.length, 2);
+  assert.equal(r.streamChunks[0], '### 在线列表 (2)');
+  assert.ok(r.streamChunks[1].includes('| 昵称 | 世界 |'));
+  assert.ok(r.streamChunks[1].includes('| 🟢 Alice | The Black Cat |'));
+  assert.equal(r.streamChunks[0] + r.streamChunks[1], markdown);
 });
 
 test('buildOnlineList empty returns no-online message', () => {
