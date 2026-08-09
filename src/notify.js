@@ -129,7 +129,7 @@ function createNotifier({ logger = null, fetchImpl = fetch, createTransport = nu
     try {
       const q = buildQq(change);
       const text = q.title + '\n' + q.message;
-      const result = await qq.sendText(user.id, text);
+      const result = await qq.sendText(user.id, text, { markdown: true });
       return result || { ok: false, reason: '发送失败' };
     } catch (e) {
       log.error(`[通知] QQ 推送失败: ${e.message}`);
@@ -138,10 +138,10 @@ function createNotifier({ logger = null, fetchImpl = fetch, createTransport = nu
   }
 
   /** 直接向绑定 QQ 用户发送原始文本(启动/恢复等系统消息, 不经模板) */
-  async function sendQqText(dbId, text) {
+  async function sendQqText(dbId, text, opts = {}) {
     if (!qq) return { ok: false, reason: '未配置QQ机器人' };
     try {
-      const result = await qq.sendText(dbId, text);
+      const result = await qq.sendText(dbId, text, opts);
       return result || { ok: false, reason: '发送失败' };
     } catch (e) {
       log.error(`[通知] QQ 文本推送失败: ${e.message}`);

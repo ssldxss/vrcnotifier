@@ -1,6 +1,7 @@
 ﻿'use strict';
 // 通知模板渲染与各渠道 payload 构建。
 
+const { statusEmoji } = require('./qq-commands');
 function renderTemplate(template, vars) {
   if (!template) return '';
   let result = String(template);
@@ -10,12 +11,21 @@ function renderTemplate(template, vars) {
   return result;
 }
 
+// 社交状态(status): active/join me/ask me/busy
+const SOCIAL_STATUS_LABELS = { active: '在线', 'join me': '加入我', 'ask me': '询问我', busy: '忙碌' };
 function statusLabel(status) {
-  const map = {
-    offline: '离线', active: '在线', 'join me': '加入我', 'ask me': '询问我', busy: '忙碌',
-    web: '网页端', online: '在线', unknown: '未知'
-  };
-  return map[status] || String(status);
+  return SOCIAL_STATUS_LABELS[status] || String(status);
+}
+
+// 在线状态(state): offline/active(网页在线)/online(游戏在线)
+const STATE_LABELS = { offline: '离线', active: '网页在线', online: '在线', web: '网页在线', unknown: '未知' };
+function stateLabel(state) {
+  return STATE_LABELS[state] || String(state);
+}
+
+/** 转义 markdown 特殊字符(昵称/世界名等动态内容插入前使用) */
+function escapeMd(s) {
+  return String(s).replace(/([\\`*_[\]{}()#+\-.>|~])/g, '\\$1');
 }
 
 /** RFC 2047 编码(用于 NTFY Title 等只支持 ASCII header 的场景) */
@@ -55,27 +65,31 @@ const NOTIFICATION_EMAIL_BODY = [
 function buildChangeVars(change) {
   const vars = {
     friendName: change.friendName || '',
+    oldState: stateLabel(change.oldState) || '未知',
+    newState: stateLabel(change.newState) || '未知',
     oldStatus: statusLabel(change.oldStatus) || '未知',
     newStatus: statusLabel(change.newStatus) || '未知',
+    oldStatusEmoji: statusEmoji(change.oldStatus),
+    newStatusEmoji: statusEmoji(change.newStatus),
     oldWorld: change.oldWorld || '-',
     newWorld: change.newWorld || '-',
     changeType: change.changeType || '',
     timestamp: change.timestamp || '',
     oldStatusDescription: change.oldStatusDescription || '无',
     newStatusDescription: change.newStatusDescription || '无',
-    oldPlatform: statusLabel(change.oldPlatform) || '未知',
-    newPlatform: statusLabel(change.newPlatform) || '未知',
+    oldPlatform: change.oldPlatform === 'web' ? '网页端' : (change.oldPlatform || '未知'),
+    newPlatform: change.newPlatform === 'web' ? '网页端' : (change.newPlatform || '未知'),
     notificationTitle: change.notificationTitle || '',
     notificationBody: change.notificationBody != null ? change.notificationBody : (change.newStatusDescription || ''),
     notificationCategory: change.notificationCategory || '',
     notificationCategoryLabel: change.notificationCategoryLabel || change.notificationCategory || '',
     categoryOrWorld: change.categoryOrWorld || ''
   };
-  vars.statusLines = buildStatusLines(vars).join('\n');
+  vars.statusLines = plainStatusLines(vars);
   return vars;
 }
 
-const DEFAULT_EMAIL_SUBJECT = '[VRC-Notifier] {changeType}: {friendName}';
+const DEFAULT_EMAIL_SUBJECT = '[VRC-Notifier] {friendName}{changeType}:';
 const DEFAULT_EMAIL_BODY = `
 <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;border:1px solid #ddd;border-radius:8px">
   <h2 style="margin-top:0">{changeType}</h2>
@@ -86,21 +100,29 @@ const DEFAULT_EMAIL_BODY = `
 
 
 
-/** QQ 状态变化消息: 有变化的字段放最前(旧 → 新), 无变化只显示当前值 */
+/** 状态变化消息结构: 社交行(emoji+自定义状态, 无则社交状态名, 变化用箭头), 其余字段变化放前 */
 function buildStatusLines(vars) {
+  const oldSocial = `${vars.oldStatusEmoji} ${vars.oldStatusDescription !== '无' ? vars.oldStatusDescription : vars.oldStatus}`;
+  const newSocial = `${vars.newStatusEmoji} ${vars.newStatusDescription !== '无' ? vars.newStatusDescription : vars.newStatus}`;
+  const social = oldSocial !== newSocial ? `${oldSocial} → ${newSocial}` : newSocial;
   const fields = [
-    { label: '状态', old: vars.oldStatus, cur: vars.newStatus },
+    { label: '状态', old: vars.oldState, cur: vars.newState },
     { label: '世界', old: vars.oldWorld, cur: vars.newWorld },
-    { label: '自定义状态', old: vars.oldStatusDescription, cur: vars.newStatusDescription },
     { label: '平台', old: vars.oldPlatform, cur: vars.newPlatform }
   ];
   const changed = [];
   const unchanged = [];
   for (const f of fields) {
-    const line = f.old !== f.cur ? `${f.label}: ${f.old} → ${f.cur}` : `${f.label}: ${f.cur}`;
-    (f.old !== f.cur ? changed : unchanged).push(line);
+    if (f.old !== f.cur) changed.push(`${f.label}: ${f.old} → ${f.cur}`);
+    else unchanged.push(`${f.label}: ${f.cur}`);
   }
-  return [...changed, ...unchanged];
+  return { social, socialChanged: oldSocial !== newSocial, changed, unchanged };
+}
+
+/** 纯文本拼接(Email/Gotify/NTFY 用) */
+function plainStatusLines(vars) {
+  const b = buildStatusLines(vars);
+  return [b.social, ...b.changed, ...b.unchanged].join('\n');
 }
 
 function buildEmail(change, opts = {}) {
@@ -126,7 +148,7 @@ function buildGotify(change, opts = {}) {
       extras: { 'client::display': { contentType: 'text/markdown' } }
     };
   }
-  const title = opts.titleTemplate ? renderTemplate(opts.titleTemplate, vars) : `${change.changeType}: ${change.friendName}`;
+  const title = opts.titleTemplate ? renderTemplate(opts.titleTemplate, vars) : `${change.friendName}${change.changeType}:`;
   const message = opts.messageTemplate ? renderTemplate(opts.messageTemplate, vars) : `${vars.statusLines}\n时间: ${vars.timestamp}`;
   return {
     title,
@@ -146,7 +168,7 @@ function buildNtfy(change, opts = {}) {
       tags: null
     };
   }
-  const title = opts.titleTemplate ? renderTemplate(opts.titleTemplate, vars) : `${change.changeType}: ${change.friendName}`;
+  const title = opts.titleTemplate ? renderTemplate(opts.titleTemplate, vars) : `${change.friendName}${change.changeType}:`;
   const message = opts.messageTemplate ? renderTemplate(opts.messageTemplate, vars) : `${vars.statusLines}\n时间: ${vars.timestamp}`;
   return { title, message, priority: opts.priority == null ? 3 : opts.priority, tags: null };
 }
@@ -155,12 +177,18 @@ function buildQq(change, opts = {}) {
   const vars = buildChangeVars(change);
   if (isVrcNotification(change)) {
     return {
-      title: opts.titleTemplate ? renderTemplate(opts.titleTemplate, vars) : vars.notificationTitle,
-      message: opts.messageTemplate ? renderTemplate(opts.messageTemplate, vars) : renderNotificationMessage(vars)
+      title: opts.titleTemplate ? renderTemplate(opts.titleTemplate, vars) : `# ${escapeMd(vars.notificationTitle)}`,
+      message: opts.messageTemplate ? renderTemplate(opts.messageTemplate, vars) : escapeMd(renderNotificationMessage(vars))
     };
   }
-  const title = opts.titleTemplate ? renderTemplate(opts.titleTemplate, vars) : `${change.changeType}: ${change.friendName}`;
-  const message = opts.messageTemplate ? renderTemplate(opts.messageTemplate, vars) : `${buildStatusLines(vars).join('\n')}\n时间: ${vars.timestamp}`;
+  const title = opts.titleTemplate ? renderTemplate(opts.titleTemplate, vars) : `# ${escapeMd(change.friendName)}${escapeMd(change.changeType)}`;
+  const b = buildStatusLines(vars);
+  const lines = [
+    b.socialChanged ? `**${escapeMd(b.social)}**` : escapeMd(b.social),
+    ...b.changed.map((l) => `**${escapeMd(l)}**`),
+    ...b.unchanged.map((l) => escapeMd(l))
+  ];
+  const message = opts.messageTemplate ? renderTemplate(opts.messageTemplate, vars) : `${lines.join('\n')}\n时间: ${vars.timestamp}`;
   return { title, message };
 }
 
@@ -205,6 +233,6 @@ function buildWebhook(change, opts = {}) {
 }
 
 module.exports = {
-  renderTemplate, statusLabel, encodeRfc2047, buildChangeVars,
+  renderTemplate, statusLabel, stateLabel, encodeRfc2047, escapeMd, buildChangeVars,
   buildEmail, buildGotify, buildNtfy, buildQq, buildWebhook
 };

@@ -1,12 +1,14 @@
 ﻿const test = require('node:test');
 const assert = require('node:assert');
 const {
-  renderTemplate, statusLabel, encodeRfc2047,
+  renderTemplate, statusLabel, stateLabel, encodeRfc2047,
   buildEmail, buildGotify, buildNtfy, buildQq, buildWebhook, buildChangeVars
 } = require('../src/templates');
 
 const change = {
-  friendName: '阿猫', oldStatus: 'offline', newStatus: 'active',
+  friendName: '阿猫',
+  oldState: 'offline', newState: 'online',
+  oldStatus: 'active', newStatus: 'join me',
   oldWorld: '-', newWorld: '咖啡厅', changeType: '上线',
   oldStatusDescription: '', newStatusDescription: '摸鱼中',
   oldPlatform: 'unknown', newPlatform: 'standalonewindows',
@@ -17,12 +19,19 @@ test('renderTemplate replaces {vars} and leaves unknown', () => {
   assert.equal(renderTemplate('hi {friendName} {nope}', { friendName: 'x' }), 'hi x {nope}');
 });
 
-test('statusLabel maps codes', () => {
-  assert.equal(statusLabel('offline'), '离线');
+test('statusLabel maps social statuses', () => {
+  assert.equal(statusLabel('active'), '在线');
   assert.equal(statusLabel('join me'), '加入我');
+  assert.equal(statusLabel('ask me'), '询问我');
   assert.equal(statusLabel('busy'), '忙碌');
-  assert.equal(statusLabel('web'), '网页端');
   assert.equal(statusLabel('unknown-x'), 'unknown-x');
+});
+
+test('stateLabel maps online states', () => {
+  assert.equal(stateLabel('offline'), '离线');
+  assert.equal(stateLabel('active'), '网页在线');
+  assert.equal(stateLabel('online'), '在线');
+  assert.equal(stateLabel('web'), '网页在线');
 });
 
 test('encodeRfc2047 encodes non-ascii, keeps ascii', () => {
@@ -33,10 +42,12 @@ test('encodeRfc2047 encodes non-ascii, keeps ascii', () => {
 
 test('buildChangeVars contains all documented keys', () => {
   const vars = buildChangeVars(change);
-  for (const k of ['friendName','oldStatus','newStatus','oldWorld','newWorld','changeType','timestamp','oldStatusDescription','newStatusDescription','oldPlatform','newPlatform']) {
+  for (const k of ['friendName','oldState','newState','oldStatus','newStatus','oldStatusEmoji','newStatusEmoji','oldWorld','newWorld','changeType','timestamp','oldStatusDescription','newStatusDescription','oldPlatform','newPlatform']) {
     assert.ok(k in vars, k);
   }
-  assert.equal(vars.newStatus, '在线');
+  assert.equal(vars.newState, '在线');
+  assert.equal(vars.newStatus, '加入我');
+  assert.equal(vars.newStatusEmoji, '🔵');
   assert.equal(vars.oldStatusDescription, '无');
 });
 
@@ -105,6 +116,7 @@ test('buildChangeVars includes notification fields', () => {
 
 test('buildQq renders notification style without status-change fields', () => {
   const q = buildQq(v2, {});
+  assert.ok(q.title.startsWith('# '), 'v2 标题为 # 大字');
   assert.ok(q.title.includes('Booped You!'));
   assert.ok(q.message.includes('hi'));
   assert.ok(q.message.includes('发送者: vrcntest'));
@@ -151,36 +163,56 @@ test('buildQq with empty body does not start with blank line', () => {
 test('buildQq status change: changed fields first, unchanged show value only', () => {
   const q = buildQq({
     friendName: 'vrcntest', changeType: '切换世界',
+    oldState: 'online', newState: 'online',
     oldStatus: 'join me', newStatus: 'join me',
     oldWorld: '私密世界', newWorld: '1KB mirror world',
     oldStatusDescription: '', newStatusDescription: '',
     oldPlatform: 'android', newPlatform: 'android',
     timestamp: '2026-08-08 14:36:36'
   }, {});
-  assert.equal(q.title, '切换世界: vrcntest');
-  assert.ok(q.message.startsWith('世界: 私密世界 → 1KB mirror world'));
-  assert.ok(q.message.includes('状态: 加入我'));
-  assert.ok(q.message.includes('自定义状态: 无'));
+  assert.equal(q.title, '# vrcntest切换世界');
+  assert.ok(q.message.startsWith('🔵 加入我'), '社交行固定第一(无自定义状态显示社交状态名)');
+  assert.ok(q.message.includes('**世界: 私密世界 → 1KB mirror world**'), '变化字段加粗');
+  assert.ok(q.message.includes('状态: 在线'));
   assert.ok(q.message.includes('平台: android'));
-  assert.ok(!q.message.includes('状态: 加入我 → 加入我'));
-  assert.ok(!q.message.includes('自定义状态: 无 → 无'));
+  assert.ok(!q.message.includes('状态: 在线 → 在线'));
+  assert.ok(!q.message.includes('社交:'));
+  assert.ok(!q.message.includes('自定义状态:'));
   assert.ok(!q.message.includes('平台: android → android'));
   assert.ok(q.message.indexOf('世界:') < q.message.indexOf('状态:'));
+});
+
+test('buildQq social status change uses arrow with emoji', () => {
+  const q = buildQq({
+    friendName: '阿猫', changeType: '状态变化',
+    oldState: 'online', newState: 'online',
+    oldStatus: 'ask me', newStatus: 'join me',
+    oldWorld: '咖啡厅', newWorld: '咖啡厅',
+    oldStatusDescription: '无', newStatusDescription: '无',
+    oldPlatform: 'android', newPlatform: 'android',
+    timestamp: '2026-08-09 12:00:00'
+  }, {});
+  assert.equal(q.title, '# 阿猫状态变化');
+  assert.ok(q.message.startsWith('**🟠 询问我 → 🔵 加入我**'), '社交状态变化用箭头并加粗');
+  assert.ok(q.message.includes('状态: 在线'));
 });
 
 test('buildGotify status change follows QQ format: changed first, unchanged show value only', () => {
   const g = buildGotify({
     friendName: 'vrcntest', changeType: '切换世界',
+    oldState: 'online', newState: 'online',
     oldStatus: 'join me', newStatus: 'join me',
     oldWorld: '私密世界', newWorld: '1KB mirror world',
     oldStatusDescription: '', newStatusDescription: '',
     oldPlatform: 'android', newPlatform: 'android',
     timestamp: '2026-08-08 14:36:36'
   }, { titleTemplate: null, messageTemplate: null });
-  assert.equal(g.title, '切换世界: vrcntest');
-  assert.ok(g.message.startsWith('世界: 私密世界 → 1KB mirror world'));
-  assert.ok(g.message.includes('状态: 加入我'));
-  assert.ok(!g.message.includes('状态: 加入我 → 加入我'));
+  assert.equal(g.title, 'vrcntest切换世界:');
+  assert.ok(g.message.startsWith('🔵 加入我'));
+  assert.ok(g.message.includes('世界: 私密世界 → 1KB mirror world'));
+  assert.ok(g.message.includes('状态: 在线'));
+  assert.ok(!g.message.includes('状态: 在线 → 在线'));
+  assert.ok(!g.message.includes('社交:'));
   assert.ok(g.message.indexOf('世界:') < g.message.indexOf('状态:'));
   assert.ok(g.message.endsWith('时间: 2026-08-08 14:36:36'));
 });
@@ -188,20 +220,25 @@ test('buildGotify status change follows QQ format: changed first, unchanged show
 test('buildNtfy status change follows QQ format', () => {
   const n = buildNtfy({
     friendName: 'vrcntest', changeType: '切换世界',
+    oldState: 'online', newState: 'online',
     oldStatus: 'join me', newStatus: 'join me',
     oldWorld: '私密世界', newWorld: '1KB mirror world',
     oldStatusDescription: '', newStatusDescription: '',
     oldPlatform: 'android', newPlatform: 'android',
     timestamp: '2026-08-08 14:36:36'
   }, {});
-  assert.equal(n.title, '切换世界: vrcntest');
-  assert.ok(n.message.startsWith('世界: 私密世界 → 1KB mirror world'));
-  assert.ok(!n.message.includes('状态: 加入我 → 加入我'));
+  assert.equal(n.title, 'vrcntest切换世界:');
+  assert.ok(n.message.startsWith('🔵 加入我'));
+  assert.ok(n.message.includes('世界: 私密世界 → 1KB mirror world'));
+  assert.ok(n.message.includes('状态: 在线'));
+  assert.ok(!n.message.includes('状态: 在线 → 在线'));
+  assert.ok(!n.message.includes('社交:'));
 });
 
 test('buildEmail status change body uses QQ-style status lines', () => {
   const mail = buildEmail({
     friendName: 'vrcntest', changeType: '切换世界',
+    oldState: 'online', newState: 'online',
     oldStatus: 'join me', newStatus: 'join me',
     oldWorld: '私密世界', newWorld: '1KB mirror world',
     oldStatusDescription: '', newStatusDescription: '',
@@ -209,10 +246,26 @@ test('buildEmail status change body uses QQ-style status lines', () => {
     timestamp: '2026-08-08 14:36:36'
   }, {});
   assert.ok(mail.subject.includes('切换世界'));
+  assert.ok(mail.html.includes('🔵 加入我'));
   assert.ok(mail.html.includes('世界: 私密世界 → 1KB mirror world'));
-  assert.ok(mail.html.includes('状态: 加入我'));
-  assert.ok(!mail.html.includes('状态: 加入我 → 加入我'));
+  assert.ok(mail.html.includes('状态: 在线'));
+  assert.ok(!mail.html.includes('状态: 在线 → 在线'));
+  assert.ok(!mail.html.includes('社交:'));
   assert.ok(!mail.html.includes('<table'));
+});
+
+test('buildQq escapes markdown special chars in dynamic content', () => {
+  const q = buildQq({
+    friendName: '*Zoloft*', changeType: '切换世界',
+    oldState: 'online', newState: 'online',
+    oldStatus: 'join me', newStatus: 'join me',
+    oldWorld: 'A|B', newWorld: 'C*D',
+    oldStatusDescription: '无', newStatusDescription: '无',
+    oldPlatform: 'android', newPlatform: 'android',
+    timestamp: '2026-08-09 21:28:05'
+  }, {});
+  assert.equal(q.title, '# \\*Zoloft\\*切换世界');
+  assert.ok(q.message.includes('**世界: A\\|B → C\\*D**'));
 });
 
 test('buildQq renders world line for invite', () => {

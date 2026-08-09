@@ -97,7 +97,7 @@ function createQqManager(opts = {}) {
     return res;
   }
 
-  async function sendText(dbId, text) {
+  async function sendText(dbId, text, opts = {}) {
     const bot = bots.get(dbId);
     if (!bot) return { ok: false, reason: '未配置QQ机器人' };
     const binding = db.getQqBinding(dbId, bot.appId);
@@ -105,7 +105,10 @@ function createQqManager(opts = {}) {
       return { ok: false, reason: '未绑定QQ用户: 请先在QQ中给机器人发送一条消息完成绑定' };
     }
     try {
-      await postMessage(bot, binding.openid, { msg_type: 0, content: truncate(text) });
+      const payload = opts.markdown
+        ? { msg_type: 2, markdown: { content: truncate(text) } }
+        : { msg_type: 0, content: truncate(text) };
+      await postMessage(bot, binding.openid, payload);
       const title = String(text).split('\n')[0] || '通知';
       log.info(`[通知] QQ 已推送: ${title}`);
       return { ok: true };
@@ -124,64 +127,17 @@ function createQqManager(opts = {}) {
     }
   }
 
-  // 流式输出(打字机效果): append 模式, index 从 0 递增, 结束片 input_state=10
-  // 默认按 opts.chunks 分片(如: 第一片标题/第二片完整表格), 否则逐字; 首片失败回退普通全文发送
-  async function sendStreamText(bot, openid, msgId, text, opts = {}) {
-    const chunkMs = opts.chunkMs ?? config.streamChunkMs ?? 20;
-    const fallbackText = opts.fallbackText !== undefined ? opts.fallbackText : text;
-    const chunks = Array.isArray(opts.chunks) && opts.chunks.length ? opts.chunks : Array.from(String(text || ''));
-    if (chunks.length <= 1) {
-      await sendTextMessage(bot, openid, msgId, text);
-      return;
-    }
-    let streamMsgId = null;
-    for (let i = 0; i < chunks.length; i++) {
-      const last = i === chunks.length - 1;
-      const payload = {
-        input_mode: 'append',
-        input_state: last ? 10 : 1,
-        index: i,
-        content_type: 'markdown',
-        content_raw: chunks[i],
-        msg_id: msgId,
-        msg_seq: 1
-      };
-      if (streamMsgId) payload.stream_msg_id = streamMsgId;
-      try {
-        const res = await postMessage(bot, openid, payload, 'stream_messages');
-        if (!streamMsgId) {
-          let data = null;
-          try { data = await res.json(); } catch (e) { /* 忽略 */ }
-          if (!data || !data.id) throw new Error('首片未返回 stream_msg_id');
-          streamMsgId = data.id;
-        }
-      } catch (e) {
-        log.warn(`[qq] 流式分片失败 index=${i}: ${e.message}`);
-        if (i === 0) {
-          await sendTextMessage(bot, openid, msgId, fallbackText); // 首片失败: 回退全文
-          return;
-        }
-        // 中途失败: 补发结束片, 避免 QQ 端一直生成中
-        try {
-          await postMessage(bot, openid, {
-            input_mode: 'append', input_state: 10, index: i,
-            content_type: 'markdown', content_raw: '', msg_id: msgId, msg_seq: 1, stream_msg_id: streamMsgId
-          }, 'stream_messages');
-        } catch (e2) { /* 忽略 */ }
-        return;
-      }
-      if (!last) await new Promise((r) => setTimeout(r, chunkMs));
-    }
-  }
-
   // 被动回复(绑定欢迎语等), 失败只告警不影响主流程
-  // reply 支持字符串或 { text, markdown }: 有 markdown 走流式逐字输出, 失败回退文本
+  // reply 支持字符串或 { text, markdown }: 有 markdown 走 msg_type=2, 失败回退文本
   async function sendPassive(bot, openid, msgId, reply) {
     if (reply && typeof reply === 'object' && reply.markdown) {
-      await sendStreamText(bot, openid, msgId, reply.markdown, {
-        fallbackText: reply.text || '',
-        chunks: reply.streamChunks
-      });
+      try {
+        await postMessage(bot, openid, { msg_type: 2, markdown: { content: truncate(reply.markdown) }, msg_id: msgId });
+        return;
+      } catch (e) {
+        log.warn(`[qq] Markdown 被动回复失败, 回退文本: ${e.message}`);
+      }
+      await sendTextMessage(bot, openid, msgId, reply.text || '');
       return;
     }
     await sendTextMessage(bot, openid, msgId, typeof reply === 'string' ? reply : String(reply || ''));

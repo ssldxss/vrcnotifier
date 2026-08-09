@@ -253,7 +253,7 @@ function createApp({
       tokenRequired: !!config.accessToken,
       confirmDelayMs: config.confirmDelayMs ?? 30000,
       snapshotIntervalMs: config.snapshotIntervalMs ?? 600000,
-      watchdogMs: config.watchdogMs ?? 600000,
+      watchdogMs: config.watchdogMs ?? 3600000,
       dedupeWindowMs: config.dedupeWindowMs ?? 30000,
       version: '0.1.0'
     });
@@ -512,7 +512,7 @@ function createApp({
       config: {
         confirmDelayMs: config.confirmDelayMs ?? 30000,
         snapshotIntervalMs: config.snapshotIntervalMs ?? 600000,
-        watchdogMs: config.watchdogMs ?? 600000,
+        watchdogMs: config.watchdogMs ?? 3600000,
         dedupeWindowMs: config.dedupeWindowMs ?? 30000
       }
     });

@@ -18,9 +18,9 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
   const WORLD_NAME_RETRY_BASE_MS = config.worldNameRetryBaseMs ?? 5000; // 与 WS 重连一致的退避起步
   const WORLD_NAME_RETRY_MAX_MS = config.worldNameRetryMaxMs ?? 3600 * 1000; // 退避封顶 1h, 封顶后保持不回退
   const UNKNOWN_WORLD_NAME = '未知世界';
-  const RECOVERY_TEXT = '✅ 服务已恢复, 好友监控运行中\n输入任意消息即可查看在线列表';
+  const RECOVERY_TEXT = '# ✅ 服务已恢复\n好友监控运行中\n输入任意消息即可查看在线列表';
   const snapshotIntervalMs = config.snapshotIntervalMs ?? 3600 * 1000;
-  const watchdogMs = config.watchdogMs ?? 10 * 60 * 1000;
+  const watchdogMs = config.watchdogMs ?? 3600 * 1000;
   const watchdogCheckMs = config.watchdogCheckMs ?? 60 * 1000;
   const maxWorldResolvesPerSnapshot = config.maxWorldResolvesPerSnapshot ?? 6;
   const statusCoalesceMs = config.statusCoalesceMs ?? 3000; // 状态变化+切世界合并窗口
@@ -69,8 +69,9 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
     const st = stateOf(user.vrchat_user_id);
     if (!st.open || !st.snapshotDone) return;
     const sendQq = (text, what) => {
+      const full = `${text}\n时间: ${formatLocalTime(now())}`;
       log.info(`[monitor] ${what} userId=${user.vrchat_user_id}`);
-      notifier.sendQqText(user.id, text)
+      notifier.sendQqText(user.id, full, { markdown: true })
         .then((r) => { if (r && !r.ok && r.reason) log.warn(`[monitor] ${what}发送失败: ${r.reason}`); })
         .catch((e) => log.error(`[monitor] ${what}发送失败: ${e.message}`));
     };
@@ -128,6 +129,16 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
     for (const [fid, timer] of pendingTimers) { clearTimeout(timer); }
     pendingTimers.clear();
     log.info(`[monitor] 停用用户 ${vrcId}`);
+  }
+
+  // 服务主动停止(ctrl+c / SIGTERM / docker)时向活跃用户推送 QQ 停止通知
+  async function sendShutdownNotice() {
+    const text = `# ⚠️ 服务已停止\n好友监控已关闭\n时间: ${formatLocalTime(now())}`;
+    const sends = [];
+    for (const { user } of sessions.values()) {
+      sends.push(notifier.sendQqText(user.id, text, { markdown: true }));
+    }
+    await Promise.allSettled(sends);
   }
 
   // ---------- 监控范围 ----------
@@ -642,7 +653,7 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
   }
 
   return {
-    activateUser, deactivateUser, activeUsers,
+    activateUser, deactivateUser, activeUsers, sendShutdownNotice,
     handlePipelineEvent, handleWsReconnect, runSnapshot, runWatchdog,
     startTimers, stopTimers, events,
     _debug: { nextAutoReconcileAt: () => (autoTimer ? autoAt : null) }

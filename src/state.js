@@ -139,6 +139,8 @@ function buildChange(transition, prev, next) {
   return {
     changeType: transition.changeType,
     notifyField: transition.notifyField,
+    oldState: prev.state,
+    newState: next.state,
     oldStatus: prev.status,
     newStatus: next.status,
     oldWorld: prev.worldName,

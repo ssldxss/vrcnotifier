@@ -66,7 +66,7 @@ test('sendGotify posts correct payload with token param', async () => {
     assert.equal(req.method, 'POST');
     assert.ok(req.url.includes('token=gtok'));
     const body = JSON.parse(req.body);
-    assert.equal(body.title, '上线: 阿猫');
+    assert.equal(body.title, '阿猫上线:');
     assert.equal(body.priority, 7);
     assert.ok(body.message.includes('咖啡厅'));
   } finally { server.close(); }
@@ -146,7 +146,7 @@ test('sendQq delegates to qq manager with built text; sendAll includes qq result
   assert.equal(r.ok, true);
   assert.equal(sent.length, 1);
   assert.equal(sent[0].dbId, 7);
-  assert.ok(sent[0].text.includes('上线: 阿猫'));
+  assert.ok(sent[0].text.includes('# 阿猫上线'));
   const all = await notifier.sendAll(user, change);
   assert.ok(all.qq && all.qq.ok === true);
 });

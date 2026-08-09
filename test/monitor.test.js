@@ -685,6 +685,7 @@ test('system: startup pushed after ws-open + first snapshot done', async () => {
   assert.equal(t.qqTexts.length, 1, '首次 ws 连接 + 首次对账完成 -> 推送启动说明');
   assert.ok(t.qqTexts[0].text.includes('服务已启动'));
   assert.ok(t.qqTexts[0].text.includes('输入任意'));
+  assert.ok(t.qqTexts[0].text.includes('时间:'), '启动说明带时间');
   // 重复 open 不再推启动
   t.monitor.events.emit('ws-open', { userId: user.vrchat_user_id, wasFailing: false });
   assert.equal(t.qqTexts.length, 1, '启动说明只推一次');
@@ -741,4 +742,15 @@ test('system: watchdog reconnect does not push recovery/connected notifications'
   t.monitor.events.emit('ws-open', { userId: user.vrchat_user_id, wasFailing: true, isWatchdog: true });
   assert.equal(t.qqTexts.length, 0, 'watchdog 重连不推恢复说明');
   assert.equal(t.notifications.length, 0, 'watchdog 重连不推已连接');
+});
+
+test('system: sendShutdownNotice pushes 服务已停止 to active users', async () => {
+  const t = setup();
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+  t.qqTexts.length = 0;
+  await t.monitor.sendShutdownNotice();
+  assert.equal(t.qqTexts.length, 1);
+  assert.ok(t.qqTexts[0].text.includes('服务已停止'));
+  assert.ok(t.qqTexts[0].text.includes('时间:'));
 });

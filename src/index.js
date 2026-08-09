@@ -97,7 +97,7 @@ function buildApplication(opts = {}) {
       confirmDelayMs: opts.confirmDelayMs ?? 30000,
       dedupeWindowMs: opts.dedupeWindowMs ?? 30000,
       snapshotIntervalMs: opts.snapshotIntervalMs ?? 3600 * 1000,
-      watchdogMs: opts.watchdogMs ?? 10 * 60 * 1000,
+      watchdogMs: opts.watchdogMs ?? 3600 * 1000,
       watchdogCheckMs: opts.watchdogCheckMs ?? 60 * 1000,
       ...(opts.monitor || {})
     },
@@ -210,7 +210,7 @@ async function main() {
     confirmDelayMs: envInt('CONFIRM_DELAY_MS', 30000),
     dedupeWindowMs: envInt('DEDUPE_WINDOW_MS', 30000),
     snapshotIntervalMs: envInt('SNAPSHOT_INTERVAL_MS', 3600 * 1000),
-    watchdogMs: envInt('WATCHDOG_MS', 10 * 60 * 1000),
+    watchdogMs: envInt('WATCHDOG_MS', 3600 * 1000),
     watchdogCheckMs: envInt('WATCHDOG_CHECK_MS', 60 * 1000),
     pingIntervalMs: envInt('WS_PING_INTERVAL_MS', 10000),
     reconnectMaxMs: envInt('RECONNECT_MAX_MS', 3600000),
@@ -227,8 +227,9 @@ async function main() {
 
   runtime.autoLogin().catch((e) => logger.warn(`[启动] 自动登录恢复失败: ${e.message}`));
 
-  const shutdown = () => {
+  const shutdown = async () => {
     logger.info('[退出] 正在停止监控与连接...');
+    try { await runtime.monitor.sendShutdownNotice(); } catch (e) { logger.warn(`[退出] 停止通知发送失败: ${e.message}`); }
     try { runtime.monitor.stopTimers(); } catch (e) { logger.warn(`[退出] stopTimers: ${e.message}`); }
     try { runtime.qq.stopAll(); } catch (e) { logger.warn(`[退出] qq.stopAll: ${e.message}`); }
     for (const { user } of runtime.monitor.activeUsers()) {
