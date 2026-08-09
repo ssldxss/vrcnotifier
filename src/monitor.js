@@ -586,7 +586,9 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
           worldName = '私密世界';
         }
         await applyFriendInput(user, id, {
-          state, status: f.status || 'active', statusDescription: f.statusDescription || null,
+          state,
+          status: state === 'offline' ? undefined : (f.status || 'active'),
+          statusDescription: state === 'offline' ? undefined : (f.statusDescription || null),
           worldId, worldName, platform: f.platform || null,
           displayName: f.displayName, avatarUrl: f.currentAvatarImageUrl || null,
           avatarThumbUrl: f.profilePicOverrideThumbnail || f.currentAvatarThumbnailImageUrl || null

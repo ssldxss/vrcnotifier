@@ -473,6 +473,22 @@ test('world name cached in db: repeat lookup skips api', async () => {
   assert.ok(c && c.world_name === '世界_wrld_a');
 });
 
+test('snapshot keeps social/custom status when friend offline via API list', async () => {
+  const t = setup({ onlineFriends: [onlineFriend('usr_f1')] });
+  const user = addUser(t.db);
+  addConfig(t.db, user.id, 'usr_f1');
+  await t.monitor.activateUser(user, t.vrcapi);
+  // 设置社交状态与自定义状态
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '1', { type: 'friend-online', content: { userId: 'usr_f1', location: 'wrld_a:1', user: { id: 'usr_f1', displayName: 'F1', status: 'join me', statusDescription: '摸鱼中' } } });
+  // 快照: API 把好友放入 offline 列表(status 返回 null)
+  t.vrcapi.friends = async ({ offline }) => (offline ? [{ id: 'usr_f1', displayName: 'F1', location: 'offline', status: null, statusDescription: null }] : []);
+  await t.monitor.runSnapshot(user.vrchat_user_id);
+  const f = t.db.getFriend(user.id, 'usr_f1');
+  assert.equal(f.state, 'offline');
+  assert.equal(f.status, 'join me');
+  assert.equal(f.status_description, '摸鱼中');
+});
+
 test('snapshot resolves world name for unmonitored friends too', async () => {
   let worldCalls = 0;
   const t = setup({ onlineFriends: [onlineFriend('usr_f1')] });
