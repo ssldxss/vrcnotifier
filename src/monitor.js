@@ -446,7 +446,8 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
         }
         case 'friend-offline': {
           const id = content.userId || content.user?.id;
-          await applyFriendInput(user, id, { state: 'offline', status: null, worldId: null, worldName: null, statusDescription: null, platform: content.platform || null });
+          // 下线保留社交状态与自定义状态, 仅更新在线状态/世界/平台
+          await applyFriendInput(user, id, { state: 'offline', worldId: null, worldName: null, platform: content.platform || null });
           break;
         }
         case 'friend-location': {
@@ -595,7 +596,7 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
       // 被监控但快照缺失的好友 → 视为离线
       for (const c of monitored) {
         if (!merged.has(c.friend_vrchat_id)) {
-          await applyFriendInput(user, c.friend_vrchat_id, { state: 'offline', status: null, worldId: null, worldName: null, statusDescription: null, platform: null });
+          await applyFriendInput(user, c.friend_vrchat_id, { state: 'offline', worldId: null, worldName: null, platform: null });
         }
       }
 

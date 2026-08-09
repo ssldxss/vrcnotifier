@@ -157,6 +157,21 @@ test('WS friend-offline: pending confirm after delay; cancel on revert', async (
   assert.equal(tset.notifications[0].change.changeType, '下线');
 });
 
+test('WS friend-offline keeps social status and custom status', async () => {
+  const t = setup();
+  const user = addUser(t.db);
+  addConfig(t.db, user.id, 'usr_f1');
+  await t.monitor.activateUser(user, t.vrcapi);
+  // 上线: 社交状态 join me + 自定义状态 摸鱼中
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '1', { type: 'friend-online', content: { userId: 'usr_f1', location: 'wrld_a:1', user: { id: 'usr_f1', displayName: 'F1', status: 'join me', statusDescription: '摸鱼中' } } });
+  // 下线: 保留社交状态与自定义状态
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '2', { type: 'friend-offline', content: { userId: 'usr_f1', platform: '' } });
+  const f = t.db.getFriend(user.id, 'usr_f1');
+  assert.equal(f.state, 'offline');
+  assert.equal(f.status, 'join me');
+  assert.equal(f.status_description, '摸鱼中');
+});
+
 test('pending 到期自动调 API 验证并确认下线', async () => {
   const t = setup({ confirmDelayMs: 20, now: () => Date.now(), onlineFriends: [onlineFriend('usr_f1')] });
   const user = addUser(t.db);
