@@ -120,7 +120,7 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
     sessions.set(user.vrchat_user_id, { vrcapi, user });
     log.info(`[monitor] 激活用户 ${user.display_name}(${user.vrchat_user_id})`);
     pipeline.connect(user.vrchat_user_id, user.display_name);
-    await runSnapshot(user.vrchat_user_id);
+    await runSnapshot(user.vrchat_user_id, { initial: true }); // 启动首次对账: 只建基线, 不补通知
   }
 
   function deactivateUser(vrcId) {
@@ -366,6 +366,7 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
         displayName: input.displayName || null, avatarUrl: input.avatarUrl || null, avatarThumbUrl: thumbUrl,
         lastSeen: now()
       });
+      if (opts.silent) return; // 启动首次对账: 只建基线, 不补通知
       // 首见: 以离线为基线判定转移, 上线即通知(与快照对账语义一致)
       const baseline = { state: 'offline', status: 'active', worldId: null, worldName: null, statusDescription: null, platform: 'unknown' };
       const result = applyChange(baseline, {
@@ -388,10 +389,19 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
       state: input.state, status: input.status, worldId: input.worldId,
       worldName: input.worldName, statusDescription: input.statusDescription, platform: input.platform
     }, { now, confirmDelayMs });
+    if (opts.silent) {
+      result.dbUpdate.pending_state = null;
+      result.dbUpdate.pending_at = null;
+    }
     db.updateFriendState(cur.id, { ...result.dbUpdate, last_seen: now() });
-    if (result.dbUpdate.pending_state) schedulePendingCheck(user, friendVrcId);
-    else clearPendingCheck(friendVrcId);
-    if (result.notify) {
+    if (opts.silent) {
+      clearPendingCheck(friendVrcId);
+    } else if (result.dbUpdate.pending_state) {
+      schedulePendingCheck(user, friendVrcId);
+    } else {
+      clearPendingCheck(friendVrcId);
+    }
+    if (!opts.silent && result.notify) {
       await dispatchChange(user, friendVrcId, { ...result.change, friendId: friendVrcId, newWorldId: result.dbUpdate.world_id }, opts.eventType);
     }
   }
@@ -564,6 +574,7 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
       const monitored = await monitoredConfigs(user);
       const monitoredIds = new Set(monitored.map((c) => c.friend_vrchat_id));
       let worldResolves = 0;
+      const applyOpts = opts.initial ? { silent: true } : {};
 
       for (const [id, f] of merged) {
         const state = deriveStateFromSnapshot(f, currentUser);
@@ -592,13 +603,13 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
           worldId, worldName, platform: f.platform || null,
           displayName: f.displayName, avatarUrl: f.currentAvatarImageUrl || null,
           avatarThumbUrl: f.profilePicOverrideThumbnail || f.currentAvatarThumbnailImageUrl || null
-        });
+        }, applyOpts);
       }
 
       // 被监控但快照缺失的好友 → 视为离线
       for (const c of monitored) {
         if (!merged.has(c.friend_vrchat_id)) {
-          await applyFriendInput(user, c.friend_vrchat_id, { state: 'offline', worldId: null, worldName: null, platform: null });
+          await applyFriendInput(user, c.friend_vrchat_id, { state: 'offline', worldId: null, worldName: null, platform: null }, applyOpts);
         }
       }
 

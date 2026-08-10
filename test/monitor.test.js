@@ -52,24 +52,21 @@ function addConfig(db, userId, friendId, over = {}) {
 const onlineFriend = (id, over = {}) => ({ id, displayName: `朋友${id}`, location: 'wrld_a:1~region(us)', status: 'active', statusDescription: null, platform: 'standalonewindows', currentAvatarImageUrl: 'https://x/a.png', ...over });
 const offlineFriend = (id) => ({ id, displayName: `朋友${id}`, location: 'offline', status: 'active', statusDescription: null, platform: 'web' });
 
-test('activateUser: snapshot builds baseline, notifies online friend once, dedupe on re-run', async () => {
+test('activateUser: 首次对账只建基线不补通知, 无变化对账不重复', async () => {
   const t = setup({ onlineFriends: [onlineFriend('usr_f1')], offlineFriends: [offlineFriend('usr_f2')] });
   const user = addUser(t.db);
   addConfig(t.db, user.id, 'usr_f1');
   addConfig(t.db, user.id, 'usr_f2');
   await t.monitor.activateUser(user, t.vrcapi);
   assert.equal(t.pipeline.connects.length, 1);
-  assert.equal(t.notifications.length, 1);
-  assert.equal(t.notifications[0].change.changeType, '上线');
-  assert.equal(t.notifications[0].change.friendName, '朋友usr_f1');
-  assert.equal(t.notifications[0].change.newWorld, '世界_wrld_a');
+  assert.equal(t.notifications.length, 0, '启动首次对账不补通知');
   const f1 = t.db.getFriend(user.id, 'usr_f1');
   assert.equal(f1.state, 'online');
   const f2 = t.db.getFriend(user.id, 'usr_f2');
   assert.equal(f2.state, 'offline');
-  // 再次快照: 无新变化, 不重复通知
+  // 后续对账: 无新变化, 不通知
   await t.monitor.runSnapshot(user.vrchat_user_id);
-  assert.equal(t.notifications.length, 1);
+  assert.equal(t.notifications.length, 0);
 });
 
 test('WS friend-online event notifies and updates DB', async () => {
@@ -198,8 +195,13 @@ test('standard mode monitors all enabled friends without limit', async () => {
   const user = addUser(t.db);
   for (let i = 0; i < 6; i++) addConfig(t.db, user.id, `usr_f${i}`);
   await t.monitor.activateUser(user, t.vrcapi);
-  const notified = t.notifications.filter((n) => n.change.changeType === '上线');
-  assert.equal(notified.length, 6);
+  assert.equal(t.notifications.length, 0, '启动首次对账不补通知');
+  // 每个好友切世界 → 全部触发通知(无监控数量上限)
+  for (let i = 0; i < 6; i++) {
+    await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'evt' + i, { type: 'friend-location', content: { userId: `usr_f${i}`, location: 'wrld_b:1', user: { id: `usr_f${i}`, displayName: `朋友usr_f${i}`, status: 'active' } } });
+  }
+  const notified = t.notifications.filter((n) => n.change.changeType === '切换世界');
+  assert.equal(notified.length, 6, '6 个好友都监控且无上限');
 });
 
 test('snapshot stores avatar image and thumb urls separately', async () => {

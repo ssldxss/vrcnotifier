@@ -2,6 +2,8 @@
 // SQLite 仓储层 (node:sqlite DatabaseSync)。
 
 const { DatabaseSync } = require('node:sqlite');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS users (
@@ -76,6 +78,10 @@ const SETTING_COLUMNS = {
 const MAX_DEDUPE_ROWS = 100000;
 
 function createDb(location = ':memory:', opts = {}) {
+  // 数据库文件路径的父目录不存在时先创建(如删除 data/ 后重启)
+  if (location !== ':memory:') {
+    try { fs.mkdirSync(path.dirname(location), { recursive: true }); } catch (e) { /* 创建失败交给打开阶段报错 */ }
+  }
   const db = new DatabaseSync(location);
   db.exec('PRAGMA journal_mode = WAL');
   db.exec(SCHEMA);

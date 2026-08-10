@@ -146,6 +146,19 @@ test('world_cache: upsert, get, overwrite', () => {
   assert.equal(c3.retry_at, 9000);
 });
 
+test('createDb creates missing parent directory automatically', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vrcnt-db-'));
+  const dbPath = path.join(dir, 'nested', 'sub', 'test.db');
+  try {
+    const db = createDb(dbPath);
+    db.setSetting('k', 'v');
+    assert.equal(db.getSetting('k'), 'v');
+    assert.ok(fs.existsSync(dbPath), '数据库文件已创建');
+  } finally {
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) { /* 临时文件句柄未释放时忽略清理 */ }
+  }
+});
+
 test('legacy db migration moves notify columns into settings', () => {
   const { DatabaseSync } = require('node:sqlite');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vrcnt-db-'));
