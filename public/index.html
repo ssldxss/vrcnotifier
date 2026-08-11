@@ -44,6 +44,7 @@ button:disabled { opacity: 0.5; cursor: default; }
   .friend .avatar-fallback { width: 36px; height: 36px; border-radius: 50%; flex: 0 0 auto; display: none; align-items: center; justify-content: center; background: var(--line); color: var(--muted); font-size: 15px; font-weight: 600; }
   .friend .name { flex: 1; min-width: 0; }
 .friend .state { font-size: 12px; color: var(--muted); }
+.group-title { font-size: 13px; color: var(--muted); margin: 12px 0 2px; font-weight: 600; }
 .friend .checks { display: flex; gap: 12px; font-size: 12px; white-space: nowrap; }
 .friend label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
 .switch { position: relative; width: 34px; height: 18px; flex: 0 0 auto; }
@@ -138,7 +139,7 @@ h3.chan { font-size: 13px; margin: 14px 0 4px; color: var(--muted); }
   <section id='tab-friends' class='hidden'>
     <div class='card'>
       <h2>好友监控 <span class='muted' id='friendsCount'></span></h2>
-      <p class='muted'>启用监控开关即开始检测该好友; 仅状态模式不推送世界变化。</p>
+      <p class='muted'>特别关注的好友在列表中优先展示(含离线); 小开关控制对应通知。</p>
       <div id='friendsList'></div>
     </div>
   </section>
@@ -401,11 +402,11 @@ function renderFriends() {
     $('#friendsCount').textContent = '';
     return;
   }
-  const monitored = friendsCache.filter((f) => f.config && f.config.monitor_enabled === 1);
-  $('#friendsCount').textContent = '已监控 ' + monitored.length + '/' + friendsCache.length;
+  $('#friendsCount').textContent = '共 ' + friendsCache.length + ' 人';
   list.innerHTML = '';
-  for (const f of friendsCache) {
+  const renderRow = (f) => {
     const c = f.config || {};
+    const isOn = (v) => v === 1; // 小开关默认关闭
     const row = document.createElement('div');
     row.className = 'friend';
     row.dataset.id = f.friend_vrchat_id;
@@ -416,18 +417,29 @@ function renderFriends() {
     const worldTxt = f.world_id === 'private' ? '私密世界' : (f.world_name || '');
     row.innerHTML =
       avatarHtml +
-      '<label class=switch><input type=checkbox class=monitor' + (c.monitor_enabled ? ' checked' : '') + '><span class=slider></span></label>' +
+      '<label class=switch title=特别关注><input type=checkbox class=favorite' + (c.favorite ? ' checked' : '') + '><span class=slider></span></label>' +
       '<div class=name>' + escapeHtml(f.display_name || f.friend_vrchat_id) +
       '<div class=state>' + stateLabel(f.state) + (worldTxt ? ' · ' + escapeHtml(worldTxt) : '') +
       (f.status_description ? ' · ' + escapeHtml(f.status_description) : '') + '</div></div>' +
       '<div class=checks>' +
-      '<label><input type=checkbox data-k=notify_online' + (c.notify_online ? ' checked' : '') + '>上线</label>' +
-      '<label><input type=checkbox data-k=notify_offline' + (c.notify_offline ? ' checked' : '') + '>下线</label>' +
-      '<label><input type=checkbox data-k=notify_status_change' + (c.notify_status_change ? ' checked' : '') + '>状态</label>' +
-      '<label><input type=checkbox data-k=notify_world_change' + (c.notify_world_change ? ' checked' : '') + '>世界</label>' +
+      '<label><input type=checkbox data-k=notify_online' + (isOn(c.notify_online) ? ' checked' : '') + '>上线</label>' +
+      '<label><input type=checkbox data-k=notify_offline' + (isOn(c.notify_offline) ? ' checked' : '') + '>下线</label>' +
+      '<label><input type=checkbox data-k=notify_status_change' + (isOn(c.notify_status_change) ? ' checked' : '') + '>状态</label>' +
+      '<label><input type=checkbox data-k=notify_world_change' + (isOn(c.notify_world_change) ? ' checked' : '') + '>世界</label>' +
       '</div>';
     list.appendChild(row);
-  }
+  };
+  const favList = friendsCache.filter((f) => f.config && f.config.favorite === 1);
+  const otherList = friendsCache.filter((f) => !(f.config && f.config.favorite === 1));
+  const addGroup = (title, list2) => {
+    const g = document.createElement('div');
+    g.className = 'group-title';
+    g.textContent = title;
+    list.appendChild(g);
+    list2.forEach(renderRow);
+  };
+  if (favList.length) addGroup('⭐ 特别关注 (' + favList.length + ')', favList);
+  if (otherList.length) addGroup('其他好友 (' + otherList.length + ')', otherList);
 }
 
 $('#friendsList').addEventListener('change', async (e) => {
@@ -438,7 +450,7 @@ $('#friendsList').addEventListener('change', async (e) => {
   const cur = friendsCache.find((f) => f.friend_vrchat_id === id) || {};
   const c = cur.config || {};
   const body = {
-    monitorEnabled: !!row.querySelector('.monitor').checked,
+    favorite: !!row.querySelector('.favorite').checked,
     notifyOnline: !!row.querySelector('[data-k=notify_online]').checked,
     notifyOffline: !!row.querySelector('[data-k=notify_offline]').checked,
     notifyStatusChange: !!row.querySelector('[data-k=notify_status_change]').checked,
@@ -447,7 +459,7 @@ $('#friendsList').addEventListener('change', async (e) => {
   const r = await api('PUT', '/api/friends/' + encodeURIComponent(id) + '/config', body);
   if (r.data.ok) {
     cur.config = r.data.config;
-    log('已更新监控配置: ' + (cur.display_name || id));
+    log('已更新好友配置: ' + (cur.display_name || id));
   } else {
     log(r.data.error || '配置保存失败', 'err');
   }

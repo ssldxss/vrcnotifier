@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS friends (
 CREATE TABLE IF NOT EXISTS monitor_config (
   user_id INTEGER NOT NULL,
   friend_vrchat_id TEXT NOT NULL,
-  monitor_enabled INTEGER DEFAULT 0,
+  favorite INTEGER DEFAULT 0,
   notify_online INTEGER DEFAULT 1,
   notify_offline INTEGER DEFAULT 1,
   notify_status_change INTEGER DEFAULT 1,
@@ -91,6 +91,8 @@ function createDb(location = ':memory:', opts = {}) {
   // 旧库补充: world_cache 补失败退避列(已存在则忽略)
   try { db.exec('ALTER TABLE world_cache ADD COLUMN fail_count INTEGER NOT NULL DEFAULT 0'); } catch (e) { /* 已存在 */ }
   try { db.exec('ALTER TABLE world_cache ADD COLUMN retry_at INTEGER NOT NULL DEFAULT 0'); } catch (e) { /* 已存在 */ }
+  // 旧库补充: monitor_config 补 favorite 列(已存在则忽略)
+  try { db.exec('ALTER TABLE monitor_config ADD COLUMN favorite INTEGER DEFAULT 0'); } catch (e) { /* 已存在 */ }
   const stmt = {
     upsertUser: db.prepare(`INSERT INTO users (vrchat_user_id, username, display_name, avatar_url)
       VALUES (?, ?, ?, ?)
@@ -132,10 +134,10 @@ function createDb(location = ':memory:', opts = {}) {
         state = ?, status = ?, world_id = ?, world_name = ?, status_description = ?, platform = ?,
         pending_state = ?, pending_at = ?, last_seen = ?, updated_at = datetime('now')
       WHERE id = ?`),
-    upsertConfig: db.prepare(`INSERT INTO monitor_config (user_id, friend_vrchat_id, monitor_enabled, notify_online, notify_offline, notify_status_change, notify_world_change)
+    upsertConfig: db.prepare(`INSERT INTO monitor_config (user_id, friend_vrchat_id, favorite, notify_online, notify_offline, notify_status_change, notify_world_change)
       VALUES (?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(user_id, friend_vrchat_id) DO UPDATE SET
-        monitor_enabled = excluded.monitor_enabled,
+        favorite = excluded.favorite,
         notify_online = excluded.notify_online,
         notify_offline = excluded.notify_offline,
         notify_status_change = excluded.notify_status_change,
@@ -143,7 +145,6 @@ function createDb(location = ':memory:', opts = {}) {
         updated_at = datetime('now')`),
     getConfig: db.prepare('SELECT * FROM monitor_config WHERE user_id = ? AND friend_vrchat_id = ?'),
     listConfigs: db.prepare('SELECT * FROM monitor_config WHERE user_id = ?'),
-    disableAllConfigs: db.prepare(`UPDATE monitor_config SET monitor_enabled = 0, updated_at = datetime('now') WHERE user_id = ?`),
     getSetting: db.prepare('SELECT value FROM settings WHERE key = ?'),
     setSetting: db.prepare(`INSERT INTO settings (key, value) VALUES (?, ?)
       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')`),
@@ -266,12 +267,11 @@ function createDb(location = ':memory:', opts = {}) {
       );
     },
     // monitor config
-    upsertConfig(dbId, friendVrcId, { monitorEnabled, notifyOnline = true, notifyOffline = true, notifyStatusChange = true, notifyWorldChange = true }) {
-      stmt.upsertConfig.run(dbId, friendVrcId, monitorEnabled ? 1 : 0, notifyOnline ? 1 : 0, notifyOffline ? 1 : 0, notifyStatusChange ? 1 : 0, notifyWorldChange ? 1 : 0);
+    upsertConfig(dbId, friendVrcId, { favorite = false, notifyOnline = true, notifyOffline = true, notifyStatusChange = true, notifyWorldChange = true }) {
+      stmt.upsertConfig.run(dbId, friendVrcId, favorite ? 1 : 0, notifyOnline ? 1 : 0, notifyOffline ? 1 : 0, notifyStatusChange ? 1 : 0, notifyWorldChange ? 1 : 0);
     },
     getConfig: (dbId, friendVrcId) => stmt.getConfig.get(dbId, friendVrcId) || null,
     listConfigs: (dbId) => stmt.listConfigs.all(dbId),
-    disableAllConfigs: (dbId) => stmt.disableAllConfigs.run(dbId),
     // settings
     getSetting(key) { const r = stmt.getSetting.get(key); return r ? r.value : null; },
     setSetting(key, value) { stmt.setSetting.run(key, value); },

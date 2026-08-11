@@ -330,6 +330,20 @@ test('friend-update status change active->busy notifies 状态变化', async () 
   assert.equal(t.notifications[0].change.changeType, '状态变化');
 });
 
+test('friend-update missing status keeps existing social/custom status', async () => {
+  const t = setup({ onlineFriends: [onlineFriend('usr_f1', { status: 'join me' })] });
+  const user = addUser(t.db);
+  addConfig(t.db, user.id, 'usr_f1');
+  await t.monitor.activateUser(user, t.vrcapi);
+  // 先设置自定义状态
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '1', { type: 'friend-update', content: { userId: 'usr_f1', user: { id: 'usr_f1', displayName: 'F1', status: 'join me', statusDescription: '摸鱼中' } } });
+  // friend-update 不带 status/statusDescription -> 继承旧值
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '2', { type: 'friend-update', content: { userId: 'usr_f1', user: { id: 'usr_f1', displayName: 'F1' } } });
+  const f = t.db.getFriend(user.id, 'usr_f1');
+  assert.equal(f.status, 'join me');
+  assert.equal(f.status_description, '摸鱼中');
+});
+
 test('friend status->ask me + location->private merges into one 切换世界 showing both changes', async () => {
   const t = setup({ statusCoalesceMs: 5000, onlineFriends: [onlineFriend('usr_f1', { status: 'active' })] });
   const user = addUser(t.db);
@@ -374,6 +388,16 @@ test('two distinct status changes within dedupe window both notify', async () =>
   assert.equal(t.notifications.length, 2, '不同状态变化不应被去重');
   assert.equal(t.notifications[0].change.newStatus, 'join me');
   assert.equal(t.notifications[1].change.newStatus, 'busy');
+});
+
+test('自定义状态变化受状态开关(notify_status_change)控制', async () => {
+  const t = setup({ onlineFriends: [onlineFriend('usr_f1')] });
+  const user = addUser(t.db);
+  addConfig(t.db, user.id, 'usr_f1', { notifyStatusChange: false });
+  await t.monitor.activateUser(user, t.vrcapi);
+  t.notifications.length = 0;
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '1', { type: 'friend-update', content: { userId: 'usr_f1', user: { id: 'usr_f1', displayName: 'F1', status: 'active', statusDescription: '摸鱼中' } } });
+  assert.equal(t.notifications.length, 0, '状态开关关闭时自定义状态变化不通知');
 });
 
 test('session 401 during snapshot emits session-expired and deactivates', async () => {

@@ -88,19 +88,16 @@ test('friends: avatar_thumb_url stored and updated via profile', () => {
   assert.equal(db2.getFriend(uid2, 'usr_f1').avatar_thumb_url, 'b');
 });
 
-test('monitor_config: upsert, list, disable all', () => {
+test('monitor_config: upsert, list, favorite', () => {
   const db = newDb();
   const uid = db.upsertUser('usr_1', { username: 'u1', displayName: 'n', avatarUrl: null });
-  db.upsertConfig(uid, 'usr_f1', { monitorEnabled: true, notifyOnline: false, notifyOffline: true });
-  db.upsertConfig(uid, 'usr_f2', { monitorEnabled: true });
+  db.upsertConfig(uid, 'usr_f1', { favorite: true, notifyOnline: false, notifyOffline: true });
+  db.upsertConfig(uid, 'usr_f2', {});
   let configs = db.listConfigs(uid);
   assert.equal(configs.length, 2);
   const c = db.getConfig(uid, 'usr_f1');
-  assert.equal(c.monitor_enabled, 1);
+  assert.equal(c.favorite, 1);
   assert.equal(c.notify_online, 0);
-  db.disableAllConfigs(uid);
-  configs = db.listConfigs(uid);
-  assert.equal(configs.filter((x) => x.monitor_enabled === 1).length, 0);
 });
 
 test('settings get/set and notif dedupe window', () => {

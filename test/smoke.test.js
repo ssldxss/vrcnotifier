@@ -135,9 +135,9 @@ test('end-to-end: login → refresh → configure → ws event → webhook notif
   assert.ok(refresh.data.friends.some((f) => f.friend_vrchat_id === 'usr_f1'));
 
   // 3. 配置监控 + 开启 webhook 渠道
-  const cfg = await json('PUT', '/api/friends/usr_f1/config', { monitorEnabled: true });
+  const cfg = await json('PUT', '/api/friends/usr_f1/config', { favorite: true });
   assert.equal(cfg.status, 200);
-  assert.equal(cfg.data.config.monitor_enabled, 1);
+  assert.equal(cfg.data.config.favorite, 1);
   const settings = await json('PUT', '/api/settings', { webhook_enabled: true, webhook_url: hook.url });
   assert.equal(settings.status, 200);
 

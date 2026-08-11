@@ -21,20 +21,31 @@ function padEnd(s, len) {
   return String(s || '') + ' '.repeat(Math.max(0, len - displayWidth(s)));
 }
 
-/** 在线列表: 只统计游戏在线(state=online), 列: 状态圆点 + 昵称 + 世界名。返回 { text, markdown } 供通道选择渲染 */
+/** 在线列表: 特别关注好友(不管在线与否)优先, 其余游戏在线好友; 列: 状态圆点 + 昵称 + 世界名 */
 function buildOnlineList(friends) {
-  const online = (friends || []).filter((f) => f.state === 'online');
-  if (!online.length) return { text: '当前没有游戏在线的朋友。' };
-  const rows = online.map((f) => ({
-    emoji: statusEmoji(f.status),
+  const all = friends || [];
+  const fav = all.filter((f) => f.favorite === 1);
+  const online = all.filter((f) => f.favorite !== 1 && f.state === 'online');
+  const toRows = (list) => list.map((f) => ({
+    emoji: f.state === 'online' ? statusEmoji(f.status) : '⚪',
     name: f.display_name || f.friend_vrchat_id || '?',
-    world: f.world_name || '-'
+    world: f.state === 'online' ? (f.world_name || '-') : '离线'
   }));
-  const nameW = Math.max(...rows.map((r) => displayWidth(r.name)));
-  const text = `【在线列表】${online.length} 人在线\n${rows.map((r) => `${r.emoji} ${padEnd(r.name, nameW)}  ${r.world}`).join('\n')}`;
-  const header = `# 在线列表 (${online.length})`;
-  const table = `| 昵称 | 世界 |\n| :--- | :--- |\n${rows.map((r) => `| ${r.emoji} ${r.name} | ${r.world} |`).join('\n')}`;
-  const markdown = `${header}\n\n${table}`;
+  if (!fav.length && !online.length) return { text: '当前没有游戏在线的朋友。' };
+  const onlineCount = all.filter((f) => f.state === 'online').length;
+  const renderTable = (rows) => `| 昵称 | 世界 |\n| :--- | :--- |\n${rows.map((r) => `| ${r.emoji} ${r.name} | ${r.world} |`).join('\n')}`;
+  const sections = [];
+  if (fav.length) sections.push(`## ⭐ 特别关注\n\n${renderTable(toRows(fav))}`);
+  if (online.length) sections.push(`## 其他在线\n\n${renderTable(toRows(online))}`);
+  const header = `# 在线列表 (${onlineCount})`;
+  const markdown = `${header}\n\n${sections.join('\n\n')}`;
+  // 纯文本: 同样分块
+  const allRows = [...toRows(fav), ...toRows(online)];
+  const nameW = Math.max(...allRows.map((r) => displayWidth(r.name)));
+  const textParts = [`【在线列表】${onlineCount} 人在线`];
+  if (fav.length) textParts.push(`【特别关注】\n${toRows(fav).map((r) => `${r.emoji} ${padEnd(r.name, nameW)}  ${r.world}`).join('\n')}`);
+  if (online.length) textParts.push(`【其他在线】\n${toRows(online).map((r) => `${r.emoji} ${padEnd(r.name, nameW)}  ${r.world}`).join('\n')}`);
+  const text = textParts.join('\n');
   return { text, markdown };
 }
 
@@ -43,7 +54,12 @@ function createQqCommands({ db, logger = null }) {
   return async function handleCommand(ctx) {
     const { dbId } = ctx;
     // 只有在线列表一个功能: 首次提示由绑定消息承担, 任意输入直接输出表格
-    const reply = buildOnlineList(db.listFriends(dbId));
+    const configs = new Map(db.listConfigs(dbId).map((c) => [c.friend_vrchat_id, c]));
+    const friends = db.listFriends(dbId).map((f) => ({
+      ...f,
+      favorite: configs.get(f.friend_vrchat_id)?.favorite === 1 ? 1 : 0
+    }));
+    const reply = buildOnlineList(friends);
     log.info('[qq] 命令: 在线列表');
     return reply;
   };

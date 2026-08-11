@@ -141,11 +141,6 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
     await Promise.allSettled(sends);
   }
 
-  // ---------- 监控范围 ----------
-  async function monitoredConfigs(user) {
-    return db.listConfigs(user.id).filter((c) => c.monitor_enabled === 1);
-  }
-
   // ---------- 世界名 ----------
   function worldCacheFresh(worldId) {
     const c = db.getWorldCache(worldId);
@@ -184,11 +179,10 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
   // ---------- 通知 ----------
   async function dispatchNotification(user, friendVrcId, change) {
     if (!change) return;
+    // 无总开关: 所有好友可被监控; 无配置行时小开关默认关闭(不通知)
     const config = db.getConfig(user.id, friendVrcId);
-    if (!config || config.monitor_enabled !== 1) return;
+    if (!config) return;
     if (change.notifyField && config[change.notifyField] !== 1) return;
-    const monitored = new Set((await monitoredConfigs(user)).map((c) => c.friend_vrchat_id));
-    if (!monitored.has(friendVrcId)) return;
 
     // 去重 key 含新旧状态: 同一朋友短时间内不同的状态变化不应被吞掉
     const key = `${user.id}|${friendVrcId}|${change.changeType}|${change.newWorldId || ''}|${change.oldStatus || ''}>${change.newStatus || ''}`;
@@ -484,8 +478,8 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
           const world = loc && !loc.isReal && u.location === 'private' ? { worldId: 'private', worldName: '私密世界' } : {};
           await applyFriendInput(user, u.id, {
             state: existing ? existing.state : undefined,
-            status: u.status || null,
-            statusDescription: u.statusDescription !== undefined ? u.statusDescription : null,
+            status: u.status !== undefined ? u.status : undefined, // 缺失时继承旧值
+            statusDescription: u.statusDescription !== undefined ? u.statusDescription : undefined,
             platform: u.last_platform || null,
             displayName: u.displayName, avatarUrl: u.currentAvatarImageUrl, avatarThumbUrl: u.profilePicOverrideThumbnail || u.currentAvatarThumbnailImageUrl,
             ...world
@@ -571,8 +565,6 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
       for (const f of online) if (f && f.id) merged.set(f.id, f);
       for (const f of offline) if (f && f.id && !merged.has(f.id)) merged.set(f.id, f);
 
-      const monitored = await monitoredConfigs(user);
-      const monitoredIds = new Set(monitored.map((c) => c.friend_vrchat_id));
       let worldResolves = 0;
       const applyOpts = opts.initial ? { silent: true } : {};
 
@@ -606,10 +598,10 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
         }, applyOpts);
       }
 
-      // 被监控但快照缺失的好友 → 视为离线
-      for (const c of monitored) {
-        if (!merged.has(c.friend_vrchat_id)) {
-          await applyFriendInput(user, c.friend_vrchat_id, { state: 'offline', worldId: null, worldName: null, platform: null }, applyOpts);
+      // 快照缺失的已入库好友 → 视为离线
+      for (const f of db.listFriends(user.id)) {
+        if (!merged.has(f.friend_vrchat_id)) {
+          await applyFriendInput(user, f.friend_vrchat_id, { state: 'offline', worldId: null, worldName: null, platform: null }, applyOpts);
         }
       }
 

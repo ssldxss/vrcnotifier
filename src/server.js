@@ -439,7 +439,7 @@ function createApp({
     if (!current) return res.status(401).json({ error: '未登录' });
     const body = req.body || {};
     db.upsertConfig(current.dbId, req.params.friendId, {
-      monitorEnabled: !!body.monitorEnabled,
+      favorite: !!body.favorite,
       notifyOnline: body.notifyOnline !== undefined ? !!body.notifyOnline : true,
       notifyOffline: body.notifyOffline !== undefined ? !!body.notifyOffline : true,
       notifyStatusChange: body.notifyStatusChange !== undefined ? !!body.notifyStatusChange : true,
@@ -447,7 +447,7 @@ function createApp({
     });
     const cfg = db.getConfig(current.dbId, req.params.friendId);
     const friend = db.getFriend(current.dbId, req.params.friendId);
-    log.info(`[server] 更新监控配置: 好友=${(friend && friend.display_name) || req.params.friendId}, 监控=${cfg ? (cfg.monitor_enabled ? '开' : '关') : '?'}, 上线=${cfg ? cfg.notify_online : '?'}, 下线=${cfg ? cfg.notify_offline : '?'}, 状态=${cfg ? cfg.notify_status_change : '?'}, 世界=${cfg ? cfg.notify_world_change : '?'}`);
+    log.info(`[server] 更新监控配置: 好友=${(friend && friend.display_name) || req.params.friendId}, 特别关注=${cfg ? (cfg.favorite ? '开' : '关') : '?'}, 上线=${cfg ? cfg.notify_online : '?'}, 下线=${cfg ? cfg.notify_offline : '?'}, 状态=${cfg ? cfg.notify_status_change : '?'}, 世界=${cfg ? cfg.notify_world_change : '?'}`);
     return res.json({ ok: true, config: cfg });
   });
 

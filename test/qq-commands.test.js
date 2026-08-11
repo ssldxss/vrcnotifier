@@ -41,6 +41,27 @@ test('buildOnlineList empty returns no-online message', () => {
   assert.equal(r.markdown, undefined);
 });
 
+test('buildOnlineList puts favorites first and includes offline favorites', () => {
+  const friends = [
+    { friend_vrchat_id: 'usr_a', display_name: 'Alice', state: 'online', status: 'active', world_name: 'WorldX' },
+    { friend_vrchat_id: 'usr_b', display_name: 'Bob', state: 'offline', status: 'busy', world_name: null, favorite: 1 },
+    { friend_vrchat_id: 'usr_c', display_name: 'Carol', state: 'online', status: 'join me', world_name: 'WorldY', favorite: 1 },
+    { friend_vrchat_id: 'usr_d', display_name: 'Dave', state: 'offline', status: 'busy', world_name: null }
+  ];
+  const r = buildOnlineList(friends);
+  assert.ok(r.text.startsWith('【在线列表】2 人在线'));
+  assert.ok(r.text.includes('【特别关注】'));
+  assert.ok(r.text.includes('【其他在线】'));
+  assert.ok(r.text.indexOf('Bob') < r.text.indexOf('【其他在线】'), '特别关注与普通好友分块');
+  assert.ok(r.text.indexOf('Alice') > r.text.indexOf('【其他在线】'), '普通在线在其他块');
+  assert.ok(r.text.includes('⚪ Bob'), '离线特别关注显示 ⚪');
+  assert.ok(r.text.includes('离线'), '离线行世界显示 离线');
+  assert.ok(!r.text.includes('Dave'), '非特别关注离线不显示');
+  assert.ok(r.markdown.includes('## ⭐ 特别关注'));
+  assert.ok(r.markdown.includes('## 其他在线'));
+  assert.ok(r.markdown.includes('| ⚪ Bob | 离线 |'));
+});
+
 test('createQqCommands: 任意输入都直接输出在线列表', async () => {
   const db = createDb(':memory:');
   const id = db.upsertUser('usr_me', { username: 'me', displayName: '我', avatarUrl: null });

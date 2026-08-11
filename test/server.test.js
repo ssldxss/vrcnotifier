@@ -276,12 +276,12 @@ test('PUT friend config persists and reflects in list', async (t) => {
   const ctx = setup({ onlineFriends: [{ id: 'usr_f1', displayName: '朋友1', location: 'wrld_a:1', status: 'active' }] });
   t.after(() => close(ctx));
   await post(ctx, '/api/login', { username: 'me', password: 'pw' });
-  const r = await put(ctx, '/api/friends/usr_f1/config', { monitorEnabled: true, notifyOnline: true, notifyOffline: false });
+  const r = await put(ctx, '/api/friends/usr_f1/config', { favorite: true, notifyOnline: true, notifyOffline: false });
   assert.equal(r.status, 200);
-  assert.equal(r.data.config.monitor_enabled, 1);
+  assert.equal(r.data.config.favorite, 1);
   const list = await get(ctx, '/api/friends');
   const f1 = list.data.friends.find((f) => f.friend_vrchat_id === 'usr_f1');
-  assert.equal(f1.config.monitor_enabled, 1);
+  assert.equal(f1.config.favorite, 1);
   assert.equal(f1.config.notify_offline, 0);
 });
 
@@ -421,7 +421,7 @@ test('frontend operations emit logs: config switch, settings, test', async (t) =
   t.after(() => close(ctx));
   await post(ctx, '/api/login', { username: 'me', password: 'pw' });
   logs.length = 0;
-  const c = await put(ctx, '/api/friends/usr_f1/config', { monitorEnabled: true });
+  const c = await put(ctx, '/api/friends/usr_f1/config', { favorite: true });
   assert.equal(c.status, 200);
   const st = await put(ctx, '/api/settings', { email: 'a@b.c', smtp_pass: 'secret123' });
   assert.equal(st.status, 200);
@@ -430,7 +430,7 @@ test('frontend operations emit logs: config switch, settings, test', async (t) =
   const info = logs.filter((l) => l[0] === 'info').map((l) => l.slice(1).join(' ')).join('\n');
   assert.ok(info.includes('更新监控配置'));
   assert.ok(info.includes('好友=F1'));
-  assert.ok(info.includes('监控=开'));
+  assert.ok(info.includes('特别关注=开'));
   assert.ok(info.includes('更新通知设置'));
   assert.ok(info.includes('发送测试通知'));
   assert.ok(info.includes('测试通知发送成功'));

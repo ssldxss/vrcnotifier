@@ -74,6 +74,7 @@ test('classifyTransition: custom status change when nothing else changed', () =>
     {}
   );
   assert.equal(r.changeType, '自定义状态');
+  assert.equal(r.notifyField, 'notify_status_change', '自定义状态归入状态开关');
 });
 
 test('classifyTransition: world change always parsed (status_only_mode removed)', () => {

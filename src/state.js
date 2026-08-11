@@ -49,7 +49,7 @@ function classifyTransition(prev, next, opts = {}) {
     }
     // 自定义状态变化(同一状态内)
     if ((prev.statusDescription || null) !== (next.statusDescription || null)) {
-      return { changeType: '自定义状态', notifyField: null, needsConfirm: false };
+      return { changeType: '自定义状态', notifyField: 'notify_status_change', needsConfirm: false };
     }
   }
   return null;
