@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 // VRChat pipeline WebSocket 客户端管理: 连接/断线重连(指数退避+jitter)/帧去重/
 // per-user 串行队列/protocol ping-pong 保活(尽力而为)/失败告警。
 // 注意: VRChat 协议无应用层心跳, 存活兜底由 monitor 的 watchdog + 周期快照负责。
@@ -148,6 +148,7 @@ function createPipelineManager(opts) {
       conn.failedSince = null;
       conn.notified = false;
       conn.lastMessageAt = now();
+      conn.lastRaw = ''; // 新连接: 清空上次连接的帧去重基线, 避免重连后首帧被吞
       startPing(conn);
       if (onOpen) {
         try { onOpen(userId, conn.displayName, wasFailing, isWatchdog); } catch (e) { log.error(`[ws] onOpen 错误 userId=${userId}: ${e.message}`); }

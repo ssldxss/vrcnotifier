@@ -377,6 +377,7 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
     const thumbUrl = input.avatarThumbUrl || null;
     const existed = db.getFriend(user.id, friendVrcId);
     if (!existed) {
+      // 首见: 直接按当前情况入库, 不比较不通知(变化才有通知)
       db.upsertFriend(user.id, friendVrcId, {
         state: input.state || 'offline', status: input.status || null,
         worldId: input.worldId || null, worldName: input.worldName || null,
@@ -384,18 +385,6 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
         displayName: input.displayName || null, avatarUrl: input.avatarUrl || null, avatarThumbUrl: thumbUrl,
         lastSeen: now()
       });
-      if (opts.silent) return; // 启动首次对账: 只建基线, 不补通知
-      // 首见: 以离线为基线判定转移, 上线即通知(与快照对账语义一致)
-      const baseline = { state: 'offline', status: 'active', worldId: null, worldName: null, statusDescription: null, platform: 'unknown' };
-      const result = applyChange(baseline, {
-        state: input.state, status: input.status, worldId: input.worldId,
-        worldName: input.worldName, statusDescription: input.statusDescription, platform: input.platform
-      }, { now, confirmDelayMs });
-      if (result.dbUpdate.pending_state) schedulePendingCheck(user, friendVrcId);
-      else clearPendingCheck(friendVrcId);
-      if (result.notify) {
-        await dispatchChange(user, friendVrcId, { ...result.change, friendId: friendVrcId }, opts.eventType);
-      }
       return;
     }
     // 仅更新资料字段, 状态由状态机接管

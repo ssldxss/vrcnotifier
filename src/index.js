@@ -238,7 +238,10 @@ async function main() {
 
   runtime.autoLogin().catch((e) => logger.warn(`[启动] 自动登录恢复失败: ${e.message}`));
 
+  let shuttingDown = false; // 防重复触发(双击 Ctrl+C): 第一次优雅关闭, 第二次强制退出
   const shutdown = async () => {
+    if (shuttingDown) { process.exit(0); return; }
+    shuttingDown = true;
     logger.info('[退出] 正在停止监控与连接...');
     try { await runtime.monitor.sendShutdownNotice(); } catch (e) { logger.warn(`[退出] 停止通知发送失败: ${e.message}`); }
     try { runtime.monitor.stopTimers(); } catch (e) { logger.warn(`[退出] stopTimers: ${e.message}`); }

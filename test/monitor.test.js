@@ -69,20 +69,23 @@ test('activateUser: 首次对账只建基线不补通知, 无变化对账不重�
   assert.equal(t.notifications.length, 0);
 });
 
-test('WS friend-online event notifies and updates DB', async () => {
+test('WS friend-online first sight stores silently, later changes notify', async () => {
   const t = setup();
   const user = addUser(t.db);
   addConfig(t.db, user.id, 'usr_f1');
   await t.monitor.activateUser(user, t.vrcapi);
   t.notifications.length = 0;
+  // 首见: 直接按当前情况入库, 不通知
   await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'x', { type: 'friend-online', content: { userId: 'usr_f1', platform: 'standalonewindows', location: 'wrld_b:2~region(jp)', user: { id: 'usr_f1', displayName: '朋友usr_f1', status: 'join me', statusDescription: 'hi' } } });
-  assert.equal(t.notifications.length, 1);
-  assert.equal(t.notifications[0].change.changeType, '上线');
-  assert.equal(t.notifications[0].change.newStatus, 'join me');
+  assert.equal(t.notifications.length, 0, '首见不通知');
   const f = t.db.getFriend(user.id, 'usr_f1');
   assert.equal(f.state, 'online');
   assert.equal(f.status, 'join me');
   assert.equal(f.world_id, 'wrld_b');
+  // 后续变化正常通知
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'y', { type: 'friend-location', content: { userId: 'usr_f1', location: 'wrld_c:3', user: { id: 'usr_f1', displayName: '朋友usr_f1', status: 'join me' } } });
+  assert.equal(t.notifications.length, 1);
+  assert.equal(t.notifications[0].change.changeType, '切换世界');
 });
 
 test('WS friend-online with private location fills 私密世界 instead of null', async () => {
@@ -92,7 +95,7 @@ test('WS friend-online with private location fills 私密世界 instead of null'
   await t.monitor.activateUser(user, t.vrcapi);
   t.notifications.length = 0;
   await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'x', { type: 'friend-online', content: { userId: 'usr_f1', platform: 'standalonewindows', location: 'private', user: { id: 'usr_f1', displayName: '朋友usr_f1', status: 'active' } } });
-  assert.equal(t.notifications.length, 1);
+  assert.equal(t.notifications.length, 0, '首见静默');
   const f = t.db.getFriend(user.id, 'usr_f1');
   assert.equal(f.state, 'online');
   assert.equal(f.world_id, 'private');

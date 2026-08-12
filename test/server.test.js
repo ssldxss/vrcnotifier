@@ -44,7 +44,7 @@ function setup(opts = {}) {
     db, notifier, pipeline, bus,
     logger: opts.logger || silent,
     now: opts.now || (() => 1000000),
-    config: { confirmDelayMs: 30000, dedupeWindowMs: 30000, snapshotIntervalMs: 600000, watchdogMs: 600000 }
+    config: { confirmDelayMs: 30000, dedupeWindowMs: 30000, snapshotIntervalMs: 3600000, watchdogMs: 600000 }
   });
   const sessionStore = new Map();
   const avatarCalls = { n: 0 };
@@ -62,7 +62,7 @@ function setup(opts = {}) {
     db, notifier, pipeline, monitor, sessionStore,
     vrcapiFactory: (jar) => (jar ? { ...vrcapi, jar } : vrcapi),
     avatarCache,
-    config: { accessToken: opts.accessToken || null, confirmDelayMs: 30000, dedupeWindowMs: 30000, snapshotIntervalMs: 600000, watchdogMs: 600000, autoLoginRetryBaseMs: opts.autoLoginRetryBaseMs ?? 5000, autoLoginRetryMaxMs: opts.autoLoginRetryMaxMs ?? 3600000, autoLoginRetryJitterMs: opts.autoLoginRetryJitterMs ?? 1000 },
+    config: { accessToken: opts.accessToken || null, confirmDelayMs: 30000, dedupeWindowMs: 30000, snapshotIntervalMs: 3600000, watchdogMs: 600000, autoLoginRetryBaseMs: opts.autoLoginRetryBaseMs ?? 5000, autoLoginRetryMaxMs: opts.autoLoginRetryMaxMs ?? 3600000, autoLoginRetryJitterMs: opts.autoLoginRetryJitterMs ?? 1000 },
     logger: opts.logger || silent,
     now: opts.now || (() => 1000000),
     publicDir: null,

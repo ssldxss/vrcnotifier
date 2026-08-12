@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 // VRChat REST API 客户端: 登录/2FA/me/friends/worlds/auth, cookie jar + 限流。
 
 const { CookieJar } = require('./cookiejar');
@@ -91,7 +91,7 @@ function createVrcApi({ baseUrl = 'https://api.vrchat.cloud/api/1', userAgent = 
   async function login(username, password) {
     const auth = Buffer.from(`${encodeURIComponent(username)}:${encodeURIComponent(password)}`).toString('base64');
     try {
-      return await request('/auth/user', { auth, type: 'auth', noRetry: true });
+      return await request('/auth/user', { auth, noRetry: true });
     } catch (e) {
       if (e.status === 401 && /two.?factor|2fa/i.test(e.message)) {
         const kinds = e.data && Array.isArray(e.data.requiresTwoFactorAuth) && e.data.requiresTwoFactorAuth.length > 0
@@ -105,17 +105,17 @@ function createVrcApi({ baseUrl = 'https://api.vrchat.cloud/api/1', userAgent = 
 
   /** 2FA 验证(不带 Authorization) */
   function verify2fa(kind, code) {
-    return request(`/auth/twofactorauth/${kind}/verify`, { method: 'POST', body: { code }, type: 'auth', noRetry: true });
+    return request(`/auth/twofactorauth/${kind}/verify`, { method: 'POST', body: { code }, noRetry: true });
   }
 
   /** 当前用户 */
   function me(opts = {}) {
-    return request('/auth/user', { type: 'userProfile', ...opts });
+    return request('/auth/user', { ...opts });
   }
 
   /** WS token */
   function authToken() {
-    return request('/auth', { type: 'auth', noRetry: true });
+    return request('/auth', { noRetry: true });
   }
 
   /** 好友列表(分页拉全量); offline=true 仅离线 */
@@ -124,7 +124,6 @@ function createVrcApi({ baseUrl = 'https://api.vrchat.cloud/api/1', userAgent = 
     let offset = 0;
     for (;;) {
       const page = await request('/auth/user/friends', {
-        type: 'friendStatus',
         noRetry,
         params: { n: pageSize, offset, ...(offline ? { offline: 'true' } : {}) }
       });
@@ -138,7 +137,7 @@ function createVrcApi({ baseUrl = 'https://api.vrchat.cloud/api/1', userAgent = 
 
   /** 世界信息 */
   function world(worldId, opts = {}) {
-    return request(`/worlds/${encodeURIComponent(worldId)}`, { type: 'worldInfo', ...opts });
+    return request(`/worlds/${encodeURIComponent(worldId)}`, { ...opts });
   }
 
   return { request, login, verify2fa, me, authToken, friends, world, jar, setCookiesChanged: (fn) => { cookiesChanged = fn; } };

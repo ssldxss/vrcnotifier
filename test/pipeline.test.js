@@ -1,4 +1,4 @@
-﻿const test = require('node:test');
+const test = require('node:test');
 const assert = require('node:assert');
 const { WebSocketServer } = require('ws');
 const { createPipelineManager } = require('../src/pipeline');
@@ -227,3 +227,34 @@ test('status reports connected and lastMessageAt', async () => {
   } finally { await close(); }
 });
 
+
+test('reconnect does not dedupe first frame against pre-disconnect frame', async () => {
+  const { state, url, close } = await startMockPipeline();
+  let pm = null;
+  try {
+    const events = [];
+    pm = createPipelineManager({
+      getToken: async () => ({ status: 'ok', token: 't' }),
+      onMessage: (userId, raw, parsed) => { events.push({ type: parsed.type }); },
+      userAgent: 't/1',
+      wsUrl: (token) => `${url}/?authToken=${token}`,
+      config: cfg,
+      logger: { info: () => {}, warn: () => {}, error: () => {} }
+    });
+    pm.connect('u1', '我');
+    await sleep(80);
+    const frame = JSON.stringify({ type: 'friend-online', content: JSON.stringify({ userId: 'usr_f' }) });
+    state.connections[0].ws.send(frame);
+    await sleep(50);
+    assert.equal(events.length, 1);
+    state.connections[0].ws.terminate(); // 模拟断开
+    await sleep(300);
+    assert.ok(state.connections.length >= 2, 'reconnected');
+    state.connections[1].ws.send(frame); // 与断开前相同的帧
+    await sleep(50);
+    assert.equal(events.length, 2, '重连后首帧不应被上次连接的帧去重吞掉');
+      } finally {
+    if (pm) pm.disconnect('u1'); // 失败时也清理重连定时器, 避免进程悬挂
+    await close();
+  }
+});
