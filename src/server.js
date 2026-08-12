@@ -11,20 +11,8 @@ const { detectImageType } = require('./avatar');
 const { formatLocalTime, getLogStream } = require('./util');
 
 const MASK = '••••••••';
-const SECRET_FIELDS = new Set(['smtp_pass', 'gotify_app_token', 'qq_app_secret']);
+const SECRET_FIELDS = new Set(['qq_app_secret']);
 const SETTING_MAP = {
-  email: 'email',
-  smtpEnabled: 'smtp_enabled',
-  smtpHost: 'smtp_host', smtpPort: 'smtp_port', smtpSecure: 'smtp_secure',
-  smtpUser: 'smtp_user', smtpPass: 'smtp_pass',
-  emailSubjectTemplate: 'email_subject_template', emailBodyTemplate: 'email_body_template',
-  gotifyEnabled: 'gotify_enabled', gotifyServerUrl: 'gotify_server_url',
-  gotifyAppToken: 'gotify_app_token', gotifyPriority: 'gotify_priority',
-  ntfyEnabled: 'ntfy_enabled', ntfyServerUrl: 'ntfy_server_url', ntfyTopic: 'ntfy_topic',
-  ntfyPriority: 'ntfy_priority',
-  webhookEnabled: 'webhook_enabled', webhookUrl: 'webhook_url', webhookMethod: 'webhook_method',
-  webhookHeaders: 'webhook_headers', webhookBodyTemplate: 'webhook_body_template',
-  webhookContentType: 'webhook_content_type',
   qqEnabled: 'qq_enabled', qqAppId: 'qq_app_id', qqAppSecret: 'qq_app_secret'
 };
 
@@ -445,57 +433,7 @@ function createApp({
     }
   });
 
-  app.post('/api/friends/refresh', async (req, res) => {
-    if (!current) return res.status(401).json({ error: '未登录' });
-    const { vrcapi } = current;
-      const t0 = Date.now();
-      try {
-        const currentUser = await vrcapi.me({ noRetry: true });
-        const [online, offline] = await Promise.all([
-          vrcapi.friends({ offline: false, noRetry: true }),
-          vrcapi.friends({ offline: true, noRetry: true })
-        ]);
-      const merged = new Map();
-      for (const f of online || []) if (f && f.id) merged.set(f.id, f);
-      for (const f of offline || []) if (f && f.id && !merged.has(f.id)) merged.set(f.id, f);
-      let added = 0;
-      let updated = 0;
-      for (const [id, f] of merged) {
-        const loc = parseLocation(f.location);
-        const existing = db.getFriend(current.dbId, id);
-        const worldId = loc.isReal ? loc.worldId : (f.location === 'private' ? 'private' : (f.location === 'traveling' && existing ? existing.world_id : null));
-        const worldName = worldId === 'private' ? '私密世界' : (worldId && existing && existing.world_id === worldId ? existing.world_name : null);
-          const r = db.upsertFriend(current.dbId, id, {
-            displayName: f.displayName,
-            avatarUrl: f.currentAvatarImageUrl || null,
-            avatarThumbUrl: f.profilePicOverrideThumbnail || f.currentAvatarThumbnailImageUrl || null,
-            state: deriveStateFromSnapshot(f, currentUser),
-          status: f.status || 'active',
-          worldId, worldName,
-          statusDescription: f.statusDescription || null,
-          platform: f.platform || null,
-          lastSeen: now()
-        });
-        if (r.isNew) added++; else updated++;
-      }
-        const configs = db.listConfigs(current.dbId);
-        const friends = db.listFriends(current.dbId).map((f) => ({
-          ...friendRow(f),
-          config: configs.find((c) => c.friend_vrchat_id === f.friend_vrchat_id) || null
-        }));
-      log.info(`[server] 刷新好友成功: 新增 ${added}, 更新 ${updated}, 共 ${friends.length} 人, 耗时 ${Date.now() - t0}ms`);
-      return res.json({ ok: true, friends, added, updated });
-    } catch (e) {
-      if (e.status === 401) {
-        handleSessionExpired(current.userId);
-        return res.status(401).json({ error: '会话失效, 请重新登录' });
-      }
-      log.error(`[server] 刷新好友失败: ${e.message}`);
-      return res.status(500).json({ error: '刷新好友失败' });
-    }
-  });
-
-  app.put('/api/friends/:friendId/config', (req, res) => {
+    app.put('/api/friends/:friendId/config', (req, res) => {
     if (!current) return res.status(401).json({ error: '未登录' });
     const body = req.body || {};
     db.upsertConfig(current.dbId, req.params.friendId, {

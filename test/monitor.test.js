@@ -14,7 +14,7 @@ function setup(opts = {}) {
   const notifications = [];
   const qqTexts = [];
   const notifier = {
-    sendAll: async (user, change) => { notifications.push({ user, change }); return { email: { ok: true }, gotify: { ok: true }, ntfy: { ok: true }, webhook: { ok: true } }; },
+    sendAll: async (user, change) => { notifications.push({ user, change }); return { qq: { ok: true } }; },
     sendQqText: async (dbId, text) => { qqTexts.push({ dbId, text }); return { ok: true }; }
   };
   const vrcapi = {

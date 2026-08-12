@@ -37,8 +37,8 @@ function setup(opts = {}) {
     status: () => ({ connected: opts.connected ?? false, lastMessageAt: opts.lastMessageAt ?? 0 })
   };
   const notifier = {
-    sendAll: async (user, change) => { notifications.push({ user, change }); return { email: { ok: true } }; },
-    sendTest: async (user, kind) => ({ ok: true, kind, user: user.smtp_pass })
+    sendAll: async (user, change) => { notifications.push({ user, change }); return { qq: { ok: true } }; },
+    sendTest: async (user, kind) => ({ ok: true, kind, user: user.qq_app_secret })
   };
   const monitor = createMonitor({
     db, notifier, pipeline, bus,
@@ -288,79 +288,29 @@ test('PUT friend config persists and reflects in list', async (t) => {
   assert.equal(f1.config.notify_offline, 0);
 });
 
-test('friends refresh refetches and caches friend rows', async (t) => {
-  const ctx = setup();
-  t.after(() => close(ctx));
-  await post(ctx, '/api/login', { username: 'me', password: 'pw' });
-  let calls = 0;
-  const orig = ctx.vrcapi.friends;
-  ctx.vrcapi.friends = async () => { calls++; return [{ id: 'usr_new', displayName: '新朋友', location: 'offline', status: 'active' }]; };
-  const r = await post(ctx, '/api/friends/refresh', {});
-  assert.equal(r.status, 200);
-  assert.equal(calls >= 2, true); // 在线+离线
-  const row = ctx.db.getFriend(ctx.db.getUserByVrcId('usr_me').id, 'usr_new');
-  assert.ok(row);
-  assert.equal(row.state, 'offline');
-});
-
-test('friends refresh keeps world name when world unchanged and uses thumb url directly', async (t) => {
-  const ctx = setup();
-  t.after(() => close(ctx));
-  await post(ctx, '/api/login', { username: 'me', password: 'pw' });
-  const uid = ctx.db.getUserByVrcId('usr_me').id;
-  ctx.db.upsertFriend(uid, 'usr_f1', { displayName: 'F1', state: 'online', status: 'active', worldId: 'wrld_a', worldName: 'WorldA', platform: 'standalonewindows' });
-  ctx.vrcapi.friends = async () => [{ id: 'usr_f1', displayName: 'F1', location: 'wrld_a:1~region(us)', status: 'active', currentAvatarImageUrl: 'https://api.vrchat.cloud/api/1/file/file_a/1/file', currentAvatarThumbnailImageUrl: 'https://api.vrchat.cloud/api/1/image/file_a/1/256' }];
-  const r = await post(ctx, '/api/friends/refresh', {});
-  assert.equal(r.status, 200);
-  const row = ctx.db.getFriend(uid, 'usr_f1');
-  assert.equal(row.world_id, 'wrld_a');
-  assert.equal(row.world_name, 'WorldA');
-  assert.equal(row.avatar_thumb_url, 'https://api.vrchat.cloud/api/1/image/file_a/1/256');
-  // world changed -> name cleared, next snapshot will resolve
-  ctx.vrcapi.friends = async () => [{ id: 'usr_f1', displayName: 'F1', location: 'wrld_b:1~region(jp)', status: 'active' }];
-  await post(ctx, '/api/friends/refresh', {});
-  const row2 = ctx.db.getFriend(uid, 'usr_f1');
-  assert.equal(row2.world_id, 'wrld_b');
-  assert.equal(row2.world_name, null);
-});
-
-test('friends refresh writes private world for private location', async (t) => {
-  const ctx = setup();
-  t.after(() => close(ctx));
-  await post(ctx, '/api/login', { username: 'me', password: 'pw' });
-  const uid = ctx.db.getUserByVrcId('usr_me').id;
-  ctx.vrcapi.friends = async () => [{ id: 'usr_f1', displayName: 'F1', location: 'private', status: 'active' }];
-  await post(ctx, '/api/friends/refresh', {});
-  const row = ctx.db.getFriend(uid, 'usr_f1');
-  assert.equal(row.state, 'online');
-  assert.equal(row.world_id, 'private');
-  assert.equal(row.world_name, '私密世界');
-});
-
 test('settings get masks secrets, put stores plaintext', async (t) => {
   const ctx = setup();
   t.after(() => close(ctx));
   await post(ctx, '/api/login', { username: 'me', password: 'pw' });
-  const r = await put(ctx, '/api/settings', { email: 'a@b.c', smtp_host: 'smtp.x', smtp_user: 'uu', smtp_pass: 'secret123', gotify_enabled: true, gotify_app_token: 'tok' });
+  const r = await put(ctx, '/api/settings', { qq_enabled: 1, qq_app_id: 'app1', qq_app_secret: 'secret123' });
   assert.equal(r.status, 200);
   const row = ctx.db.getGlobalSettings();
-  assert.equal(row.smtp_pass, 'secret123');
-  assert.equal(row.gotify_app_token, 'tok');
+  assert.equal(row.qq_app_secret, 'secret123');
   const g = await get(ctx, '/api/settings');
-  assert.equal(g.data.settings.email, 'a@b.c');
-  assert.notEqual(g.data.settings.smtp_pass, 'secret123');
-  assert.ok(g.data.settings.smtp_pass); // 已配置(掩码)
+  assert.equal(g.data.settings.qq_app_id, 'app1');
+  assert.notEqual(g.data.settings.qq_app_secret, 'secret123');
+  assert.ok(g.data.settings.qq_app_secret); // 已配置(掩码)
   // 掩码占位符再次提交不清空
-  await put(ctx, '/api/settings', { smtp_pass: g.data.settings.smtp_pass });
-  assert.equal(ctx.db.getGlobalSettings().smtp_pass, 'secret123');
+  await put(ctx, '/api/settings', { qq_app_secret: g.data.settings.qq_app_secret });
+  assert.equal(ctx.db.getGlobalSettings().qq_app_secret, 'secret123');
 });
 
 test('test notification endpoint calls notifier with stored secrets', async (t) => {
   const ctx = setup();
   t.after(() => close(ctx));
   await post(ctx, '/api/login', { username: 'me', password: 'pw' });
-  await put(ctx, '/api/settings', { smtp_pass: 'secret123', email: 'a@b.c' });
-  const r = await post(ctx, '/api/test/email', {});
+  await put(ctx, '/api/settings', { qq_app_secret: 'secret123' });
+  const r = await post(ctx, '/api/test/qq', {});
   assert.equal(r.status, 200);
   assert.equal(r.data.result.ok, true);
   assert.equal(r.data.result.user, 'secret123');
@@ -398,18 +348,12 @@ test('POST monitor snapshot reports failure when API call fails', async (t) => {
   assert.ok(r.data.error && r.data.error.includes('network down'));
 });
 
-test('refresh and manual snapshot emit success logs', async (t) => {
+test('manual snapshot emits success log', async (t) => {
   const logs = [];
   const logger = { info: (...a) => logs.push(['info', ...a]), warn: () => {}, error: (...a) => logs.push(['error', ...a]) };
   const ctx = setup({ onlineFriends: [{ id: 'usr_f1', displayName: 'F1', location: 'offline', status: 'active' }], logger });
   t.after(() => close(ctx));
   await post(ctx, '/api/login', { username: 'me', password: 'pw' });
-  logs.length = 0;
-  const r = await post(ctx, '/api/friends/refresh', {});
-  assert.equal(r.status, 200);
-  const info = logs.filter((l) => l[0] === 'info').map((l) => l.slice(1).join(' ')).join('\n');
-  assert.ok(info.includes('刷新好友成功'));
-  assert.ok(info.includes('共 1 人'));
   logs.length = 0;
   const s = await post(ctx, '/api/monitor/snapshot', {});
   assert.equal(s.status, 200);
@@ -426,9 +370,9 @@ test('frontend operations emit logs: config switch, settings, test', async (t) =
   logs.length = 0;
   const c = await put(ctx, '/api/friends/usr_f1/config', { favorite: true });
   assert.equal(c.status, 200);
-  const st = await put(ctx, '/api/settings', { email: 'a@b.c', smtp_pass: 'secret123' });
+  const st = await put(ctx, '/api/settings', { qq_app_secret: 'secret123' });
   assert.equal(st.status, 200);
-  const tt = await post(ctx, '/api/test/email', {});
+  const tt = await post(ctx, '/api/test/qq', {});
   assert.equal(tt.status, 200);
   const info = logs.filter((l) => l[0] === 'info').map((l) => l.slice(1).join(' ')).join('\n');
   assert.ok(info.includes('更新监控配置'));
@@ -437,7 +381,7 @@ test('frontend operations emit logs: config switch, settings, test', async (t) =
   assert.ok(info.includes('更新通知设置'));
   assert.ok(info.includes('发送测试通知'));
   assert.ok(info.includes('测试通知发送成功'));
-  assert.ok(!info.includes('secret123'), 'smtp_pass 不应以明文出现在日志');
+  assert.ok(!info.includes('secret123'), 'qq_app_secret 不应以明文出现在日志');
 });
 
 test('test notification failure returns 502 and logs error', async (t) => {
@@ -446,14 +390,14 @@ test('test notification failure returns 502 and logs error', async (t) => {
   const ctx = setup({ logger });
   t.after(() => close(ctx));
   await post(ctx, '/api/login', { username: 'me', password: 'pw' });
-  ctx.notifier.sendTest = async (user, kind) => ({ ok: false, reason: 'smtp connection failed' });
+  ctx.notifier.sendTest = async (user, kind) => ({ ok: false, reason: 'qq push failed' });
   logs.length = 0;
-  const tt = await post(ctx, '/api/test/email', {});
+  const tt = await post(ctx, '/api/test/qq', {});
   assert.equal(tt.status, 502);
   assert.equal(tt.data.ok, false);
-  assert.ok(tt.data.error.includes('smtp'));
+  assert.ok(tt.data.error.includes('qq'));
   const err = logs.filter((l) => l[0] === 'error').map((l) => l.slice(1).join(' ')).join('\n');
-  assert.ok(err.includes('测试通知发送失败(email)'));
+  assert.ok(err.includes('测试通知发送失败(qq)'));
   const info = logs.filter((l) => l[0] === 'info').map((l) => l.slice(1).join(' ')).join('\n');
   assert.ok(!info.includes('测试通知发送成功'));
 });

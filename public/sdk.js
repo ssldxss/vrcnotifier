@@ -127,7 +127,6 @@
 
     // ---------- 好友与监控 ----------
     getFriends() { return this.request('GET', '/api/friends'); }
-    refreshFriends() { return this.request('POST', '/api/friends/refresh', { body: {} }); }
     updateFriendConfig(friendId, cfg = {}) {
       return this.request('PUT', '/api/friends/' + encodeURIComponent(friendId) + '/config', { body: cfg });
     }

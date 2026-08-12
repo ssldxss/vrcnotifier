@@ -65,21 +65,6 @@ function startMockWs() {
   });
 }
 
-function startWebhookReceiver() {
-  return new Promise((resolve) => {
-    const bodies = [];
-    const server = http.createServer((req, res) => {
-      let data = '';
-      req.on('data', (c) => { data += c; });
-      req.on('end', () => {
-        bodies.push({ method: req.method, url: req.url, body: data });
-        res.writeHead(200, { 'Content-Type': 'text/plain' });
-        res.end('ok');
-      });
-    });
-    server.listen(0, '127.0.0.1', () => resolve({ server, bodies, url: 'http://127.0.0.1:' + server.address().port }));
-  });
-}
 
 async function waitFor(check, timeoutMs = 8000, intervalMs = 100) {
   const deadline = Date.now() + timeoutMs;
@@ -91,17 +76,27 @@ async function waitFor(check, timeoutMs = 8000, intervalMs = 100) {
   return null;
 }
 
-test('end-to-end: login → refresh → configure → ws event → webhook notification', async (t) => {
+test('end-to-end: login → configure → ws event → QQ notification', async (t) => {
   const api = await startMockApi();
   const ws = await startMockWs();
-  const hook = await startWebhookReceiver();
+  // QQ 机器人管理器用 mock: 不连真实网关, 只验证 sendText 被调用
+  const qq = {
+    sent: [],
+    sync: () => {},
+    startAll: () => {},
+    stopAll: () => {},
+    stop: () => {},
+    status: () => ({ configured: true }),
+    sendText: async (dbId, text, opts) => { qq.sent.push({ dbId, text, opts }); return { ok: true }; }
+  };
 
   const runtime = buildApplication({
     logger: silent,
     dbPath: ':memory:',
     apiBaseUrl: api.base + '/api/1',
     wsBaseUrl: ws.url,
-    accessToken: 'smoke-token'
+    accessToken: 'smoke-token',
+    qq
   });
   const server = runtime.app.listen(0);
 
@@ -113,7 +108,6 @@ test('end-to-end: login → refresh → configure → ws event → webhook notif
     await new Promise((r) => server.close(r));
     await new Promise((r) => api.server.close(r));
     await new Promise((r) => ws.wss.close(r));
-    await new Promise((r) => hook.server.close(r));
   });
 
   const base = 'http://127.0.0.1:' + server.address().port;
@@ -129,26 +123,20 @@ test('end-to-end: login → refresh → configure → ws event → webhook notif
   assert.equal(login.data.ok, true);
   assert.equal(login.data.user.vrchat_user_id, 'usr_me');
 
-  // 2. 刷新好友(缓存列表)
-  const refresh = await json('POST', '/api/friends/refresh', {});
-  assert.equal(refresh.status, 200);
-  assert.ok(refresh.data.friends.some((f) => f.friend_vrchat_id === 'usr_f1'));
-
-  // 3. 配置监控 + 开启 webhook 渠道
+  // 3. 配置监控 + 开启 QQ 渠道
   const cfg = await json('PUT', '/api/friends/usr_f1/config', { favorite: true });
   assert.equal(cfg.status, 200);
   assert.equal(cfg.data.config.favorite, 1);
-  const settings = await json('PUT', '/api/settings', { webhook_enabled: true, webhook_url: hook.url });
+  const settings = await json('PUT', '/api/settings', { qq_enabled: 1, qq_app_id: 'app1', qq_app_secret: 'sec1' });
   assert.equal(settings.status, 200);
 
-  // 4. WS 事件 → 通知 → webhook 送达
-  const got = await waitFor(() => (hook.bodies.length > 0 ? hook.bodies[0] : null), 8000);
-  assert.ok(got, 'webhook 未在超时内收到通知');
-  const payload = JSON.parse(got.body);
-  assert.equal(payload.event, 'friend_online');
-  assert.equal(payload.friend.name, '朋友1');
-  assert.equal(payload.change.newStatus, '加入我');
-  assert.ok(payload.change.newWorld.includes('世界B') || payload.change.newWorld.includes('wrld_b'));
+  // 4. WS 事件 → 通知 → QQ 送达
+  const got = await waitFor(() => (qq.sent.find((m) => m.text.includes('朋友1')) || null), 8000);
+  assert.ok(got, 'QQ 未在超时内收到好友通知');
+  assert.ok(got.text.includes('# 朋友1上线'), '标题为 # 昵称事件, 实际: ' + JSON.stringify(got.text));
+  assert.ok(got.text.includes('🔵 hello'), '社交行带状态 emoji + 自定义状态');
+  assert.ok(got.text.includes('世界B') || got.text.includes('wrld_b'));
+  assert.deepEqual(got.opts, { markdown: true });
 
   // 5. 后端不再托管静态页面(前端由独立进程 serve.js 提供)
   const ui = await fetch(base + '/');

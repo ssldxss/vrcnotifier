@@ -125,14 +125,13 @@ h3.chan { font-size: 13px; margin: 14px 0 4px; color: var(--muted); }
 
       </div>
       <div class='row' style='margin-top:12px'>
-        <button id='refreshFriends' class='secondary'>刷新好友列表</button>
-        <button id='forceSnapshot' class='secondary'>立即对账</button>
+        <button id='forceSnapshot' class='secondary'>刷新</button>
         <span class='muted' id='opMsg'></span>
       </div>
     </div>
     <div class='card'>
-      <h2>实时事件</h2>
-      <div id='log'><div class='muted'>等待事件...</div></div>
+      <h2>后端日志</h2>
+      <div id='log'><div class='muted'>等待日志...</div></div>
     </div>
   </section>
 
@@ -155,51 +154,6 @@ h3.chan { font-size: 13px; margin: 14px 0 4px; color: var(--muted); }
       </div>
       <div class='muted'>在 <a href='https://q.qq.com/qqbot/openclaw/login.html' target='_blank' rel='noopener'>QQ 开放平台</a> 创建机器人, 填入 AppID/AppSecret 并保存后, 在 QQ 中给机器人发任意一条消息完成绑定</div>
       <div class='row'><button id='testQq' class='secondary'>发送测试推送</button></div>
-    </div>    <div class='card'>
-      <h2>邮件 (SMTP)</h2>
-      <div class='grid2'>
-        <div><label>启用<select id='sSmtpEnabled'><option value='0'>关闭</option><option value='1'>开启</option></select></label></div>
-        <div><label>收件邮箱<input type='email' id='sEmail' placeholder='you@example.com'></label></div>
-        <div><label>SMTP 主机<input type='text' id='sSmtpHost' placeholder='smtp.example.com'></label></div>
-        <div><label>SMTP 端口<input type='number' id='sSmtpPort' value='587'></label></div>
-        <div><label class='row' style='justify-content:flex-start'><input type='checkbox' id='sSmtpSecure' style='width:auto'> SSL/TLS</label></div>
-        <div><label>SMTP 用户<input type='text' id='sSmtpUser'></label></div>
-        <div><label>SMTP 密码<input type='password' id='sSmtpPass' placeholder='留空保持不变'></label></div>
-      </div>
-      <div class='row'><button id='testEmail' class='secondary'>发送测试邮件</button></div>
-    </div>
-    <div class='card'>
-      <h2>Gotify</h2>
-      <div class='grid2'>
-        <div><label>启用<select id='sGotifyEnabled'><option value='0'>关闭</option><option value='1'>开启</option></select></label></div>
-        <div><label>服务器地址<input type='text' id='sGotifyUrl' placeholder='https://gotify.example.com'></label></div>
-        <div><label>App Token<input type='password' id='sGotifyToken'></label></div>
-        <div><label>优先级<input type='number' id='sGotifyPriority' value='5'></label></div>
-      </div>
-      <div class='row'><button id='testGotify' class='secondary'>发送测试推送</button></div>
-    </div>
-    <div class='card'>
-      <h2>NTFY</h2>
-      <div class='grid2'>
-        <div><label>启用<select id='sNtfyEnabled'><option value='0'>关闭</option><option value='1'>开启</option></select></label></div>
-        <div><label>服务器地址<input type='text' id='sNtfyUrl' placeholder='https://ntfy.sh'></label></div>
-        <div><label>Topic<input type='text' id='sNtfyTopic'></label></div>
-        <div><label>优先级<input type='number' id='sNtfyPriority' value='3'></label></div>
-      </div>
-      <div class='row'><button id='testNtfy' class='secondary'>发送测试推送</button></div>
-    </div>
-    <div class='card'>
-      <h2>Webhook</h2>
-      <div class='grid2'>
-        <div><label>启用<select id='sWebhookEnabled'><option value='0'>关闭</option><option value='1'>开启</option></select></label></div>
-        <div><label>URL<input type='text' id='sWebhookUrl' placeholder='https://example.com/hook'></label></div>
-        <div><label>方法<select id='sWebhookMethod'><option>POST</option><option>GET</option></select></label></div>
-        <div><label>Content-Type<input type='text' id='sWebhookContentType' value='application/json'></label></div>
-      </div>
-      <label>自定义 Headers(JSON)<textarea id='sWebhookHeaders' rows='2' placeholder='{&quot;X-Token&quot;: &quot;abc&quot;}'></textarea></label>
-      <label>Body 模板(可选)<textarea id='sWebhookBody' rows='2' placeholder='留空使用默认 JSON'></textarea></label>
-      <div class='row'><button id='testWebhook' class='secondary'>发送测试请求</button></div>
-    </div>
     <div class='card'>
       <div class='row'>
         <button id='saveSettings'>保存设置</button>
@@ -257,13 +211,36 @@ async function api(method, path, body, opts = {}) {
   }
   return { status: res.status, data };
 }
-function log(msg, cls) {
+function addLogLine(line, cls) {
   const box = $('#log');
   const div = document.createElement('div');
-  div.textContent = new Date().toLocaleTimeString() + ' ' + msg;
+  div.textContent = line;
   if (cls) div.className = cls;
-  box.prepend(div);
-  while (box.children.length > 60) box.lastChild.remove();
+  box.appendChild(div);
+  while (box.children.length > 500) box.firstChild.remove();
+  box.scrollTop = box.scrollHeight;
+}
+
+// 前端本地操作反馈(后端日志中也包含对应记录)
+function log(msg, cls) {
+  addLogLine(new Date().toLocaleTimeString() + ' ' + msg, cls);
+}
+
+// 后端日志: 拉取历史(tail)或增量补齐(after), SSE 断线重连用 after 补缺口
+let lastLogSeq = 0;
+function loadBackendLogs(opts = {}) {
+  const query = opts.after ? 'after=' + opts.after : 'tail=' + (opts.tail || 200);
+  return api('GET', '/api/logs?' + query)
+    .then((r) => {
+      if (!r || !r.data || !Array.isArray(r.data.logs)) return;
+      if (!opts.after) {
+        const box = $('#log');
+        box.textContent = '';
+      }
+      for (const entry of r.data.logs) addLogLine(entry.line);
+      if (r.data.seq) lastLogSeq = r.data.seq;
+    })
+    .catch(() => {});
 }
 
 function showView(name) {
@@ -398,7 +375,7 @@ async function loadFriends() {
 function renderFriends() {
   const list = $('#friendsList');
   if (!friendsCache.length) {
-    list.innerHTML = '<p class=muted>暂无好友数据, 点击上方「刷新好友列表」拉取。</p>';
+    list.innerHTML = '<p class=muted>暂无好友数据, 点击上方「刷新」拉取。</p>';
     $('#friendsCount').textContent = '';
     return;
   }
@@ -465,26 +442,15 @@ $('#friendsList').addEventListener('change', async (e) => {
   }
 });
 
-$('#refreshFriends').addEventListener('click', async () => {
-  $('#opMsg').textContent = '拉取中...';
-  const r = await api('POST', '/api/friends/refresh', {});
-  if (r.data.friends) {
-    friendsCache = r.data.friends;
-    renderFriends();
-    $('#opMsg').textContent = '已更新 ' + (r.data.added || 0) + ' 新增, ' + (r.data.updated || 0) + ' 更新';
-  } else {
-    $('#opMsg').textContent = r.data.error || '刷新失败';
-  }
-});
-
 $('#forceSnapshot').addEventListener('click', async () => {
-  $('#opMsg').textContent = '对账中...';
+  $('#opMsg').textContent = '刷新中...';
   const r = await api('POST', '/api/monitor/snapshot', {});
   if (r.data.ok) {
-    $('#opMsg').textContent = '对账完成';
+    $('#opMsg').textContent = '刷新完成';
+    loadFriends();
     loadStatus();
   } else {
-    $('#opMsg').textContent = r.data.error || '对账失败';
+    $('#opMsg').textContent = r.data.error || '刷新失败';
   }
 });
 
@@ -492,27 +458,6 @@ $('#forceSnapshot').addEventListener('click', async () => {
 async function loadSettings() {
   const r = await api('GET', '/api/settings');
   const s = r.data.settings || {};
-  $('#sSmtpEnabled').value = s.smtp_enabled ? '1' : '0';
-  $('#sEmail').value = s.email || '';
-  $('#sSmtpHost').value = s.smtp_host || '';
-  $('#sSmtpPort').value = s.smtp_port || 587;
-  $('#sSmtpSecure').checked = !!s.smtp_secure;
-  $('#sSmtpUser').value = s.smtp_user || '';
-  $('#sSmtpPass').placeholder = s.smtp_pass ? '已配置(留空保持不变)' : '未配置';
-  $('#sGotifyEnabled').value = s.gotify_enabled ? '1' : '0';
-  $('#sGotifyUrl').value = s.gotify_server_url || '';
-  $('#sGotifyToken').placeholder = s.gotify_app_token ? '已配置(留空保持不变)' : '未配置';
-  $('#sGotifyPriority').value = s.gotify_priority == null ? 5 : s.gotify_priority;
-  $('#sNtfyEnabled').value = s.ntfy_enabled ? '1' : '0';
-  $('#sNtfyUrl').value = s.ntfy_server_url || 'https://ntfy.sh';
-  $('#sNtfyTopic').value = s.ntfy_topic || '';
-  $('#sNtfyPriority').value = s.ntfy_priority == null ? 3 : s.ntfy_priority;
-  $('#sWebhookEnabled').value = s.webhook_enabled ? '1' : '0';
-  $('#sWebhookUrl').value = s.webhook_url || '';
-  $('#sWebhookMethod').value = s.webhook_method || 'POST';
-  $('#sWebhookContentType').value = s.webhook_content_type || 'application/json';
-  $('#sWebhookHeaders').value = s.webhook_headers || '';
-  $('#sWebhookBody').value = s.webhook_body_template || '';
   $('#sQqEnabled').value = s.qq_enabled ? '1' : '0';
   $('#sQqAppId').value = s.qq_app_id || '';
   $('#sQqAppSecret').placeholder = s.qq_app_secret ? '已配置(留空保持不变)' : '未配置';
@@ -520,39 +465,15 @@ async function loadSettings() {
 
 $('#saveSettings').addEventListener('click', async () => {
   const body = {
-    smtp_enabled: $('#sSmtpEnabled').value === '1' ? 1 : 0,
-    email: $('#sEmail').value.trim() || null,
-    smtp_host: $('#sSmtpHost').value.trim() || null,
-    smtp_port: parseInt($('#sSmtpPort').value, 10) || null,
-    smtp_secure: $('#sSmtpSecure').checked ? 1 : 0,
-    smtp_user: $('#sSmtpUser').value.trim() || null,
-    gotify_enabled: $('#sGotifyEnabled').value === '1' ? 1 : 0,
-    gotify_server_url: $('#sGotifyUrl').value.trim() || null,
-    gotify_priority: parseInt($('#sGotifyPriority').value, 10) || 5,
-    ntfy_enabled: $('#sNtfyEnabled').value === '1' ? 1 : 0,
-    ntfy_server_url: $('#sNtfyUrl').value.trim() || null,
-    ntfy_topic: $('#sNtfyTopic').value.trim() || null,
-    ntfy_priority: parseInt($('#sNtfyPriority').value, 10) || 3,
-    webhook_enabled: $('#sWebhookEnabled').value === '1' ? 1 : 0,
-    webhook_url: $('#sWebhookUrl').value.trim() || null,
-    webhook_method: $('#sWebhookMethod').value || 'POST',
-    webhook_content_type: $('#sWebhookContentType').value.trim() || 'application/json',
-    webhook_headers: $('#sWebhookHeaders').value.trim() || null,
-    webhook_body_template: $('#sWebhookBody').value.trim() || null,
     qq_enabled: $('#sQqEnabled').value === '1' ? 1 : 0,
     qq_app_id: $('#sQqAppId').value.trim() || null
   };
-  const pass = $('#sSmtpPass').value;
-  if (pass) body.smtp_pass = pass;
-  const token = $('#sGotifyToken').value;
-  if (token) body.gotify_app_token = token;
   const qqSecret = $('#sQqAppSecret').value;
   if (qqSecret) body.qq_app_secret = qqSecret;
   const r = await api('PUT', '/api/settings', body);
   $('#settingsMsg').textContent = r.data.ok ? '已保存' : (r.data.error || '保存失败');
   if (r.data.ok) {
-    $('#sSmtpPass').value = '';
-    $('#sGotifyToken').value = '';
+    $('#sQqAppSecret').value = '';
     loadSettings();
   }
 });
@@ -563,10 +484,6 @@ function bindTest(kind, btnId) {
     log('测试通知(' + kind + '): ' + (r.data.ok ? '已发送' : (r.data.result && r.data.result.reason ? r.data.result.reason : '失败')), r.data.ok ? '' : 'err');
   });
 }
-bindTest('email', '#testEmail');
-bindTest('gotify', '#testGotify');
-bindTest('ntfy', '#testNtfy');
-bindTest('webhook', '#testWebhook');
 bindTest('qq', '#testQq');
 
 // ---------- 状态与事件 ----------
@@ -596,28 +513,22 @@ function startStatus() {
 
 function connectEvents() {
   if (window.__evt) window.__evt.close();
+  loadBackendLogs({ tail: 200 }); // 初始拉取后端日志历史
   const evt = new EventSource(baseUrl() + '/api/events?token=' + encodeURIComponent(accessToken()));
   window.__evt = evt;
-  evt.addEventListener('notification', (e) => {
+  // 后端日志实时推送
+  evt.addEventListener('log', (e) => {
     const d = JSON.parse(e.data);
-    log('通知已发: ' + d.friendName + ' ' + d.changeType);
-    loadFriends();
+    if (d && d.line) addLogLine(d.line);
+    if (d && d.seq) lastLogSeq = d.seq;
   });
-  evt.addEventListener('snapshot', (e) => {
-    const d = JSON.parse(e.data);
-    log('快照完成: ' + (d.count || 0) + ' 位好友', '');
-    loadFriends();
-    loadStatus();
-  });
-  evt.addEventListener('session-expired', () => {
-    log('会话已失效, 请重新登录', 'err');
-    currentUser = null;
-    showView('login');
-  });
-  evt.addEventListener('ws-failure', (e) => {
-    const d = JSON.parse(e.data);
-    log('WS 连续断线: ' + (d.displayName || d.userId || ''), 'err');
-  });
+  // SSE 断线自动重连: 用 after 补齐错过的日志
+  evt.onopen = () => { if (lastLogSeq > 0) loadBackendLogs({ after: lastLogSeq }); };
+  // 事件仅驱动 UI 刷新, 日志展示统一走后端日志流
+  evt.addEventListener('notification', () => { loadFriends(); });
+  evt.addEventListener('snapshot', () => { loadFriends(); loadStatus(); });
+  evt.addEventListener('session-expired', () => { currentUser = null; showView('login'); });
+  evt.addEventListener('ws-failure', () => { /* 后端日志已记录 */ });
 }
 
 // ---------- Tab 切换 ----------

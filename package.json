@@ -16,7 +16,6 @@
   "license": "MIT",
   "dependencies": {
     "express": "^5.2.1",
-    "nodemailer": "^9.0.3",
     "ws": "^8.21.1"
   }
 }

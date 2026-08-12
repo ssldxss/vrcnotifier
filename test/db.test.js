@@ -13,11 +13,12 @@ test('users: upsert, get by vrc id, settings update', () => {
   assert.ok(id > 0);
   const u = db.getUserByVrcId('usr_1');
   assert.equal(u.display_name, '昵称1');
-  db.updateGlobalSettings({ email: 'a@b.c', smtp_host: 'smtp.x', smtp_port: 587, smtp_secure: true, smtp_user: 'uu', smtp_pass: 'enc:xx', gotify_enabled: true, gotify_app_token: 'tok' });
+  db.updateGlobalSettings({ qq_enabled: 1, qq_app_id: 'app1', qq_app_secret: 'sec1', email: 'a@b.c' }); // email 已移出白名单, 忽略
   const g = db.getGlobalSettings();
-  assert.equal(g.email, 'a@b.c');
-  assert.equal(g.smtp_port, 587);
-  assert.equal(g.gotify_enabled, 1);
+  assert.equal(g.qq_enabled, 1);
+  assert.equal(g.qq_app_id, 'app1');
+  assert.equal(g.qq_app_secret, 'sec1');
+  assert.equal(g.email, undefined, '非白名单字段不入库');
   // upsert 同一用户更新资料不重复
   db.upsertUser('usr_1', { username: 'u1', displayName: '新名', avatarUrl: null });
   assert.equal(db.listUsers().length, 1);
@@ -166,13 +167,12 @@ test('legacy db migration moves notify columns into settings', () => {
   old.close();
   const db = createDb(file);
   const g = db.getGlobalSettings();
-  assert.equal(g.email, 'a@b.c');
-  assert.equal(g.smtp_host, 'smtp.x');
-  assert.equal(g.smtp_port, 587);
+  // 仅 QQ 字段迁移到 settings; 已移除渠道的旧列直接删除不迁移
   assert.equal(g.qq_enabled, 1);
   assert.equal(g.qq_app_id, 'app1');
   assert.equal(g.qq_app_secret, 'sec1');
-  assert.equal(g.smtp_enabled, 1);
+  assert.equal(g.email, undefined);
+  assert.equal(g.smtp_enabled, undefined);
   // 旧通知列已从 users 表删除
   const chk = new DatabaseSync(file);
   const cols = chk.prepare('PRAGMA table_info(users)').all().map((c) => c.name);

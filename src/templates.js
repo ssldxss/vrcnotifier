@@ -1,5 +1,5 @@
-﻿'use strict';
-// 通知模板渲染与各渠道 payload 构建。
+'use strict';
+// 通知模板渲染(仅 QQ 渠道; 邮件/Gotify/NTFY/Webhook 已移除)。
 
 const { statusEmoji } = require('./qq-commands');
 function renderTemplate(template, vars) {
@@ -28,14 +28,6 @@ function escapeMd(s) {
   return String(s).replace(/([\\`*_[\]{}()#+\-.>|~])/g, '\\$1');
 }
 
-/** RFC 2047 编码(用于 NTFY Title 等只支持 ASCII header 的场景) */
-function encodeRfc2047(text) {
-  const s = String(text || '');
-  if (/^[\x20-\x7E]+$/.test(s)) return s;
-  const buf = Buffer.from(s, 'utf8');
-  return '=?UTF-8?B?' + buf.toString('base64') + '?=';
-}
-
 function isVrcNotification(change) {
   return !!(change && (change.eventType === 'vrc_notification' || change.eventType === 'vrc_system'));
 }
@@ -48,18 +40,6 @@ function renderNotificationMessage(vars, template) {
     .filter((line) => line.trim() !== '')
     .join('\n');
 }
-const NOTIFICATION_EMAIL_SUBJECT = '【VRChat通知】{notificationTitle}';
-const NOTIFICATION_EMAIL_BODY = [
-  '<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;border:1px solid #ddd;border-radius:8px">',
-  '  <h2 style="margin-top:0">VRChat 通知</h2>',
-  '  <p style="font-size:16px"><b>{notificationTitle}</b></p>',
-  '  <p style="white-space:pre-wrap">{notificationBody}</p>',
-  '  <table style="width:100%;border-collapse:collapse">',
-  '    <tr><td style="padding:8px;border-bottom:1px solid #eee;color:#666">发送者</td><td style="padding:8px;border-bottom:1px solid #eee">{friendName}</td></tr>',
-  '  </table>',
-  '  <p style="color:#999;font-size:12px">时间: {timestamp}</p>',
-  '</div>'
-].join('\n');
 
 /** 统一变化变量; 空描述显示为 "无" */
 function buildChangeVars(change) {
@@ -85,20 +65,8 @@ function buildChangeVars(change) {
     notificationCategoryLabel: change.notificationCategoryLabel || change.notificationCategory || '',
     categoryOrWorld: change.categoryOrWorld || ''
   };
-  vars.statusLines = plainStatusLines(vars);
   return vars;
 }
-
-const DEFAULT_EMAIL_SUBJECT = '[VRC-Notifier] {friendName}{changeType}:';
-const DEFAULT_EMAIL_BODY = `
-<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;border:1px solid #ddd;border-radius:8px">
-  <h2 style="margin-top:0">{changeType}</h2>
-  <p>好友 <b>{friendName}</b> 的状态发生了变化</p>
-  <p style="white-space:pre-wrap">{statusLines}</p>
-  <p style="color:#999;font-size:12px">时间: {timestamp}</p>
-</div>`;
-
-
 
 /** 状态变化消息结构: 社交行(emoji+自定义状态, 无则社交状态名, 变化用箭头), 其余字段变化放前 */
 function buildStatusLines(vars) {
@@ -117,60 +85,6 @@ function buildStatusLines(vars) {
     else unchanged.push(`${f.label}: ${f.cur}`);
   }
   return { social, socialChanged: oldSocial !== newSocial, changed, unchanged };
-}
-
-/** 纯文本拼接(Email/Gotify/NTFY 用) */
-function plainStatusLines(vars) {
-  const b = buildStatusLines(vars);
-  return [b.social, ...b.changed, ...b.unchanged].join('\n');
-}
-
-function buildEmail(change, opts = {}) {
-  const vars = buildChangeVars(change);
-  if (isVrcNotification(change)) {
-    return {
-      subject: renderTemplate(opts.subjectTemplate || NOTIFICATION_EMAIL_SUBJECT, vars),
-      html: renderTemplate(opts.bodyTemplate || NOTIFICATION_EMAIL_BODY, vars)
-    };
-  }
-  const subject = renderTemplate(opts.subjectTemplate || DEFAULT_EMAIL_SUBJECT, vars);
-  const html = renderTemplate(opts.bodyTemplate || DEFAULT_EMAIL_BODY, vars);
-  return { subject, html };
-}
-
-function buildGotify(change, opts = {}) {
-  const vars = buildChangeVars(change);
-  if (isVrcNotification(change)) {
-    return {
-      title: opts.titleTemplate ? renderTemplate(opts.titleTemplate, vars) : vars.notificationTitle,
-      message: opts.messageTemplate ? renderTemplate(opts.messageTemplate, vars) : renderNotificationMessage(vars),
-      priority: opts.priority == null ? 5 : opts.priority,
-      extras: { 'client::display': { contentType: 'text/markdown' } }
-    };
-  }
-  const title = opts.titleTemplate ? renderTemplate(opts.titleTemplate, vars) : `${change.friendName}${change.changeType}:`;
-  const message = opts.messageTemplate ? renderTemplate(opts.messageTemplate, vars) : `${vars.statusLines}\n时间: ${vars.timestamp}`;
-  return {
-    title,
-    message,
-    priority: opts.priority == null ? 5 : opts.priority,
-    extras: { 'client::display': { contentType: 'text/markdown' } }
-  };
-}
-
-function buildNtfy(change, opts = {}) {
-  const vars = buildChangeVars(change);
-  if (isVrcNotification(change)) {
-    return {
-      title: opts.titleTemplate ? renderTemplate(opts.titleTemplate, vars) : vars.notificationTitle,
-      message: opts.messageTemplate ? renderTemplate(opts.messageTemplate, vars) : renderNotificationMessage(vars),
-      priority: opts.priority == null ? 3 : opts.priority,
-      tags: null
-    };
-  }
-  const title = opts.titleTemplate ? renderTemplate(opts.titleTemplate, vars) : `${change.friendName}${change.changeType}:`;
-  const message = opts.messageTemplate ? renderTemplate(opts.messageTemplate, vars) : `${vars.statusLines}\n时间: ${vars.timestamp}`;
-  return { title, message, priority: opts.priority == null ? 3 : opts.priority, tags: null };
 }
 
 function buildQq(change, opts = {}) {
@@ -192,47 +106,6 @@ function buildQq(change, opts = {}) {
   return { title, message };
 }
 
-function buildWebhook(change, opts = {}) {
-  const vars = buildChangeVars(change);
-  let headers = { 'Content-Type': opts.contentType || 'application/json' };
-  if (opts.headers) {
-    try { headers = { ...headers, ...JSON.parse(opts.headers) }; } catch (e) { /* 忽略非法 headers */ }
-  }
-  let body;
-  if (opts.bodyTemplate) {
-    body = renderTemplate(opts.bodyTemplate, vars);
-    if (headers['Content-Type'] === 'application/json') {
-      try { body = JSON.parse(body); } catch (e) { /* 保持字符串 */ }
-    }
-  } else if (isVrcNotification(change)) {
-    body = {
-      event: 'vrc_notification',
-      timestamp: change.timestamp || '',
-      friend: { name: change.friendName, avatar: change.avatarUrl || '' },
-      notification: { category: change.notificationCategory || '', title: change.notificationTitle || '', body: change.notificationBody || change.newStatusDescription || '' }
-    };
-  } else {
-    body = {
-      event: change.eventType || 'status_change',
-      timestamp: change.timestamp || '',
-      friend: { name: change.friendName, avatar: change.avatarUrl || '' },
-      change: {
-        type: change.changeType,
-        oldStatus: statusLabel(change.oldStatus),
-        newStatus: statusLabel(change.newStatus),
-        oldWorld: change.oldWorld,
-        newWorld: change.newWorld,
-        oldStatusDescription: change.oldStatusDescription || '无',
-        newStatusDescription: change.newStatusDescription || '无',
-        oldPlatform: statusLabel(change.oldPlatform),
-        newPlatform: statusLabel(change.newPlatform)
-      }
-    };
-  }
-  return { method: opts.method || 'POST', url: opts.url, headers, body };
-}
-
 module.exports = {
-  renderTemplate, statusLabel, stateLabel, encodeRfc2047, escapeMd, buildChangeVars,
-  buildEmail, buildGotify, buildNtfy, buildQq, buildWebhook
+  renderTemplate, statusLabel, stateLabel, escapeMd, buildChangeVars, buildQq
 };

@@ -126,19 +126,18 @@ test('business methods hit correct endpoints', async () => {
   await c.getSession();
   await c.getMe();
   await c.getFriends();
-  await c.refreshFriends();
   await c.updateFriendConfig('usr_x', { monitorEnabled: true });
   await c.getSettings();
-  await c.updateSettings({ email: 'a@b.c' });
-  await c.testNotification('gotify');
+  await c.updateSettings({ qq_app_id: 'app1' });
+  await c.testNotification('qq');
   await c.getStatus();
   await c.manualSnapshot();
   const paths = fetch.calls.map((x) => x.url.replace('http://127.0.0.1:3000', ''));
   assert.deepEqual(paths, [
     '/api/access/verify', '/api/login', '/api/login/2fa', '/api/logout',
-    '/api/session', '/api/me', '/api/friends', '/api/friends/refresh',
+    '/api/session', '/api/me', '/api/friends',
     '/api/friends/usr_x/config', '/api/settings', '/api/settings',
-    '/api/test/gotify', '/api/status', '/api/monitor/snapshot'
+    '/api/test/qq', '/api/status', '/api/monitor/snapshot'
   ]);
 });
 

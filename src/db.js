@@ -64,16 +64,21 @@ CREATE TABLE IF NOT EXISTS world_cache (
 );
 `;
 
-/** 设置字段白名单: 列名 -> 类型(int|str) */
+/** 设置字段白名单: 列名 -> 类型(int|str); 当前仅 QQ 通知渠道 */
 const SETTING_COLUMNS = {
-  email: 'str', smtp_enabled: 'int', smtp_host: 'str', smtp_port: 'int', smtp_secure: 'int', smtp_user: 'str', smtp_pass: 'str',
-  email_subject_template: 'str', email_body_template: 'str',
-  gotify_enabled: 'int', gotify_server_url: 'str', gotify_app_token: 'str', gotify_priority: 'int',
-  ntfy_enabled: 'int', ntfy_server_url: 'str', ntfy_topic: 'str', ntfy_priority: 'int',
-  webhook_enabled: 'int', webhook_url: 'str', webhook_method: 'str', webhook_headers: 'str',
-  webhook_body_template: 'str', webhook_content_type: 'str',
   qq_enabled: 'int', qq_app_id: 'str', qq_app_secret: 'str'
 };
+
+// 已移除渠道的历史通知列(仅旧库 users 表迁移/删除用, 与当前白名单分离)
+const LEGACY_NOTIFY_COLUMNS = [
+  'email', 'smtp_enabled', 'smtp_host', 'smtp_port', 'smtp_secure', 'smtp_user', 'smtp_pass',
+  'email_subject_template', 'email_body_template',
+  'gotify_enabled', 'gotify_server_url', 'gotify_app_token', 'gotify_priority',
+  'ntfy_enabled', 'ntfy_server_url', 'ntfy_topic', 'ntfy_priority',
+  'webhook_enabled', 'webhook_url', 'webhook_method', 'webhook_headers',
+  'webhook_body_template', 'webhook_content_type',
+  'qq_enabled', 'qq_app_id', 'qq_app_secret'
+];
 
 const MAX_DEDUPE_ROWS = 100000;
 
@@ -188,7 +193,8 @@ function createDb(location = ':memory:', opts = {}) {
   (function migrateNotifyColumns() {
     try {
       const userCols = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name);
-      const legacy = userCols.filter((c) => c in SETTING_COLUMNS);
+      // 只迁移当前仍在用的白名单列, 其余历史通知列直接删除
+      const legacy = userCols.filter((c) => LEGACY_NOTIFY_COLUMNS.includes(c));
       if (legacy.length === 0) return;
       const latest = db.prepare('SELECT * FROM users ORDER BY updated_at DESC, id DESC LIMIT 1').get();
       for (const col of legacy) {
