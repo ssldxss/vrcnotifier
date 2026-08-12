@@ -5,80 +5,561 @@
 <meta name='viewport' content='width=device-width, initial-scale=1'>
 <title>vrcnotifier</title>
 <style>
+/* ================================================================
+   vrcnotifier 前端样式
+   设计系统: Primitive(原始色) -> Semantic(语义) -> Component(组件)
+   主题: 默认跟随系统 prefers-color-scheme, 可手动切换 深/浅/自动
+   风格: 毛玻璃卡片 + 渐变光晕 + 丝滑过渡(尊重 prefers-reduced-motion)
+   ================================================================ */
+
+/* ---------- Primitive(原始色) ---------- */
 :root {
-  --bg: #0f1115; --card: #171a21; --line: #2a2f3a; --text: #e6e8ee;
-  --muted: #9aa3b2; --accent: #4f8cff; --ok: #3fb950; --warn: #d29922; --bad: #f85149;
+  --p-accent: #5b8cff;
+  --p-accent2: #8b5cf6;
+  --p-ok: #3fb950;
+  --p-warn: #d29922;
+  --p-bad: #f85149;
+  --p-online: #2ed319;
+  --p-joinme: #00b8ff;
+  --p-askme: #e97c03;
+  --p-busy: #c80928;
+  --p-offline: #737f8d;
 }
+
+/* ---------- Semantic(语义): 双主题单份定义, 由 color-scheme 切换 ---------- */
+:root {
+  color-scheme: light dark; /* auto: 跟随系统 */
+  --bg: light-dark(#eef1f6, #0b0d13);
+  --glow-1: light-dark(rgba(91,140,255,.16), rgba(91,140,255,.13));
+  --glow-2: light-dark(rgba(139,92,246,.12), rgba(139,92,246,.11));
+  --header-bg: light-dark(rgba(238,241,246,.72), rgba(11,13,19,.68));
+  --card-bg: light-dark(rgba(255,255,255,.58), rgba(255,255,255,.045));
+  --card-bg-hover: light-dark(rgba(255,255,255,.85), rgba(255,255,255,.075));
+  --card-border: light-dark(rgba(23,32,52,.10), rgba(255,255,255,.09));
+  --card-hl: light-dark(rgba(255,255,255,.85), rgba(255,255,255,.05));
+  --line: light-dark(rgba(23,32,52,.09), rgba(255,255,255,.085));
+  --line-strong: light-dark(rgba(23,32,52,.18), rgba(255,255,255,.16));
+  --text-1: light-dark(#171c28, #f2f5fa);
+  --text-2: light-dark(#414a5c, #b9c0cd);
+  --text-3: light-dark(#6d7688, #828ba0);
+  --accent: light-dark(#3b6fe0, var(--p-accent));
+  --accent-2: light-dark(#7c5ce0, var(--p-accent2));
+  --accent-contrast: #fff;
+  --accent-soft: light-dark(rgba(59,111,224,.13), rgba(91,140,255,.16));
+  --ok: light-dark(#1a7f37, var(--p-ok));
+  --warn: light-dark(#9a6700, var(--p-warn));
+  --bad: light-dark(#cf222e, var(--p-bad));
+  --ok-soft: light-dark(rgba(26,127,55,.12), rgba(63,185,80,.14));
+  --warn-soft: light-dark(rgba(154,103,0,.12), rgba(210,153,34,.14));
+  --bad-soft: light-dark(rgba(207,34,46,.12), rgba(248,81,73,.14));
+  --status-online: light-dark(#1f9d0e, var(--p-online));
+  --status-joinme: light-dark(#0092c9, var(--p-joinme));
+  --status-askme: light-dark(#c46502, var(--p-askme));
+  --status-busy: light-dark(#a80722, var(--p-busy));
+  --status-offline: light-dark(#5b6572, var(--p-offline));
+  --input-bg: light-dark(rgba(23,32,52,.05), rgba(255,255,255,.05));
+  --input-bg-hover: light-dark(rgba(23,32,52,.09), rgba(255,255,255,.09));
+  --btn-sec: light-dark(rgba(23,32,52,.07), rgba(255,255,255,.075));
+  --btn-sec-hover: light-dark(rgba(23,32,52,.12), rgba(255,255,255,.13));
+  --shadow-1: 0 1px 2px rgba(0,0,0,.16), 0 6px 20px rgba(0,0,0,.10);
+  --scrollbar: light-dark(rgba(23,32,52,.2), rgba(255,255,255,.14));
+}
+:root[data-theme='light'] { color-scheme: light; }
+:root[data-theme='dark'] { color-scheme: dark; }
+
+/* ---------- Component(组件级 token) ---------- */
+:root {
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 18px;
+  --r-pill: 999px;
+  --blur: 18px;
+  --t-fast: .16s ease;
+  --t-med: .28s cubic-bezier(.22,.8,.3,1);
+  --font: system-ui, -apple-system, 'Segoe UI', Roboto, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  --font-mono: ui-monospace, 'Cascadia Code', Consolas, 'Courier New', monospace;
+}
+
+/* ---------- 基础 ---------- */
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.6 system-ui, 'Segoe UI', sans-serif; }
-header { display: flex; align-items: center; gap: 12px; padding: 12px 20px; border-bottom: 1px solid var(--line); }
-header h1 { font-size: 18px; margin: 0; }
-header .spacer { flex: 1; }
-header input[type='text'], header input[type='password'] { width: auto; margin: 0; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 6px 9px; }
-.container { max-width: 960px; margin: 0 auto; padding: 20px; }
-.card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
-.card h2 { font-size: 15px; margin: 0 0 10px; }
-.muted { color: var(--muted); }
+body {
+  margin: 0;
+  min-height: 100vh;
+  background:
+    radial-gradient(1100px 700px at 88% -12%, var(--glow-1), transparent 60%),
+    radial-gradient(900px 640px at -8% 28%, var(--glow-2), transparent 55%),
+    var(--bg);
+  background-attachment: fixed;
+  color: var(--text-1);
+  font: 14px/1.6 var(--font);
+  -webkit-font-smoothing: antialiased;
+  transition: color .3s ease;
+}
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+.muted { color: var(--text-3); }
 .hidden { display: none !important; }
-input, select, textarea, a { color: var(--accent); }
-button { font: inherit; }
+
+/* ---------- 顶部栏(毛玻璃吸顶) ---------- */
+header {
+  position: sticky;
+  top: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 20px;
+  background: var(--header-bg);
+  -webkit-backdrop-filter: blur(var(--blur)) saturate(160%);
+  backdrop-filter: blur(var(--blur)) saturate(160%);
+  border-bottom: 1px solid var(--line);
+}
+header h1 {
+  font-size: 17px;
+  margin: 0;
+  letter-spacing: -.2px;
+  background: linear-gradient(120deg, var(--accent), var(--accent-2));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.conn-form { display: flex; align-items: center; gap: 8px; }
+.conn-form input { width: auto; margin: 0; }
+header .spacer { flex: 1; }
+
+/* ---------- 布局 ---------- */
+.container { max-width: 980px; margin: 0 auto; padding: 24px 20px 56px; }
+.row { display: flex; gap: 10px; align-items: center; }
+.row.actions { margin-top: 14px; flex-wrap: wrap; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; }
+
+/* ---------- 统计小卡 ---------- */
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  background: var(--btn-sec);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  transition: background var(--t-fast), transform var(--t-fast), border-color var(--t-fast);
+}
+.stat:hover { background: var(--btn-sec-hover); transform: translateY(-1px); border-color: var(--line-strong); }
+.stat-label { font-size: 11px; letter-spacing: .04em; text-transform: uppercase; color: var(--text-3); }
+.stat-value { font-size: 13px; color: var(--text-1); word-break: break-all; }
+
+/* ---------- 毛玻璃卡片 ---------- */
+.card {
+  position: relative;
+  background: var(--card-bg);
+  -webkit-backdrop-filter: blur(calc(var(--blur) - 4px)) saturate(140%);
+  backdrop-filter: blur(calc(var(--blur) - 4px)) saturate(140%);
+  border: 1px solid var(--card-border);
+  border-radius: var(--r-lg);
+  padding: 18px 20px;
+  margin-bottom: 16px;
+  box-shadow: var(--shadow-1), inset 0 1px 0 var(--card-hl);
+  animation: cardIn .38s cubic-bezier(.22,.8,.3,1) both;
+  transition: border-color var(--t-med), box-shadow var(--t-med);
+}
+.card:nth-child(2) { animation-delay: .05s; }
+.card:nth-child(3) { animation-delay: .1s; }
+.card:hover { border-color: var(--line-strong); }
+.card h2 { font-size: 15px; margin: 0 0 12px; font-weight: 600; }
+#gateView .card, #loginView .card { max-width: 480px; }
+@keyframes cardIn {
+  from { opacity: 0; transform: translateY(10px) scale(.99); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ---------- Tab 切换(pill 胶囊) ---------- */
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 16px;
+  width: fit-content;
+  padding: 4px;
+  background: var(--btn-sec);
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+.tab {
+  background: transparent;
+  color: var(--text-2);
+  border: 0;
+  border-radius: var(--r-pill);
+  padding: 7px 18px;
+  box-shadow: none;
+}
+.tab:hover { background: var(--btn-sec-hover); color: var(--text-1); }
+.tab.active {
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  color: var(--accent-contrast);
+  box-shadow: 0 2px 10px var(--accent-soft);
+}
+#tab-friends:not(.hidden), #tab-log:not(.hidden), #tab-settings:not(.hidden) { animation: viewIn .28s ease both; }
+@keyframes viewIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+/* ---------- 表单控件 ---------- */
 input[type='text'], input[type='password'], input[type='number'], input[type='email'], select, textarea {
-  width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--line);
-  border-radius: 6px; padding: 7px 9px; margin: 4px 0 8px;
+  width: 100%;
+  background: var(--input-bg);
+  color: var(--text-1);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 8px 10px;
+  margin: 4px 0 8px;
+  outline: none;
+  transition: border-color var(--t-fast), box-shadow var(--t-fast), background var(--t-fast);
 }
+input:hover, select:hover, textarea:hover { background: var(--input-bg-hover); }
+input:focus, select:focus, textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+label { color: var(--text-2); }
+
+/* ---------- 按钮 ---------- */
 button {
-  background: var(--accent); color: #fff; border: 0; border-radius: 6px;
-  padding: 7px 14px; cursor: pointer;
+  font: inherit;
+  color: var(--accent-contrast);
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  border: 0;
+  border-radius: var(--r-sm);
+  padding: 8px 16px;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0,0,0,.2), 0 4px 12px var(--accent-soft);
+  transition: transform var(--t-fast), box-shadow var(--t-fast), filter var(--t-fast), background var(--t-fast);
 }
-button.secondary { background: #2a2f3a; color: var(--text); }
-button.danger { background: var(--bad); }
-button:disabled { opacity: 0.5; cursor: default; }
-.row { display: flex; gap: 8px; align-items: center; }
-.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
-.tabs { display: flex; gap: 6px; margin-bottom: 14px; }
-.tab { background: transparent; color: var(--muted); border: 1px solid var(--line); }
-.tab.active { color: var(--text); border-color: var(--accent); }
-  .friend { display: flex; align-items: center; gap: 10px; padding: 9px 4px; border-bottom: 1px solid var(--line); }
-  .friend:last-child { border-bottom: 0; }
-  .friend .avatar { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; flex: 0 0 auto; background: var(--line); }
-  .friend .avatar-fallback { width: 36px; height: 36px; border-radius: 50%; flex: 0 0 auto; display: none; align-items: center; justify-content: center; background: var(--line); color: var(--muted); font-size: 15px; font-weight: 600; }
-  .friend .name { flex: 1; min-width: 0; }
-.friend .state { font-size: 12px; color: var(--muted); }
-.group-title { font-size: 13px; color: var(--muted); margin: 12px 0 2px; font-weight: 600; }
-.friend .checks { display: flex; gap: 12px; font-size: 12px; white-space: nowrap; }
-.friend label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
-.switch { position: relative; width: 34px; height: 18px; flex: 0 0 auto; }
+button:hover { filter: brightness(1.07); transform: translateY(-1px); }
+button:active { transform: translateY(0) scale(.97); }
+button:disabled { opacity: .5; cursor: default; transform: none; filter: none; box-shadow: none; }
+button.secondary {
+  background: var(--btn-sec);
+  color: var(--text-1);
+  box-shadow: none;
+}
+button.secondary:hover { background: var(--btn-sec-hover); filter: none; }
+button.danger { background: linear-gradient(135deg, var(--bad), #b4232c); box-shadow: none; }
+:where(a, button, input, select, textarea):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ---------- 主题切换按钮 ---------- */
+.theme-btn {
+  width: 34px; height: 34px;
+  padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--btn-sec);
+  color: var(--text-1);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  box-shadow: none;
+}
+.theme-btn:hover { background: var(--btn-sec-hover); filter: none; }
+.theme-btn svg { width: 16px; height: 16px; }
+
+/* ---------- 开关 ---------- */
+.switch { position: relative; width: 36px; height: 20px; flex: 0 0 auto; }
 .switch input { opacity: 0; width: 0; height: 0; }
-.switch .slider { position: absolute; inset: 0; background: var(--line); border-radius: 9px; transition: 0.15s; }
-.switch .slider::before { content: ''; position: absolute; width: 14px; height: 14px; left: 2px; top: 2px; background: #fff; border-radius: 50%; transition: 0.15s; }
+.switch .slider { position: absolute; inset: 0; background: var(--line-strong); border-radius: var(--r-pill); transition: background var(--t-fast); }
+.switch .slider::before {
+  content: '';
+  position: absolute;
+  width: 16px; height: 16px;
+  left: 2px; top: 2px;
+  background: #fff;
+  border-radius: 50%;
+  box-shadow: 0 1px 2px rgba(0,0,0,.3);
+  transition: transform .18s cubic-bezier(.3,.8,.3,1.2);
+}
 .switch input:checked + .slider { background: var(--accent); }
 .switch input:checked + .slider::before { transform: translateX(16px); }
-.badge { font-size: 12px; padding: 2px 8px; border-radius: 10px; background: var(--line); }
-.badge.ok { background: rgba(63,185,80,0.18); color: var(--ok); }
-.badge.bad { background: rgba(248,81,73,0.18); color: var(--bad); }
-.badge.warn { background: rgba(210,153,34,0.18); color: var(--warn); }
-#log { max-height: 220px; overflow: auto; font: 12px/1.5 ui-monospace, Consolas, monospace; }
-#log div { padding: 2px 0; border-bottom: 1px dashed var(--line); }
-#log .err { color: var(--bad); }
-fieldset { border: 1px solid var(--line); border-radius: 8px; margin: 0 0 12px; padding: 10px 12px; }
-legend { font-size: 13px; color: var(--muted); padding: 0 6px; }
-h3.chan { font-size: 13px; margin: 14px 0 4px; color: var(--muted); }
+.switch input:focus-visible + .slider { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ---------- 徽章 ---------- */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  padding: 2px 10px;
+  border-radius: var(--r-pill);
+  background: var(--btn-sec);
+  color: var(--text-2);
+  border: 1px solid var(--line);
+}
+.badge::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.badge.ok { background: var(--ok-soft); color: var(--ok); border-color: transparent; }
+.badge.warn { background: var(--warn-soft); color: var(--warn); border-color: transparent; }
+.badge.bad { background: var(--bad-soft); color: var(--bad); border-color: transparent; }
+
+/* ---------- 好友列表 ---------- */
+.group-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: .02em;
+  color: var(--text-2);
+  margin: 18px 0 6px;
+}
+.group-title::after { content: ''; flex: 1; height: 1px; background: linear-gradient(90deg, var(--line-strong), transparent); }
+/* 分组折叠按钮 */
+.group-title .group-toggle {
+  width: 22px; height: 22px;
+  padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: transparent;
+  color: var(--text-3);
+  border: 0;
+  border-radius: 6px;
+  box-shadow: none;
+  flex: 0 0 auto;
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.group-title .group-toggle:hover { background: var(--btn-sec-hover); color: var(--text-1); }
+.group-title .group-toggle svg { width: 14px; height: 14px; transition: transform .2s cubic-bezier(.22,.8,.3,1); }
+.group-title.collapsed .group-toggle svg { transform: rotate(-90deg); }
+/* 折叠动画: grid-rows 0fr/1fr 过渡, 内容隐藏但保留动画 */
+.group-body {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows .3s cubic-bezier(.22,.8,.3,1);
+}
+.group-body.collapsed { grid-template-rows: 0fr; }
+.group-inner { overflow: hidden; min-height: 0; }
+/* 分组标题栏"我"的头像: 小尺寸, 圆点逻辑与好友行一致 */
+.group-title .avatar-wrap {
+  width: 22px; height: 22px;
+  flex: 0 0 auto;
+  position: relative;
+}
+.group-title .avatar-wrap .avatar,
+.group-title .avatar-wrap .avatar-fallback {
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--btn-sec);
+  font-size: 11px;
+  font-weight: 600;
+}
+.group-title .avatar-wrap .avatar-fallback {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-3);
+}
+.group-title .avatar-wrap::after {
+  content: '';
+  position: absolute;
+  right: -1px; bottom: -1px;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--status-offline);
+  box-shadow: 0 0 0 2px var(--bg);
+  box-sizing: border-box;
+  transition: background var(--t-fast), border-color var(--t-fast), box-shadow var(--t-fast);
+}
+.group-title .avatar-wrap.st-online.status-active::after { background: var(--status-online); box-shadow: 0 0 0 2px var(--bg), 0 0 5px color-mix(in srgb, var(--status-online) 50%, transparent); }
+.group-title .avatar-wrap.st-online.status-joinme::after { background: var(--status-joinme); box-shadow: 0 0 0 2px var(--bg), 0 0 5px color-mix(in srgb, var(--status-joinme) 50%, transparent); }
+.group-title .avatar-wrap.st-online.status-askme::after { background: var(--status-askme); box-shadow: 0 0 0 2px var(--bg), 0 0 5px color-mix(in srgb, var(--status-askme) 50%, transparent); }
+.group-title .avatar-wrap.st-online.status-busy::after { background: var(--status-busy); box-shadow: 0 0 0 2px var(--bg), 0 0 5px color-mix(in srgb, var(--status-busy) 50%, transparent); }
+.friend {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px;
+  border-radius: var(--r-md);
+  border-bottom: 1px solid var(--line);
+  transition: background var(--t-fast), transform var(--t-fast);
+}
+.friend:last-child { border-bottom: 0; }
+.friend:hover { background: var(--card-bg-hover); }
+.friend .avatar-wrap {
+  position: relative;
+  width: 40px; height: 40px;
+  flex: 0 0 auto;
+}
+.friend .avatar, .friend .avatar-fallback {
+  width: 40px; height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--btn-sec);
+}
+.friend .avatar { transition: transform var(--t-fast); }
+.friend:hover .avatar { transform: scale(1.06); }
+.friend .avatar-fallback {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-3);
+  font-size: 15px;
+  font-weight: 600;
+}
+/* 状态圆点(VRCX): 颜色=社交状态, 实心=游戏在线, 空心=网页在线, 灰=离线 */
+.friend .avatar-wrap::after {
+  content: '';
+  position: absolute;
+  right: -2px; bottom: -2px;
+  width: 12px; height: 12px;
+  border-radius: 50%;
+  box-sizing: border-box;
+  background: var(--status-offline);
+  box-shadow: 0 0 0 2px var(--bg);
+  transition: background var(--t-fast), border-color var(--t-fast), box-shadow var(--t-fast);
+}
+/* 游戏在线: 实心彩点 + 柔和光晕 */
+.friend .avatar-wrap.st-online.status-active::after { background: var(--status-online); box-shadow: 0 0 0 2px var(--bg), 0 0 6px color-mix(in srgb, var(--status-online) 50%, transparent); }
+.friend .avatar-wrap.st-online.status-joinme::after { background: var(--status-joinme); box-shadow: 0 0 0 2px var(--bg), 0 0 6px color-mix(in srgb, var(--status-joinme) 50%, transparent); }
+.friend .avatar-wrap.st-online.status-askme::after { background: var(--status-askme); box-shadow: 0 0 0 2px var(--bg), 0 0 6px color-mix(in srgb, var(--status-askme) 50%, transparent); }
+.friend .avatar-wrap.st-online.status-busy::after { background: var(--status-busy); box-shadow: 0 0 0 2px var(--bg), 0 0 6px color-mix(in srgb, var(--status-busy) 50%, transparent); }
+/* 网页在线: 空心彩环 + 柔和光晕 */
+.friend .avatar-wrap.st-active.status-active::after { background: var(--bg); border: 3px solid var(--status-online); box-shadow: 0 0 0 2px var(--bg), 0 0 6px color-mix(in srgb, var(--status-online) 50%, transparent); }
+.friend .avatar-wrap.st-active.status-joinme::after { background: var(--bg); border: 3px solid var(--status-joinme); box-shadow: 0 0 0 2px var(--bg), 0 0 6px color-mix(in srgb, var(--status-joinme) 50%, transparent); }
+.friend .avatar-wrap.st-active.status-askme::after { background: var(--bg); border: 3px solid var(--status-askme); box-shadow: 0 0 0 2px var(--bg), 0 0 6px color-mix(in srgb, var(--status-askme) 50%, transparent); }
+.friend .avatar-wrap.st-active.status-busy::after { background: var(--bg); border: 3px solid var(--status-busy); box-shadow: 0 0 0 2px var(--bg), 0 0 6px color-mix(in srgb, var(--status-busy) 50%, transparent); }
+/* 离线: 灰点 + 头像灰度(VRCX), hover 恢复彩色 */
+.friend .avatar-wrap.st-offline .avatar { filter: grayscale(1); transition: filter var(--t-fast); }
+.friend:hover .avatar-wrap.st-offline .avatar { filter: none; }
+.friend .name { flex: 1; min-width: 0; font-weight: 500; }
+.friend .state { font-size: 12px; color: var(--text-3); margin-top: 1px; }
+.friend .checks { display: flex; gap: 10px; font-size: 12px; white-space: nowrap; }
+.friend label { display: flex; align-items: center; gap: 5px; cursor: pointer; color: var(--text-2); }
+
+/* 好友行小复选框(自绘) */
+.friend .checks input[type='checkbox'] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 15px; height: 15px;
+  margin: 0;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 4px;
+  background: var(--input-bg);
+  cursor: pointer;
+  display: inline-grid;
+  place-content: center;
+  transition: background var(--t-fast), border-color var(--t-fast), transform var(--t-fast);
+}
+.friend .checks input[type='checkbox']:hover { transform: scale(1.1); }
+.friend .checks input[type='checkbox']::before {
+  content: '';
+  width: 9px; height: 9px;
+  clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
+  background: var(--accent-contrast);
+  transform: scale(0);
+  transition: transform .12s ease;
+}
+.friend .checks input[type='checkbox']:checked { background: var(--accent); border-color: var(--accent); }
+.friend .checks input[type='checkbox']:checked::before { transform: scale(1); }
+
+/* ---------- 日志 ---------- */
+#log {
+  max-height: 240px;
+  overflow: auto;
+  font: 12px/1.6 var(--font-mono);
+  background: var(--input-bg);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: 10px 12px;
+}
+#log div { padding: 2px 6px; border-radius: 4px; border-bottom: 1px dashed var(--line); }
+#log .err { color: var(--bad); background: var(--bad-soft); }
+#log .warn { color: var(--warn); }
+
+/* ---------- 概览条(常驻) ---------- */
+.overview {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.overview-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 12px;
+  background: var(--btn-sec);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  transition: background var(--t-fast), border-color var(--t-fast);
+}
+.overview-item:hover { background: var(--btn-sec-hover); border-color: var(--line-strong); }
+.ov-label { font-size: 11px; letter-spacing: .04em; text-transform: uppercase; color: var(--text-3); }
+.ov-value { font-size: 13px; color: var(--text-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.overview-item .badge { width: fit-content; }
+
+/* ---------- 好友工具栏 ---------- */
+.toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+.toolbar input { flex: 1; min-width: 160px; margin: 0; }
+.toolbar .muted { font-size: 12px; }
+
+/* ---------- 提示文本 ---------- */
+.hint { font-size: 12px; margin: 0 0 10px; }
+
+/* ---------- 设置字段 ---------- */
+.field { display: flex; flex-direction: column; gap: 2px; }
+.field label { font-size: 12px; color: var(--text-2); }
+.field input, .field select { margin: 0; }
+
+/* ---------- 表单分组 ---------- */
+fieldset { border: 1px solid var(--line); border-radius: var(--r-md); margin: 0 0 12px; padding: 12px 14px; }
+legend { font-size: 13px; color: var(--text-3); padding: 0 6px; }
+h3.chan { font-size: 13px; margin: 16px 0 6px; color: var(--text-2); font-weight: 600; }
+
+/* ---------- 滚动条 ---------- */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 5px; border: 2px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* ---------- 响应式 ---------- */
+@media (max-width: 760px) {
+  header { flex-wrap: wrap; padding: 10px 14px; }
+  .conn-form { width: 100%; order: 5; flex-wrap: wrap; }
+  .conn-form input { flex: 1; min-width: 120px; }
+  .grid2 { grid-template-columns: 1fr; }
+  .overview { grid-template-columns: 1fr 1fr; }
+  .friend { flex-wrap: wrap; }
+  .friend .checks { width: 100%; flex-wrap: wrap; gap: 8px 14px; padding-left: 52px; }
+  .tabs { width: 100%; }
+  .tab { flex: 1; }
+  button { min-height: 40px; }
+}
+
+/* ---------- 无障碍: 减少动画 ---------- */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+
 </style>
 </head>
 <body>
 <header>
   <h1>vrcnotifier</h1>
-  <input type='text' id='backendUrl' placeholder='后端地址' title='后端地址'><input type='password' id='accessTokenInput' placeholder='访问令牌' title='访问令牌'><button id='connectBtn' class='secondary'>连接</button><span class='muted' id='userLabel'></span>
+  <div class='conn-form' id='headerConnect'>
+    <input type='text' id='backendUrl' placeholder='后端地址' title='后端地址'>
+    <input type='password' id='accessTokenInput' placeholder='访问令牌' title='访问令牌'>
+    <button id='connectBtn' class='secondary'>连接</button>
+  </div>
+  <span class='muted' id='userLabel'></span>
   <span class='spacer'></span>
+  <button id='themeBtn' class='theme-btn' title='主题: 跟随系统' aria-label='切换主题'></button>
   <button id='logoutBtn' class='secondary hidden'>登出</button>
 </header>
 
 <div class='container hidden' id='gateView'>
   <div class='card'>
     <h2>连接后端</h2>
-    <p class='muted'>在页面左上角填写后端地址与访问令牌, 点击[连接]。令牌与后端启动日志中「已生成访问令牌」一致。</p>
+    <p class='muted'>填写后端地址与访问令牌, 点击「连接」。令牌与后端启动日志中「已生成访问令牌」一致。</p>
     <p class='muted' id='gateMsg'></p>
-  </div></div>
+  </div>
+</div>
 
 <div class='container hidden' id='loginView'>
   <div class='card'>
@@ -107,63 +588,60 @@ h3.chan { font-size: 13px; margin: 14px 0 4px; color: var(--muted); }
 </div>
 
 <div class='container hidden' id='mainView'>
-  <div class='tabs'>
-    <button class='tab active' data-tab='status'>状态</button>
-    <button class='tab' data-tab='friends'>好友</button>
-    <button class='tab' data-tab='settings'>通知设置</button>
+  <!-- 常驻概览条: 所有 tab 可见 -->
+  <div class='overview'>
+    <div class='overview-item'><span class='ov-label'>WS 连接</span><span id='stWs' class='badge'>-</span></div>
+    <div class='overview-item'><span class='ov-label'>上次快照</span><span id='stSnapshot' class='ov-value'>-</span></div>
+    <div class='overview-item'><span class='ov-label'>QQ 机器人</span><span id='qqBindInfo' class='ov-value'>-</span></div>
+    <div class='overview-item'><span class='ov-label'>监控好友</span><span id='stMonitored' class='ov-value'>-</span></div>
   </div>
 
-  <section id='tab-status'>
-    <div class='card'>
-      <h2>运行状态</h2>
-      <div class='grid2'>
-        <div>登录用户: <span id='stUser' class='muted'>-</span></div>
-        <div>WS 连接: <span id='stWs' class='badge'>-</span></div>
-        <div>监控好友数: <span id='stMonitored' class='muted'>-</span></div>
-        <div>上次快照: <span id='stSnapshot' class='muted'>-</span></div>
-        <div>QQ: <span id='qqBindInfo' class='muted'>-</span></div>
+  <div class='tabs'>
+    <button class='tab active' data-tab='friends'>好友</button>
+    <button class='tab' data-tab='log'>动态</button>
+    <button class='tab' data-tab='settings'>设置</button>
+  </div>
 
-      </div>
-      <div class='row' style='margin-top:12px'>
+  <section id='tab-friends'>
+    <div class='card'>
+      <h2>好友监控 <span class='muted' id='friendsCount'></span></h2>
+      <div class='toolbar'>
+        <input type='text' id='friendSearch' placeholder='搜索昵称 / 世界 / 状态...' autocomplete='off'>
         <button id='forceSnapshot' class='secondary'>刷新</button>
         <span class='muted' id='opMsg'></span>
       </div>
-    </div>
-    <div class='card'>
-      <h2>后端日志</h2>
-      <div id='log'><div class='muted'>等待日志...</div></div>
-    </div>
-  </section>
-
-  <section id='tab-friends' class='hidden'>
-    <div class='card'>
-      <h2>好友监控 <span class='muted' id='friendsCount'></span></h2>
-      <p class='muted'>特别关注的好友在列表中优先展示(含离线); 小开关控制对应通知。</p>
+      <p class='muted hint'>特别关注的好友优先展示(含离线); 开关控制对应通知。</p>
       <div id='friendsList'></div>
     </div>
   </section>
 
-  <section id='tab-settings' class='hidden'>
+  <section id='tab-log' class='hidden'>
+    <div class='card'>
+      <h2>实时动态</h2>
+      <p class='muted hint'>后端日志实时推送, 包含监控事件 / 通知发送 / 连接状态。</p>
+      <div id='log'><div class='muted'>等待日志...</div></div>
+    </div>
+  </section>
 
+  <section id='tab-settings' class='hidden'>
     <div class='card'>
       <h2>QQ 机器人 (推荐)</h2>
       <div class='grid2'>
-        <div><label>启用<select id='sQqEnabled'><option value='0'>关闭</option><option value='1'>开启</option></select></label></div>
-        <div><label>AppID<input type='text' id='sQqAppId' placeholder='QQ开放平台管理端 AppID'></label></div>
-        <div><label>AppSecret<input type='password' id='sQqAppSecret'></label></div>
+        <div class='field'><label>启用</label><select id='sQqEnabled'><option value='0'>关闭</option><option value='1'>开启</option></select></div>
+        <div class='field'><label>AppID</label><input type='text' id='sQqAppId' placeholder='QQ开放平台管理端 AppID'></div>
+        <div class='field'><label>AppSecret</label><input type='password' id='sQqAppSecret' placeholder='未配置'></div>
       </div>
-      <div class='muted'>在 <a href='https://q.qq.com/qqbot/openclaw/login.html' target='_blank' rel='noopener'>QQ 开放平台</a> 创建机器人, 填入 AppID/AppSecret 并保存后, 在 QQ 中给机器人发任意一条消息完成绑定</div>
-      <div class='row'><button id='testQq' class='secondary'>发送测试推送</button></div>
-    <div class='card'>
-      <div class='row'>
+      <p class='muted hint'>在 <a href='https://q.qq.com/qqbot/openclaw/login.html' target='_blank' rel='noopener'>QQ 开放平台</a> 创建机器人, 填入 AppID/AppSecret 并保存后, 在 QQ 中给机器人发任意一条消息完成绑定。</p>
+      <div class='row actions'>
         <button id='saveSettings'>保存设置</button>
+        <button id='testQq' class='secondary'>发送测试推送</button>
         <span class='muted' id='settingsMsg'></span>
       </div>
     </div>
   </section>
 </div>
-
 <script>
+
 'use strict';
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
@@ -189,6 +667,9 @@ let tempSessionId = null;
 let twofaKind = 'emailOtp';
 let statusTimer = null;
 let friendsCache = [];
+let searchQuery = ''; // 好友搜索关键词
+let myAvatarKey = null; // 当前用户头像 key(分组标题栏"我"的头像)
+let myStatus = 'active'; // 当前用户社交状态
 
 function escapeHtml(v) {
   return String(v == null ? '' : v)
@@ -215,6 +696,10 @@ function addLogLine(line, cls) {
   const box = $('#log');
   const div = document.createElement('div');
   div.textContent = line;
+  if (!cls) {
+    if (/\[warn\]/.test(line)) cls = 'warn';
+    else if (/\[error\]/.test(line)) cls = 'err';
+  }
   if (cls) div.className = cls;
   box.appendChild(div);
   while (box.children.length > 500) box.firstChild.remove();
@@ -247,6 +732,7 @@ function showView(name) {
   $('#gateView').classList.toggle('hidden', name !== 'gate');
   $('#loginView').classList.toggle('hidden', name !== 'login');
   $('#mainView').classList.toggle('hidden', name !== 'main');
+  $('#headerConnect').classList.toggle('hidden', name !== 'gate');
 }
 
 function stateLabel(s) {
@@ -368,15 +854,36 @@ async function loadFriends() {
   const r = await api('GET', '/api/friends');
   if (r.data.friends) {
     friendsCache = r.data.friends;
+    $('#stMonitored').textContent = friendsCache.length + ' 人';
     renderFriends();
+  }
+}
+
+// 分组标题栏"我"的头像: 刷新所有 .me-avatar(头像+VRCX 圆点, 自己恒为在线)
+function updateMeAvatars() {
+  const boxes = document.querySelectorAll('.me-avatar');
+  if (!boxes.length) return;
+  const initial = escapeHtml(((currentUser && currentUser.display_name) || '?').charAt(0).toUpperCase());
+  const statusCls = 'status-' + String(myStatus || 'active').replace(/\s+/g, '');
+  const img = myAvatarKey
+    ? "<img class=avatar src='" + avatarUrl(myAvatarKey) + "' loading='lazy' alt='' onerror=\"this.style.display='none';this.nextElementSibling.style.display='flex'\">"
+    : '';
+  const html = img + "<div class='avatar-fallback' style='display:" + (img ? 'none' : 'flex') + "'>" + initial + "</div>";
+  for (const box of boxes) {
+    box.className = 'avatar-wrap me-avatar st-online ' + statusCls;
+    box.innerHTML = html;
   }
 }
 
 function renderFriends() {
   const list = $('#friendsList');
-  if (!friendsCache.length) {
-    list.innerHTML = '<p class=muted>暂无好友数据, 点击上方「刷新」拉取。</p>';
-    $('#friendsCount').textContent = '';
+  const kw = (searchQuery || '').trim().toLowerCase();
+  const pool = kw
+    ? friendsCache.filter((f) => (f.display_name || '').toLowerCase().includes(kw) || (f.world_name || '').toLowerCase().includes(kw) || (f.status_description || '').toLowerCase().includes(kw))
+    : friendsCache;
+  if (!pool.length) {
+    list.innerHTML = '<p class=muted>' + (friendsCache.length ? '没有匹配的好友。' : '暂无好友数据, 点击上方「刷新」拉取。') + '</p>';
+    $('#friendsCount').textContent = friendsCache.length ? '共 ' + friendsCache.length + ' 人' : '';
     return;
   }
   $('#friendsCount').textContent = '共 ' + friendsCache.length + ' 人';
@@ -392,8 +899,12 @@ function renderFriends() {
       ? "<img class=avatar src='" + avatarUrl(f.avatarKey) + "' loading='lazy' alt='' onerror=\"this.style.display='none';this.nextElementSibling.style.display='flex'\"><div class='avatar-fallback'>" + initial + '</div>'
       : "<div class='avatar-fallback' style='display:flex'>" + initial + '</div>';
     const worldTxt = f.world_id === 'private' ? '私密世界' : (f.world_name || '');
+    // 色环=社交状态(VRCX), 圆点=在线状态
+    const statusCls = 'status-' + String(f.status || 'active').replace(/\s+/g, '');
+    const wrapCls = "st-" + (f.state || 'offline') + ' ' + statusCls;
+    const WRAP_AVATAR = "<div class='avatar-wrap " + wrapCls + "'>" + avatarHtml + "</div>";
     row.innerHTML =
-      avatarHtml +
+      WRAP_AVATAR +
       '<label class=switch title=特别关注><input type=checkbox class=favorite' + (c.favorite ? ' checked' : '') + '><span class=slider></span></label>' +
       '<div class=name>' + escapeHtml(f.display_name || f.friend_vrchat_id) +
       '<div class=state>' + stateLabel(f.state) + (worldTxt ? ' · ' + escapeHtml(worldTxt) : '') +
@@ -404,19 +915,51 @@ function renderFriends() {
       '<label><input type=checkbox data-k=notify_status_change' + (isOn(c.notify_status_change) ? ' checked' : '') + '>状态</label>' +
       '<label><input type=checkbox data-k=notify_world_change' + (isOn(c.notify_world_change) ? ' checked' : '') + '>世界</label>' +
       '</div>';
-    list.appendChild(row);
+    return row;
   };
-  const favList = friendsCache.filter((f) => f.config && f.config.favorite === 1);
-  const otherList = friendsCache.filter((f) => !(f.config && f.config.favorite === 1));
+  const favList = pool.filter((f) => f.config && f.config.favorite === 1);
+  // 其他好友按状态分类: 在线 -> 网页在线 -> 离线(特别关注组不动)
+  const otherList = pool.filter((f) => !(f.config && f.config.favorite === 1));
+  const onlineOthers = otherList.filter((f) => f.state === 'online');
+  const activeOthers = otherList.filter((f) => f.state === 'active');
+  const offlineOthers = otherList.filter((f) => f.state === 'offline');
   const addGroup = (title, list2) => {
     const g = document.createElement('div');
     g.className = 'group-title';
-    g.textContent = title;
+    // 标题栏左侧: 自己的头像+状态(渲染方式与好友行一致)
+    const me = document.createElement('div');
+    me.className = 'avatar-wrap me-avatar';
+    g.appendChild(me);
+    const btn = document.createElement('button');
+    btn.className = 'group-toggle';
+    btn.type = 'button';
+    btn.title = '收起';
+    btn.setAttribute('aria-label', '收起');
+    btn.innerHTML = '<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"m6 9 6 6 6-6\"/></svg>';
+    const label = document.createElement('span');
+    label.textContent = title;
+    g.appendChild(btn);
+    g.appendChild(label);
+    const body = document.createElement('div');
+    body.className = 'group-body';
+    const inner = document.createElement('div');
+    inner.className = 'group-inner';
+    for (const f of list2) inner.appendChild(renderRow(f));
+    body.appendChild(inner);
     list.appendChild(g);
-    list2.forEach(renderRow);
+    list.appendChild(body);
+    btn.addEventListener('click', () => {
+      const collapsed = body.classList.toggle('collapsed');
+      g.classList.toggle('collapsed', collapsed);
+      btn.title = collapsed ? '展开' : '收起';
+      btn.setAttribute('aria-label', btn.title);
+    });
   };
   if (favList.length) addGroup('⭐ 特别关注 (' + favList.length + ')', favList);
-  if (otherList.length) addGroup('其他好友 (' + otherList.length + ')', otherList);
+  if (onlineOthers.length) addGroup('在线 (' + onlineOthers.length + ')', onlineOthers);
+  if (activeOthers.length) addGroup('网页在线 (' + activeOthers.length + ')', activeOthers);
+  if (offlineOthers.length) addGroup('离线 (' + offlineOthers.length + ')', offlineOthers);
+  updateMeAvatars();
 }
 
 $('#friendsList').addEventListener('change', async (e) => {
@@ -452,6 +995,14 @@ $('#forceSnapshot').addEventListener('click', async () => {
   } else {
     $('#opMsg').textContent = r.data.error || '刷新失败';
   }
+});
+
+// 好友搜索(150ms 防抖)
+let friendSearchTimer = null;
+$('#friendSearch').addEventListener('input', (e) => {
+  searchQuery = e.target.value;
+  clearTimeout(friendSearchTimer);
+  friendSearchTimer = setTimeout(renderFriends, 150);
 });
 
 // ---------- 设置 ----------
@@ -490,13 +1041,14 @@ bindTest('qq', '#testQq');
 async function loadStatus() {
   const r = await api('GET', '/api/status');
   const d = r.data || {};
-  $('#stUser').textContent = d.loggedIn ? (d.user ? d.user.display_name : '是') : '未登录';
   const ws = $('#stWs');
   if (!d.loggedIn) { ws.textContent = '-'; ws.className = 'badge'; }
   else if (d.wsConnected) { ws.textContent = '已连接'; ws.className = 'badge ok'; }
   else { ws.textContent = '未连接/重连中'; ws.className = 'badge warn'; }
-  $('#stMonitored').textContent = d.loggedIn ? '查看好友页' : '-';
   $('#stSnapshot').textContent = d.lastSnapshotAt ? new Date(d.lastSnapshotAt).toLocaleTimeString() : '-';
+  myAvatarKey = (d.user && d.user.avatarKey) || null;
+  myStatus = (d.user && d.user.status) || 'active';
+  updateMeAvatars();
   const qqInfo = $('#qqBindInfo');
   if (d.qq && d.qq.configured) {
     const bound = d.qq.bound ? (d.qq.bound.nickname || d.qq.bound.openid) : null;
@@ -504,6 +1056,7 @@ async function loadStatus() {
   } else {
     qqInfo.textContent = '未配置';
   }
+  qqInfo.title = qqInfo.textContent;
 }
 
 function startStatus() {
@@ -535,12 +1088,34 @@ function connectEvents() {
 $$('.tab').forEach((btn) => {
   btn.addEventListener('click', () => {
     $$('.tab').forEach((b) => b.classList.toggle('active', b === btn));
-    ['status', 'friends', 'settings'].forEach((name) => {
+    ['friends', 'log', 'settings'].forEach((name) => {
       $('#tab-' + name).classList.toggle('hidden', name !== btn.dataset.tab);
     });
     if (btn.dataset.tab === 'friends') loadFriends();
   });
 });
+
+// ---------- 主题: 自动(跟随系统)/浅色/深色 ----------
+const THEME_KEY = 'vrcn_theme';
+const THEME_ICONS = {
+  auto: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>',
+  light: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>',
+  dark: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>'
+};
+const THEME_LABELS = { auto: '主题: 跟随系统', light: '主题: 浅色', dark: '主题: 深色' };
+function applyTheme(mode) {
+  const root = document.documentElement;
+  if (mode === 'auto') root.removeAttribute('data-theme');
+  else root.setAttribute('data-theme', mode);
+  localStorage.setItem(THEME_KEY, mode);
+  $('#themeBtn').innerHTML = THEME_ICONS[mode];
+  $('#themeBtn').title = THEME_LABELS[mode] + '(点击切换)';
+}
+$('#themeBtn').addEventListener('click', () => {
+  const cur = localStorage.getItem(THEME_KEY) || 'auto';
+  applyTheme(cur === 'auto' ? 'light' : (cur === 'light' ? 'dark' : 'auto'));
+});
+applyTheme(localStorage.getItem(THEME_KEY) || 'auto');
 
 loadConfig();
 </script>

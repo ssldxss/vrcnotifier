@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS users (
   saved_username TEXT,
   display_name TEXT,
   avatar_url TEXT,
+  status TEXT,
   remember_me INTEGER DEFAULT 0,
   cookie_data TEXT,
   created_at TEXT DEFAULT (datetime('now')),
@@ -98,12 +99,15 @@ function createDb(location = ':memory:', opts = {}) {
   try { db.exec('ALTER TABLE world_cache ADD COLUMN retry_at INTEGER NOT NULL DEFAULT 0'); } catch (e) { /* 已存在 */ }
   // 旧库补充: monitor_config 补 favorite 列(已存在则忽略)
   try { db.exec('ALTER TABLE monitor_config ADD COLUMN favorite INTEGER DEFAULT 0'); } catch (e) { /* 已存在 */ }
+  // 旧库补充: users 补 status 列(已存在则忽略)
+  try { db.exec('ALTER TABLE users ADD COLUMN status TEXT'); } catch (e) { /* 已存在 */ }
   const stmt = {
-    upsertUser: db.prepare(`INSERT INTO users (vrchat_user_id, username, display_name, avatar_url)
-      VALUES (?, ?, ?, ?)
+    upsertUser: db.prepare(`INSERT INTO users (vrchat_user_id, username, display_name, avatar_url, status)
+      VALUES (?, ?, ?, ?, ?)
       ON CONFLICT(vrchat_user_id) DO UPDATE SET
         username = excluded.username, display_name = excluded.display_name,
         avatar_url = COALESCE(excluded.avatar_url, users.avatar_url),
+        status = COALESCE(excluded.status, users.status),
         updated_at = datetime('now')`),
     getUserByVrcId: db.prepare('SELECT * FROM users WHERE vrchat_user_id = ?'),
     getUserByDbId: db.prepare('SELECT * FROM users WHERE id = ?'),
@@ -224,8 +228,8 @@ function createDb(location = ':memory:', opts = {}) {
 
   return {
     // users
-    upsertUser(vrcId, { username, displayName, avatarUrl }) {
-      stmt.upsertUser.run(vrcId, username ?? null, displayName ?? null, avatarUrl ?? null);
+    upsertUser(vrcId, { username, displayName, avatarUrl, status }) {
+      stmt.upsertUser.run(vrcId, username ?? null, displayName ?? null, avatarUrl ?? null, status ?? null);
       return stmt.getUserByVrcId.get(vrcId).id;
     },
     getUserByVrcId: (vrcId) => stmt.getUserByVrcId.get(vrcId) || null,
