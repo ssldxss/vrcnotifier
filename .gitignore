@@ -3,6 +3,7 @@ data/
 *.log
 .env
 .verify/
+<<<<<<< HEAD
 AGENTS.md
 
 # 多平台系统文件
@@ -19,3 +20,5 @@ desktop.ini
 .requirements/
 coverage/
 *.tmp
+=======
+>>>>>>> 52434ea (新前端!!!)

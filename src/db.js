@@ -13,7 +13,10 @@ CREATE TABLE IF NOT EXISTS users (
   saved_username TEXT,
   display_name TEXT,
   avatar_url TEXT,
+<<<<<<< HEAD
   state TEXT DEFAULT 'online',
+=======
+>>>>>>> 52434ea (新前端!!!)
   status TEXT,
   remember_me INTEGER DEFAULT 0,
   cookie_data TEXT,
@@ -100,6 +103,7 @@ function createDb(location = ':memory:', opts = {}) {
   try { db.exec('ALTER TABLE world_cache ADD COLUMN retry_at INTEGER NOT NULL DEFAULT 0'); } catch (e) { /* 已存在 */ }
   // 旧库补充: monitor_config 补 favorite 列(已存在则忽略)
   try { db.exec('ALTER TABLE monitor_config ADD COLUMN favorite INTEGER DEFAULT 0'); } catch (e) { /* 已存在 */ }
+<<<<<<< HEAD
   // 旧库补充: users 补 state/status 列(已存在则忽略)
   try { db.exec("ALTER TABLE users ADD COLUMN state TEXT DEFAULT 'online'"); } catch (e) { /* 已存在 */ }
   try { db.exec('ALTER TABLE users ADD COLUMN status TEXT'); } catch (e) { /* 已存在 */ }
@@ -113,6 +117,17 @@ function createDb(location = ':memory:', opts = {}) {
         state = excluded.state,
         status = COALESCE(excluded.status, users.status),
         status_description = COALESCE(excluded.status_description, users.status_description),
+=======
+  // 旧库补充: users 补 status 列(已存在则忽略)
+  try { db.exec('ALTER TABLE users ADD COLUMN status TEXT'); } catch (e) { /* 已存在 */ }
+  const stmt = {
+    upsertUser: db.prepare(`INSERT INTO users (vrchat_user_id, username, display_name, avatar_url, status)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(vrchat_user_id) DO UPDATE SET
+        username = excluded.username, display_name = excluded.display_name,
+        avatar_url = COALESCE(excluded.avatar_url, users.avatar_url),
+        status = COALESCE(excluded.status, users.status),
+>>>>>>> 52434ea (新前端!!!)
         updated_at = datetime('now')`),
     updateUserPresence: db.prepare(`UPDATE users SET
         state = ?, status = COALESCE(?, users.status), status_description = COALESCE(?, users.status_description), updated_at = datetime('now')
@@ -239,8 +254,13 @@ function createDb(location = ':memory:', opts = {}) {
 
   return {
     // users
+<<<<<<< HEAD
     upsertUser(vrcId, { username, displayName, avatarUrl, state, status, statusDescription }) {
       stmt.upsertUser.run(vrcId, username ?? null, displayName ?? null, avatarUrl ?? null, state ?? 'online', status ?? null, statusDescription ?? null);
+=======
+    upsertUser(vrcId, { username, displayName, avatarUrl, status }) {
+      stmt.upsertUser.run(vrcId, username ?? null, displayName ?? null, avatarUrl ?? null, status ?? null);
+>>>>>>> 52434ea (新前端!!!)
       return stmt.getUserByVrcId.get(vrcId).id;
     },
     getUserByVrcId: (vrcId) => stmt.getUserByVrcId.get(vrcId) || null,
