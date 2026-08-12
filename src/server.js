@@ -8,7 +8,7 @@ const { CookieJar } = require('./cookiejar');
 const { parseLocation } = require('./location');
 const { deriveStateFromSnapshot } = require('./state');
 const { detectImageType } = require('./avatar');
-const { formatLocalTime } = require('./util');
+const { formatLocalTime, getLogStream } = require('./util');
 
 const MASK = '••••••••';
 const SECRET_FIELDS = new Set(['smtp_pass', 'gotify_app_token', 'qq_app_secret']);
@@ -31,17 +31,21 @@ const SETTING_MAP = {
 function createApp({
   db, notifier, pipeline, monitor,
   sessionStore = new Map(), vrcapiFactory, config = {}, logger = null,
-  now = Date.now, publicDir = null, avatarCache = null, qq = null
+  now = Date.now, publicDir = null, avatarCache = null, qq = null, logStream = null
 }) {
   const log = logger || { info: () => {}, warn: () => {}, error: () => {} };
   const app = express();
   const bus = monitor.events;
+  const logStreamRef = logStream || getLogStream(); // 后端日志流: 未注入时回退全局
   const pending2faTtlMs = config.pending2faTtlMs ?? 5 * 60 * 1000;
 
   let current = null;        // { userId, dbId, vrcapi }
   const pending2fa = new Map();
   let lastSnapshotAt = null;
-  let sessionExpiredNotified = false; // 自动登录 401 只推送一次, 登录成功后重置
+  let sessionExpiredNotified = false; // 自动登录 401 通知只推一次, 登录成功后重置
+  let autoLogin401Streak = 0;         // 自动登录连续 401 次数(成功/清除登录信息后重置)
+  let autoLogin401Notified = false;   // 第 3 次 401 的 IP 提示是否已推送(只推一次)
+  let autoLoginFailingSince = 0;      // 自动登录开始连续失败的时间(401/网络等, 成功或清除后重置)
   let autoLoginRetryTimer = null;
   let autoLoginRetryAttempt = 0;
   let autoLoginInFlight = false;
@@ -90,6 +94,15 @@ function createApp({
     }
   }
 
+  // 后端日志实时转发: 日志流每推一行, 广播给所有 SSE 客户端(前端直接展示后端日志原文)
+  if (logStreamRef) {
+    logStreamRef.subscribe((entry) => {
+      for (const res of sseClients) {
+        try { sseSend(res, 'log', entry); } catch (e) { sseClients.delete(res); }
+      }
+    });
+  }
+
   function handleSessionExpired(userId) {
     if (current && current.userId === userId) {
       current = null;
@@ -99,6 +112,9 @@ function createApp({
 
   async function finalizeLogin(vrcapi, currentUser, { rememberMe, username }) {
     sessionExpiredNotified = false;
+    autoLogin401Streak = 0;
+    autoLogin401Notified = false;
+    autoLoginFailingSince = 0;
     if (autoLoginRetryTimer) { clearTimeout(autoLoginRetryTimer); autoLoginRetryTimer = null; }
     autoLoginRetryAttempt = 0;
     if (current) {
@@ -166,7 +182,23 @@ function createApp({
     } catch (e) {
       const retryable = e && (e.status === 401 || e.status === 429 || e.status === 0 || e.status === -1 || (e.status >= 500 && e.status < 600));
       log.warn(`[server] 自动登录失败(${e.message})${retryable ? ', 按退避重试' : ''}`);
-      if (e && e.status === 401) await notifySessionExpired(saved);
+      if (retryable && !autoLoginFailingSince) autoLoginFailingSince = now();
+      if (e && e.status === 401) {
+        // 第一次 401 即检查 cookie 是否过期: 已过期 -> 推送"登录过期"并清除登录信息, 停止重试
+        if (autoLogin401Streak === 0 && cookieJarExpired(jar, now())) {
+          await notifySessionExpired(saved, 'expired');
+          db.clearCookies(saved.id);
+          autoLoginFailingSince = 0;
+          log.info(`[server] cookie 已过期, 清除登录信息并停止重试`);
+          return;
+        }
+        autoLogin401Streak++;
+        // 连续 3 次 401 且 cookie 未过期: 推送"可能 IP 变化", 继续退避重试
+        if (autoLogin401Streak >= 3 && !autoLogin401Notified) {
+          autoLogin401Notified = true;
+          await notifySessionExpired(saved, 'ip_changed');
+        }
+      }
       if (retryable) scheduleAutoLoginRetry(saved);
     }
   }
@@ -184,29 +216,54 @@ function createApp({
     if (autoLoginRetryTimer.unref) autoLoginRetryTimer.unref();
   }
 
-  // 自动登录 cookie 失效: 推送系统通知(与 monitor 的 401 通知一致, 只推一次)
-  async function notifySessionExpired(savedRow) {
+  // cookie 是否已过期: 所有带 expires 的 cookie 都超过当前时间才算过期(无 expires 视为未过期)
+  function cookieJarExpired(jar, atMs) {
+    const cookies = (jar && jar.cookies) || [];
+    if (cookies.length === 0) return false;
+    return cookies.every((c) => c.expires != null && c.expires <= atMs);
+  }
+
+  // 自动登录 401 通知(只推一次): expired=cookie 已过期, ip_changed=cookie 未过期但连续 3 次 401
+  async function notifySessionExpired(savedRow, reason = 'expired') {
     if (sessionExpiredNotified) return;
     sessionExpiredNotified = true;
+    const expired = reason !== 'ip_changed';
+    const title = expired ? '⚠️ 登录过期' : '⚠️ 登录失败';
+    const body = expired
+      ? '登录过期, 请重新登录'
+      : '登录失败,cookies未过期,可能ip地址发生变化,继续按退避重试';
     const change = {
       changeType: '系统通知',
       friendName: 'vrcnotifier',
       oldStatus: '未知', newStatus: '未知',
       oldWorld: '-', newWorld: '-',
-      oldStatusDescription: '无', newStatusDescription: '监控已停用, 请重新登录',
+      oldStatusDescription: '无', newStatusDescription: body,
       oldPlatform: 'unknown', newPlatform: 'unknown',
-      notificationTitle: '⚠️ VRChat 会话失效',
-      notificationBody: '监控已停用, 请重新登录',
+      notificationTitle: title,
+      notificationBody: body,
       eventType: 'vrc_system',
       timestamp: formatLocalTime(now())
     };
     try {
       const forSend = { id: savedRow.id, ...db.getGlobalSettings() };
-      log.info(`[server] 自动登录会话失效, 已推送通知`);
+      log.info(`[server] 自动登录 401 通知已推送: ${title}`);
       await notifier.sendAll(forSend, change);
     } catch (err) {
       log.warn(`[server] 会话失效通知失败: ${err.message}`);
     }
+  }
+
+  // QQ 在线列表等场景的连接状态: 401 未恢复(自动登录退避重试中)优先, 其次 WS 断开重连中
+  function getConnectionStatus(dbId) {
+    if (autoLoginRetryTimer && autoLoginFailingSince) {
+      return { connected: false, since: autoLoginFailingSince };
+    }
+    const user = db.getUserByDbId(dbId);
+    const st = user && user.vrchat_user_id ? pipeline.status(user.vrchat_user_id) : null;
+    if (st && st.failedSince) {
+      return { connected: false, since: st.failedSince };
+    }
+    return { connected: true, since: null };
   }
 
   // 事件 → SSE
@@ -320,6 +377,9 @@ function createApp({
     if (!current) return res.json({ ok: true });
     if (autoLoginRetryTimer) { clearTimeout(autoLoginRetryTimer); autoLoginRetryTimer = null; }
     autoLoginRetryAttempt = 0;
+    autoLogin401Streak = 0;
+    autoLogin401Notified = false;
+    autoLoginFailingSince = 0;
     const { userId, dbId } = current;
     if (current.cookieCtx) {
       current.cookieCtx.cancelled = true;
@@ -535,6 +595,16 @@ function createApp({
     }
   });
 
+  // 后端日志尾部/增量拉取(SSE 重连补拉用 after=seq); 前端直接展示后端日志
+  app.get('/api/logs', (req, res) => {
+    if (!current) return res.status(401).json({ error: '未登录' });
+    if (!logStreamRef) return res.json({ ok: true, logs: [], seq: 0 });
+    const tailN = Math.min(Math.max(parseInt(req.query.tail, 10) || 100, 1), 1000);
+    const afterSeq = parseInt(req.query.after, 10);
+    const entries = Number.isFinite(afterSeq) ? logStreamRef.after(afterSeq, 1000) : logStreamRef.tail(tailN);
+    return res.json({ ok: true, logs: entries, seq: logStreamRef.lastSeq() });
+  });
+
   app.get('/api/events', (req, res) => {
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
@@ -567,7 +637,7 @@ function createApp({
     res.status(500).json({ error: '服务器内部错误' });
   });
 
-  return { app, autoLogin: tryAutoLogin };
+  return { app, autoLogin: tryAutoLogin, getConnectionStatus };
 }
 
 module.exports = { createApp };

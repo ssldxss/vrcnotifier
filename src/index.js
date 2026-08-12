@@ -5,7 +5,7 @@ const path = require('node:path');
 const fs = require('node:fs');
 const { EventEmitter } = require('node:events');
 const { createDb } = require('./db');
-const { createLogger } = require('./util');
+const { createLogger, setLogStream } = require('./util');
 const { createVrcApi } = require('./vrcapi');
 const { createNotifier } = require('./notify');
 const { createPipelineManager } = require('./pipeline');
@@ -13,6 +13,7 @@ const { createMonitor } = require('./monitor');
 const { createQqManager } = require('./qq');
 const { createQqCommands } = require('./qq-commands');
 const { createAvatarCache } = require('./avatar');
+const { createLogStream } = require('./logstream');
 const { createApp } = require('./server');
 
 const DEFAULT_API_BASE = 'https://api.vrchat.cloud/api/1';
@@ -72,6 +73,9 @@ function buildApplication(opts = {}) {
     try { fs.mkdirSync(path.dirname(dbPath), { recursive: true }); } catch (e) { /* ignore */ }
   }
   const db = opts.db || createDb(dbPath);
+  // 后端日志流: 所有 logger 输出汇集于此, 供前端实时展示日志
+  const logStream = opts.logStream || createLogStream();
+  setLogStream(logStream);
   const avatarDir = opts.avatarDir || (dbPath === ':memory:'
     ? path.join(require('node:os').tmpdir(), `vrcnotifier-avatars-${process.pid}`)
     : path.join(path.dirname(dbPath), 'avatars'));
@@ -121,7 +125,12 @@ function buildApplication(opts = {}) {
     retryMaxMs: config.ws.reconnectMaxMs,
     jitterMs: config.ws.jitterMs
   }));
-  const qqCommands = createQqCommands({ db, logger });
+  // 连接状态由 createApp 提供(依赖 pipeline + 自动登录状态), 先占位后注入
+  const connectionStatus = { fn: null };
+  const qqCommands = createQqCommands({
+    db, logger,
+    getStatus: (dbId) => (connectionStatus.fn ? connectionStatus.fn(dbId) : null)
+  });
   const qq = opts.qq || createQqManager({
     db, logger,
     onCommand: qqCommands,
@@ -171,7 +180,7 @@ function buildApplication(opts = {}) {
   // 启动周期对账 + watchdog 定时器(单用户, 无会话时为空转)
   monitor.startTimers();
 
-  const { app, autoLogin } = createApp({
+  const { app, autoLogin, getConnectionStatus } = createApp({
     db, notifier, pipeline, monitor, sessionStore, vrcapiFactory, qq,
     avatarCache,
     config: {
@@ -185,12 +194,14 @@ function buildApplication(opts = {}) {
     },
     logger,
     now,
-    publicDir: opts.publicDir || null
+    publicDir: opts.publicDir || null,
+    logStream: logStream
   });
+  connectionStatus.fn = getConnectionStatus;
 
   return {
     app, autoLogin, monitor, pipeline, sessionStore, db, bus,
-    config, avatarCache, qq
+    config, avatarCache, qq, logStream
   };
 }
 

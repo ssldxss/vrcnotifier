@@ -79,3 +79,28 @@ test('createQqCommands: 任意输入都直接输出在线列表', async () => {
   const another = await handler({ dbId: id, content: '随便聊聊', openid: 'openid_y' });
   assert.ok(another.text.includes('Alice'));
 });
+
+test('createQqCommands: 连接异常时头部提示"当前未连接, 数据截止至断开时间"', async () => {
+  const db = createDb(':memory:');
+  const id = db.upsertUser('usr_me', { username: 'me', displayName: '我', avatarUrl: null });
+  db.upsertFriend(id, 'usr_a', { displayName: 'Alice', state: 'online', status: 'active', worldName: 'WorldX' });
+  const silent = { info: () => {}, warn: () => {}, error: () => {} };
+  // 连接正常: 无提示
+  const ok = createQqCommands({ db, logger: silent, getStatus: () => ({ connected: true, since: null }) });
+  const okReply = await ok({ dbId: id, content: 'hi' });
+  assert.ok(!okReply.text.includes('当前未连接'));
+  // WS 重连中 / 401 未恢复: 头部提示 + 原有列表
+  const down = createQqCommands({ db, logger: silent, getStatus: () => ({ connected: false, since: 1750000000000 }) });
+  const reply = await down({ dbId: id, content: 'hi' });
+  assert.ok(reply.text.startsWith('当前未连接, 数据截止至 '), '文本头部提示数据截止时间');
+  assert.ok(reply.markdown.startsWith('当前未连接, 数据截止至 '), 'markdown 头部提示数据截止时间');
+  assert.ok(reply.text.includes('Alice'));
+  assert.ok(reply.markdown.includes('| 🟢 Alice | WorldX |'));
+  // 空列表(无 markdown)时同样只加文本提示, 不报错
+  const db2 = createDb(':memory:');
+  const id2 = db2.upsertUser('usr_me2', { username: 'me2', displayName: '我2', avatarUrl: null });
+  const down2 = createQqCommands({ db: db2, logger: silent, getStatus: () => ({ connected: false, since: 1750000000000 }) });
+  const reply2 = await down2({ dbId: id2, content: 'hi' });
+  assert.ok(reply2.text.startsWith('当前未连接, 数据截止至 '));
+  assert.equal(reply2.markdown, undefined);
+});

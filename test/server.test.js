@@ -9,6 +9,7 @@ const { createMonitor } = require('../src/monitor');
 const { CookieJar } = require('../src/cookiejar');
 const { createAvatarCache } = require('../src/avatar');
 const { createApp } = require('../src/server');
+const { createLogStream } = require('../src/logstream');
 
 const silent = { info: () => {}, warn: () => {}, error: () => {} };
 
@@ -56,18 +57,20 @@ function setup(opts = {}) {
       return { status: 200, headers: { get: (k) => (String(k).toLowerCase() === 'content-type' ? 'image/png' : '') }, arrayBuffer: async () => png };
     })
   });
-  const { app, autoLogin } = createApp({
+  const logStream = opts.logStream || createLogStream();
+  const { app, autoLogin, getConnectionStatus } = createApp({
     db, notifier, pipeline, monitor, sessionStore,
     vrcapiFactory: (jar) => (jar ? { ...vrcapi, jar } : vrcapi),
     avatarCache,
     config: { accessToken: opts.accessToken || null, confirmDelayMs: 30000, dedupeWindowMs: 30000, snapshotIntervalMs: 600000, watchdogMs: 600000, autoLoginRetryBaseMs: opts.autoLoginRetryBaseMs ?? 5000, autoLoginRetryMaxMs: opts.autoLoginRetryMaxMs ?? 3600000, autoLoginRetryJitterMs: opts.autoLoginRetryJitterMs ?? 1000 },
     logger: opts.logger || silent,
     now: opts.now || (() => 1000000),
-    publicDir: null
+    publicDir: null,
+    logStream: logStream,
   });
   const server = app.listen(0);
   const base = 'http://127.0.0.1:' + server.address().port;
-  return { db, bus, vrcapi, pipeline, notifier, monitor, sessionStore, app, autoLogin, server, base, notifications, avatarCache, avatarCalls, accessToken: opts.accessToken || null };
+  return { db, bus, vrcapi, pipeline, notifier, monitor, sessionStore, app, autoLogin, getConnectionStatus, server, base, notifications, avatarCache, avatarCalls, accessToken: opts.accessToken || null, logStream };
 }
 
 async function close(t) { await new Promise((r) => t.server.close(r)); }
@@ -585,23 +588,57 @@ test('qq test endpoint works via notifier', async (t) => {
   assert.equal(r.data.ok, true);
 });
 
-test('auto login with expired cookie notifies session expired once', async (t) => {
-  const ctx = setup();
+// 401 且 cookie 已过期: 第一次 401 即检查过期 -> 推送"登录过期, 请重新登录", 清除登录信息并停止重试
+test('auto login 401 with expired cookie: notify login expired, clear saved login, stop retrying', async (t) => {
+  const ctx = setup({ autoLoginRetryBaseMs: 5, autoLoginRetryMaxMs: 10, autoLoginRetryJitterMs: 0, now: () => Date.now() });
   t.after(() => close(ctx));
   const jar = new CookieJar();
-  jar.setCookies(['auth=token123'], 'https://api.vrchat.cloud');
+  jar.setCookies(['auth=token123; Expires=Thu, 01 Jan 1970 00:00:00 GMT'], 'https://api.vrchat.cloud');
   const uid = ctx.db.upsertUser('usr_me', { username: 'me', displayName: '我', avatarUrl: null });
   ctx.db.saveCookies(uid, jar.serialize(), 'me');
-  ctx.vrcapi.me = async () => { const e = new Error('"Missing Credentials"'); e.status = 401; throw e; };
-  ctx.notifications.length = 0;
-  await get(ctx, '/api/session'); // 触发 tryAutoLogin -> 401
+  let calls = 0;
+  ctx.vrcapi.me = async () => { calls++; const e = new Error('"Missing Credentials"'); e.status = 401; throw e; };
+  await get(ctx, '/api/session'); // 触发 tryAutoLogin -> 第一次 401
   const sys = ctx.notifications.filter((n) => n.change.eventType === 'vrc_system');
-  assert.equal(sys.length, 1, '自动登录 401 推送一次会话失效');
-  assert.ok(sys[0].change.notificationTitle.includes('会话失效'));
+  assert.equal(sys.length, 1, 'cookie 过期: 第一次 401 即推送登录过期');
+  assert.ok(sys[0].change.notificationTitle.includes('登录过期'), '标题为登录过期');
+  assert.ok(sys[0].change.notificationBody.includes('请重新登录'), '正文提示重新登录');
   assert.equal(sys[0].user.id, uid);
-  // 再次触发不再重复推送
-  await get(ctx, '/api/session');
-  assert.equal(ctx.notifications.filter((n) => n.change.eventType === 'vrc_system').length, 1, '不重复推送');
+  // 登录信息已清除
+  assert.equal(ctx.db.getSavedLogin(), null, '清除登录信息后不再自动登录');
+  const u = ctx.db.getUserByDbId(uid);
+  assert.equal(u.cookie_data, null);
+  assert.equal(u.remember_me, 0);
+  assert.equal(u.saved_username, null);
+  // 不再退避重试
+  await sleep(80);
+  assert.equal(calls, 1, 'cookie 过期后停止重试');
+});
+
+// 连续 3 次 401 且 cookie 未过期: 第一次只检查过期不推送, 第 3 次推送"可能 IP 变化", 继续退避重试
+test('auto login 401 fresh cookie: no notify on 1st, ip-change notify on 3rd, keeps retrying', async (t) => {
+  const ctx = setup({ autoLoginRetryBaseMs: 5, autoLoginRetryMaxMs: 10, autoLoginRetryJitterMs: 0, now: () => Date.now() });
+  t.after(() => close(ctx));
+  const jar = new CookieJar();
+  jar.setCookies(['auth=token123; Expires=Thu, 01 Jan 2099 00:00:00 GMT'], 'https://api.vrchat.cloud');
+  const uid = ctx.db.upsertUser('usr_me', { username: 'me', displayName: '我', avatarUrl: null });
+  ctx.db.saveCookies(uid, jar.serialize(), 'me');
+  let calls = 0;
+  ctx.vrcapi.me = async () => { calls++; const e = new Error('"Missing Credentials"'); e.status = 401; throw e; };
+  await get(ctx, '/api/session'); // 第一次 401: 检查过期(未过期), 不推送, 调度退避重试
+  assert.equal(calls, 1);
+  assert.equal(ctx.notifications.filter((n) => n.change.eventType === 'vrc_system').length, 0, '第一次 401 不推送');
+  await sleep(120); // 等待 2 次退避重试, 累计 3 次 401
+  assert.ok(calls >= 3, '未过期 401 继续退避重试');
+  const sys = ctx.notifications.filter((n) => n.change.eventType === 'vrc_system');
+  assert.equal(sys.length, 1, '第 3 次 401 推送一次 IP 提示');
+  assert.ok(sys[0].change.notificationTitle.includes('登录失败'), '标题为登录失败');
+  assert.ok(sys[0].change.notificationBody.includes('可能ip地址发生变化'), '正文提示可能 IP 变化');
+  // 登录信息保留
+  assert.ok(ctx.db.getSavedLogin(), '未过期分支不清除登录信息');
+  // 后续 401 不再重复推送
+  await sleep(120);
+  assert.equal(ctx.notifications.filter((n) => n.change.eventType === 'vrc_system').length, 1, 'IP 提示只推一次');
 });
 
 test('auto login 401 retries with backoff until success', async (t) => {
@@ -623,4 +660,83 @@ test('auto login 401 retries with backoff until success', async (t) => {
   assert.ok(calls >= 2, '401 后按退避重试直到成功');
   const r = await get(ctx, '/api/session');
   assert.equal(r.data.loggedIn, true, '重试成功后自动登录完成');
+});
+
+test('getConnectionStatus: ws 重连中 / 401 未恢复时返回未连接与断开时间', async (t) => {
+  const ctx = setup({ autoLoginRetryBaseMs: 5, autoLoginRetryMaxMs: 10, autoLoginRetryJitterMs: 0, now: () => Date.now() });
+  t.after(() => close(ctx));
+  const jar = new CookieJar();
+  jar.setCookies(['auth=token123; Expires=Thu, 01 Jan 2099 00:00:00 GMT'], 'https://api.vrchat.cloud');
+  const uid = ctx.db.upsertUser('usr_me', { username: 'me', displayName: '我', avatarUrl: null });
+  ctx.db.saveCookies(uid, jar.serialize(), 'me');
+  // 未触发自动登录/无断线: 视为已连接
+  assert.equal(ctx.getConnectionStatus(uid).connected, true);
+  // 自动登录 401 未恢复(退避重试中): 未连接, 返回失败开始时间
+  ctx.vrcapi.me = async () => { const e = new Error('"Missing Credentials"'); e.status = 401; throw e; };
+  await get(ctx, '/api/session');
+  const st = ctx.getConnectionStatus(uid);
+  assert.equal(st.connected, false, '401 未恢复时未连接');
+  assert.ok(st.since > 0, '返回失败开始时间');
+  // 自动登录成功后恢复为已连接
+  ctx.vrcapi.me = async () => ({ id: 'usr_me', displayName: '我', onlineFriends: [], activeFriends: [], offlineFriends: [] });
+  await sleep(80);
+  assert.equal(ctx.getConnectionStatus(uid).connected, true, '登录成功后恢复');
+  // 登录后 WS 断开重连中: 未连接, since 为断开时间
+  ctx.pipeline.status = () => ({ failedSince: 1234567890 });
+  const ws = ctx.getConnectionStatus(uid);
+  assert.equal(ws.connected, false, 'WS 重连中未连接');
+  assert.equal(ws.since, 1234567890, '返回 WS 断开时间');
+});
+
+
+// ---------- 日志流 ----------
+test('GET /api/logs requires login', async (t) => {
+  const ctx = setup();
+  t.after(() => close(ctx));
+  const { status } = await get(ctx, '/api/logs');
+  assert.equal(status, 401);
+});
+
+test('GET /api/logs returns tail and after-seq entries', async (t) => {
+  const ctx = setup({ accessToken: 'secret123' });
+  t.after(() => close(ctx));
+  await post(ctx, '/api/login', { username: 'me', password: 'pw' });
+  ctx.logStream.push('第一行');
+  ctx.logStream.push('第二行');
+  ctx.logStream.push('第三行');
+  const tail = await get(ctx, '/api/logs?tail=2');
+  assert.equal(tail.status, 200);
+  assert.deepEqual(tail.data.logs.map((l) => l.line), ['第二行', '第三行']);
+  assert.equal(tail.data.seq, 3);
+  const after = await get(ctx, '/api/logs?after=1');
+  assert.deepEqual(after.data.logs.map((l) => l.line), ['第二行', '第三行']);
+  const all = await get(ctx, '/api/logs');
+  assert.deepEqual(all.data.logs.map((l) => l.line), ['第一行', '第二行', '第三行']);
+});
+
+test('SSE stream emits backend log lines live', async (t) => {
+  const ctx = setup();
+  t.after(() => close(ctx));
+  await post(ctx, '/api/login', { username: 'me', password: 'pw' });
+  const ac = new AbortController();
+  t.after(() => ac.abort());
+  const res = await fetch(ctx.base + '/api/events', { signal: ac.signal });
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  const readUntil = async (needle, timeoutMs = 3000) => {
+    const deadline = Date.now() + timeoutMs;
+    let buf = '';
+    while (Date.now() < deadline) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      if (buf.includes(needle)) return buf;
+    }
+    return buf;
+  };
+  ctx.logStream.push('后端日志 abc');
+  const buf = await readUntil('后端日志 abc');
+  assert.ok(buf.includes('event: log'));
+  assert.ok(buf.includes('后端日志 abc'));
+  ac.abort();
 });

@@ -163,3 +163,25 @@ test('subscribeEvents throws when EventSource unavailable', () => {
   const c = new VrcNotifierClient({ baseUrl: 'http://127.0.0.1:3000', fetchImpl: async () => new Response('{}'), EventSourceImpl: null });
   assert.throws(() => c.subscribeEvents(), (e) => e instanceof ApiError);
 });
+
+test('getLogs requests tail or after seq', async () => {
+  const fetch = makeFetch((call) => ({ data: { ok: true, logs: [], seq: 0 } }));
+  const c = new VrcNotifierClient({ baseUrl: 'http://127.0.0.1:3000', token: 'tok', fetchImpl: fetch });
+  await c.getLogs({ tail: 50 });
+  assert.equal(fetch.calls[0].url, 'http://127.0.0.1:3000/api/logs?tail=50');
+  await c.getLogs({ after: 7 });
+  assert.equal(fetch.calls[1].url, 'http://127.0.0.1:3000/api/logs?after=7');
+  await c.getLogs();
+  assert.equal(fetch.calls[2].url, 'http://127.0.0.1:3000/api/logs');
+});
+
+test('subscribeEvents registers log event for backend log lines', () => {
+  const ES = makeEventSourceClass();
+  const c = new VrcNotifierClient({ baseUrl: 'http://127.0.0.1:3000', token: 'tok', fetchImpl: async () => new Response('{}'), EventSourceImpl: ES });
+  const seen = [];
+  c.subscribeEvents({ onEvent: (type, data) => seen.push({ type, data }) });
+  const es = ES.instances[0];
+  assert.ok(es.listeners.log, 'log listener registered');
+  es.emit('log', { seq: 1, line: '[info] 后端日志' });
+  assert.deepEqual(seen, [{ type: 'log', data: { seq: 1, line: '[info] 后端日志' } }]);
+});

@@ -8,7 +8,7 @@ class Cookie {
     this.value = value;
     this.domain = (attrs.domain || '').replace(/^\./, '').toLowerCase(); // 去前导点
     this.path = attrs.path || '/';
-    this.expires = attrs.expires ? new Date(attrs.expires).getTime() : null;
+    this.expires = attrs.expires != null && attrs.expires !== '' ? new Date(attrs.expires).getTime() : null;
     this.secure = !!attrs.secure;
     this.httpOnly = !!attrs.httpOnly;
   }

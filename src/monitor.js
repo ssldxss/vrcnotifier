@@ -24,6 +24,7 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
   const watchdogCheckMs = config.watchdogCheckMs ?? 60 * 1000;
   const maxWorldResolvesPerSnapshot = config.maxWorldResolvesPerSnapshot ?? 6;
   const statusCoalesceMs = config.statusCoalesceMs ?? 3000; // 状态变化+切世界合并窗口
+  const disconnectNotifyDelayMs = config.disconnectNotifyDelayMs ?? 30000; // 断开超过此时长仍未重连才通知
 
   let autoTimer = null;
   let autoAt = 0; // 下一次自动对账的计划时间(用于日志/测试)
@@ -32,7 +33,7 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
   const awaitingSnapshot = new Set(); // userId: ws 重连成功后等待全量对账, 期间忽略 WS 消息
   const pendingStatus = new Map();     // friendId: 状态变化合并中(待 friend-location 执行)
   const pendingTimers = new Map();     // friendId: 下线 pending 到期自动验证定时器
-  const connState = new Map();         // userId -> { open, snapshotDone, startupSent, recovering }
+  const connState = new Map();         // userId -> { open, snapshotDone, startupSent, recovering, disconnectNotified, closeTimer }
 
   function stateOf(userId) {
     let st = connState.get(userId);
@@ -89,21 +90,42 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
   bus.on('ws-open', ({ userId, wasFailing, isWatchdog }) => {
     const st = stateOf(userId);
     st.open = true;
-    if (wasFailing && !isWatchdog) st.recovering = true;
+    if (st.closeTimer) { clearTimeout(st.closeTimer); st.closeTimer = null; }
     const s = sessions.get(userId);
     if (!s) return;
     if (isWatchdog) return; // watchdog 强制重连: 不推送恢复/已连接通知
-    if (st.startupSent && !st.recovering) {
-      sysNotify(s.user, '✅ VRChat 已连接', '');
-    } else {
+    if (!st.startupSent) {
+      // 首次连接成功: 发启动说明(不属于重连)
       maybeSendLifecycle(s.user);
+      return;
     }
+    if (st.disconnectNotified) {
+      // 断开超过阈值且已通知: 重连成功补发恢复说明
+      st.disconnectNotified = false;
+      st.recovering = true;
+      maybeSendLifecycle(s.user);
+      return;
+    }
+    if (wasFailing) return; // 阈值内快速重连成功: 静默, 不发断开/恢复通知
+    // 未发生故障的重复连接(如重新登录): 已连接
+    sysNotify(s.user, '✅ VRChat 已连接', '');
   });
 
   bus.on('ws-close', ({ userId }) => {
-    stateOf(userId).open = false;
+    const st = stateOf(userId);
+    st.open = false;
+    st.disconnectNotified = false; // 新一轮断开
     const s = sessions.get(userId);
-    if (s) sysNotify(s.user, '⚠️ VRChat 连接断开', '将自动重连');
+    if (!s) return;
+    // 30s 内重连成功不发通知; 超过 30s 仍未重连才推送断开通知
+    if (st.closeTimer) clearTimeout(st.closeTimer);
+    st.closeTimer = setTimeout(() => {
+      st.closeTimer = null;
+      if (st.open || st.disconnectNotified) return;
+      st.disconnectNotified = true;
+      sysNotify(s.user, '⚠️ VRChat 连接断开', '将自动重连');
+    }, disconnectNotifyDelayMs);
+    if (st.closeTimer.unref) st.closeTimer.unref();
   });
 
   bus.on('session-expired', ({ userId }) => {
@@ -126,6 +148,8 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
   function deactivateUser(vrcId) {
     sessions.delete(vrcId);
     pipeline.disconnect(vrcId);
+    const st = connState.get(vrcId);
+    if (st && st.closeTimer) { clearTimeout(st.closeTimer); st.closeTimer = null; }
     for (const [fid, timer] of pendingTimers) { clearTimeout(timer); }
     pendingTimers.clear();
     log.info(`[monitor] 停用用户 ${vrcId}`);

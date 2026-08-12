@@ -1,6 +1,8 @@
 'use strict';
 // QQ 快捷命令: 绑定用户发消息触发, 基于好友表生成文本回复。
 
+const { formatLocalTime } = require('./util');
+
 // 状态圆点与 VRCX 一致: 在线绿/加入我蓝/询问我橙/忙碌红
 const STATUS_EMOJI = { active: '🟢', 'join me': '🔵', 'ask me': '🟠', busy: '🔴' };
 
@@ -49,7 +51,7 @@ function buildOnlineList(friends) {
   return { text, markdown };
 }
 
-function createQqCommands({ db, logger = null }) {
+function createQqCommands({ db, logger = null, getStatus = null }) {
   const log = logger || { info: () => {}, warn: () => {}, error: () => {} };
   return async function handleCommand(ctx) {
     const { dbId } = ctx;
@@ -60,6 +62,13 @@ function createQqCommands({ db, logger = null }) {
       favorite: configs.get(f.friend_vrchat_id)?.favorite === 1 ? 1 : 0
     }));
     const reply = buildOnlineList(friends);
+    // 连接异常(WS 重连中 / 401 未恢复): 头部提示数据截止时间, 后面仍是原列表
+    const st = getStatus ? getStatus(dbId) : null;
+    if (st && !st.connected && st.since) {
+      const head = `当前未连接, 数据截止至 ${formatLocalTime(st.since)}`;
+      reply.text = `${head}\n\n${reply.text}`;
+      if (reply.markdown) reply.markdown = `${head}\n\n${reply.markdown}`;
+    }
     log.info('[qq] 命令: 在线列表');
     return reply;
   };

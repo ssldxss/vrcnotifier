@@ -35,7 +35,7 @@ function setup(opts = {}) {
     db, notifier, pipeline, bus,
     logger: { info: () => {}, warn: () => {}, error: () => {} },
     now: opts.now || (() => 1000000),
-    config: { confirmDelayMs: opts.confirmDelayMs ?? 30000, dedupeWindowMs: 30000, snapshotIntervalMs: 600000, watchdogMs: 600000, statusCoalesceMs: opts.statusCoalesceMs ?? 3000 }
+    config: { confirmDelayMs: opts.confirmDelayMs ?? 30000, dedupeWindowMs: 30000, snapshotIntervalMs: 600000, watchdogMs: 600000, statusCoalesceMs: opts.statusCoalesceMs ?? 3000, disconnectNotifyDelayMs: opts.disconnectNotifyDelayMs ?? 30000 }
   });
   return { db, bus, events, notifications, qqTexts, notifier, vrcapi, pipeline, monitor };
 }
@@ -749,18 +749,25 @@ test('system: startup pushed after ws-open + first snapshot done', async () => {
 });
 
 test('system: ws disconnect / reconnect / 401 push system notifications', async () => {
-  const t = setup();
+  const t = setup({ disconnectNotifyDelayMs: 5 });
   const user = addUser(t.db);
   await t.monitor.activateUser(user, t.vrcapi);
   const evt = t.monitor.events;
   evt.emit('ws-open', { userId: user.vrchat_user_id, wasFailing: false }); // 完成启动
-  // 断开
+  // 断开后阈值内: 不推送断开通知
   t.notifications.length = 0;
   evt.emit('ws-close', { userId: user.vrchat_user_id });
+  assert.equal(t.notifications.length, 0, '阈值内不推送断开通知');
+  await new Promise((r) => setTimeout(r, 30)); // 超过阈值
   assert.equal(t.notifications.length, 1);
   assert.equal(t.notifications[0].change.eventType, 'vrc_system');
   assert.ok(t.notifications[0].change.notificationTitle.includes('断开'));
-  // 普通重连成功(已启动且非故障) -> 已连接
+  // 断开已通知后重连成功 -> 恢复说明(QQ)
+  t.qqTexts.length = 0;
+  evt.emit('ws-open', { userId: user.vrchat_user_id, wasFailing: true });
+  assert.equal(t.qqTexts.length, 1, '断开超过阈值后重连推送恢复说明');
+  assert.ok(t.qqTexts[0].text.includes('服务已恢复'));
+  // 非故障重复 open(未断开) -> 已连接
   t.notifications.length = 0;
   evt.emit('ws-open', { userId: user.vrchat_user_id, wasFailing: false });
   assert.equal(t.notifications.length, 1);
@@ -773,17 +780,37 @@ test('system: ws disconnect / reconnect / 401 push system notifications', async 
 });
 
 test('system: recovery pushed after reconnect + snapshot done', async () => {
-  const t = setup({ onlineFriends: [onlineFriend('usr_f1')] });
+  const t = setup({ onlineFriends: [onlineFriend('usr_f1')], disconnectNotifyDelayMs: 5 });
   const user = addUser(t.db);
   addConfig(t.db, user.id, 'usr_f1');
   await t.monitor.activateUser(user, t.vrcapi);
   t.monitor.events.emit('ws-open', { userId: user.vrchat_user_id, wasFailing: false }); // 启动
   t.qqTexts.length = 0;
-  // 断开后重连成功(wasFailing)且对账已完成 -> 恢复说明
+  // 断开超过阈值(断开通知已发)后重连成功 -> 恢复说明
   t.monitor.events.emit('ws-close', { userId: user.vrchat_user_id });
+  await new Promise((r) => setTimeout(r, 30));
+  t.qqTexts.length = 0;
   t.monitor.events.emit('ws-open', { userId: user.vrchat_user_id, wasFailing: true });
   assert.equal(t.qqTexts.length, 1, '故障恢复后推送恢复说明');
   assert.ok(t.qqTexts[0].text.includes('服务已恢复'));
+});
+
+test('system: quick reconnect within threshold is silent (no disconnect/recovery notifications)', async () => {
+  const t = setup({ onlineFriends: [onlineFriend('usr_f1')], disconnectNotifyDelayMs: 10 });
+  const user = addUser(t.db);
+  addConfig(t.db, user.id, 'usr_f1');
+  await t.monitor.activateUser(user, t.vrcapi);
+  t.monitor.events.emit('ws-open', { userId: user.vrchat_user_id, wasFailing: false }); // 启动
+  t.notifications.length = 0;
+  t.qqTexts.length = 0;
+  // 阈值内断开并重连成功: 全程静默
+  t.monitor.events.emit('ws-close', { userId: user.vrchat_user_id });
+  t.monitor.events.emit('ws-open', { userId: user.vrchat_user_id, wasFailing: true });
+  assert.equal(t.notifications.length, 0, '快速重连不发断开/已连接通知');
+  assert.equal(t.qqTexts.length, 0, '快速重连不发恢复说明');
+  // 超过阈值后已重连: 断开通知不应补发
+  await new Promise((r) => setTimeout(r, 40));
+  assert.equal(t.notifications.length, 0, '重连成功后不再补发断开通知');
 });
 
 test('system: watchdog reconnect does not push recovery/connected notifications', async () => {

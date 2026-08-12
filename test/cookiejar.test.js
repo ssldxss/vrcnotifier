@@ -39,6 +39,15 @@ test('serialize/deserialize roundtrip', () => {
   assert.ok(jar2.cookieHeader('https://api.vrchat.cloud/a').includes('auth=abc'));
 });
 
+test('serialize/deserialize keeps exact expires (incl. epoch 0)', () => {
+  const jar = new CookieJar();
+  jar.setCookies(['auth=abc; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Path=/'], 'https://api.vrchat.cloud/a');
+  assert.equal(jar.cookies[0].expires, 0, 'epoch 时间戳应解析为 0 而不是丢失');
+  const jar2 = CookieJar.deserialize(jar.serialize());
+  assert.equal(jar2.cookies[0].expires, 0, 'expires=0(已过期)反序列化后必须保留');
+  assert.equal(jar2.cookieHeader('https://api.vrchat.cloud/a'), '', '过期 cookie 不发送');
+});
+
 test('setCookies accepts string or array, skips malformed', () => {
   const jar = new CookieJar();
   jar.setCookies('a=1; Path=/', 'https://x.com/');

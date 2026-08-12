@@ -137,6 +137,12 @@
     updateSettings(settings) { return this.request('PUT', '/api/settings', { body: settings }); }
     testNotification(kind) { return this.request('POST', '/api/test/' + encodeURIComponent(kind), { body: {} }); }
     getStatus() { return this.request('GET', '/api/status'); }
+    getLogs(opts = {}) {
+      const query = {};
+      if (opts.tail) query.tail = opts.tail;
+      if (opts.after) query.after = opts.after;
+      return this.request('GET', '/api/logs', { query: Object.keys(query).length ? query : undefined });
+    }
     manualSnapshot() { return this.request('POST', '/api/monitor/snapshot', { body: {} }); }
 
     // ---------- 头像 ----------
@@ -160,7 +166,7 @@
         try { data = JSON.parse(e.data); } catch (err) { data = e.data; }
         onEvent(type, data);
       };
-      const KNOWN_EVENTS = ['notification', 'ws-failure', 'ws-recovered', 'snapshot'];
+      const KNOWN_EVENTS = ['notification', 'ws-failure', 'ws-recovered', 'snapshot', 'log'];
       for (const name of KNOWN_EVENTS) es.addEventListener(name, (e) => dispatch(name, e));
       es.onmessage = (e) => dispatch('message', e);
       es.onerror = (e) => { if (onError) onError(e); };
