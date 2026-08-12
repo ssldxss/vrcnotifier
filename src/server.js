@@ -6,7 +6,7 @@ const path = require('node:path');
 const { randomBytes, timingSafeEqual } = require('node:crypto');
 const { CookieJar } = require('./cookiejar');
 const { parseLocation } = require('./location');
-const { deriveStateFromSnapshot } = require('./state');
+const { deriveStateFromSnapshot, normalizeOwnState } = require('./state');
 const { detectImageType, toThumbUrl } = require('./avatar');
 const { formatLocalTime, getLogStream } = require('./util');
 
@@ -118,7 +118,12 @@ function createApp({
       username,
       displayName: currentUser.displayName || null,
       avatarUrl: currentUser.currentAvatarImageUrl || null,
-      status: currentUser.status || null
+      // /auth/user 的 state 恒为 offline(官方注释), 真实在线状态在 presence.status; 自己 offline 视为活动
+      state: normalizeOwnState(
+        (currentUser.presence && currentUser.presence.status)
+        || ((currentUser.state === 'online' || currentUser.state === 'active') ? currentUser.state : undefined)),
+      status: currentUser.status || null,
+      statusDescription: currentUser.statusDescription ?? null
     });
     const cookieCtx = { cancelled: false, timer: null };
     if (rememberMe) {
@@ -414,7 +419,7 @@ function createApp({
       if (!f.avatar_thumb_url) continue;
       if (avatarCache.thumbKeyFromUrl(f.avatar_thumb_url) === key) { url = f.avatar_thumb_url; break; }
     }
-    // 当前用户自己的头像也放行(分组标题栏我的头像)
+    // 当前用户自己的头像也放行(header 顶部栏展示)
     if (!url) {
       const me = db.getUserByDbId(current.dbId);
       const ownUrl = me && me.avatar_url ? toThumbUrl(me.avatar_url) : null;
@@ -505,8 +510,10 @@ function createApp({
     const active = monitor.activeUsers();
     const ws = current ? pipeline.status(current.userId) : null;
     const u = current ? maskUser(db.getUserByDbId(current.dbId)) : null;
-    if (u && avatarCache && u.avatar_url) {
-      u.avatarKey = avatarCache.thumbKeyFromUrl(toThumbUrl(u.avatar_url)) || null;
+    if (u) {
+      if (avatarCache && u.avatar_url) {
+        u.avatarKey = avatarCache.thumbKeyFromUrl(toThumbUrl(u.avatar_url)) || null;
+      }
     }
     return res.json({
       ok: true,

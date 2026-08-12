@@ -126,6 +126,9 @@ header h1 {
 .conn-form { display: flex; align-items: center; gap: 8px; }
 .conn-form input { width: auto; margin: 0; }
 header .spacer { flex: 1; }
+.me { display: flex; align-items: center; gap: 10px; }
+.me-info { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+.me-state { font-size: 11px; color: var(--text-3); }
 
 /* ---------- 布局 ---------- */
 .container { max-width: 980px; margin: 0 auto; padding: 24px 20px 56px; }
@@ -380,20 +383,20 @@ button.danger { background: linear-gradient(135deg, var(--bad), #b4232c); box-sh
 }
 .friend:last-child { border-bottom: 0; }
 .friend:hover { background: var(--card-bg-hover); }
-.friend .avatar-wrap {
+.avatar-wrap {
   position: relative;
   width: 40px; height: 40px;
   flex: 0 0 auto;
 }
-.friend .avatar, .friend .avatar-fallback {
+.avatar, .avatar-fallback {
   width: 40px; height: 40px;
   border-radius: 50%;
   object-fit: cover;
   background: var(--btn-sec);
 }
-.friend .avatar { transition: transform var(--t-fast); }
+.avatar { transition: transform var(--t-fast); }
 .friend:hover .avatar { transform: scale(1.06); }
-.friend .avatar-fallback {
+.avatar-fallback {
   display: none;
   align-items: center;
   justify-content: center;
@@ -401,8 +404,8 @@ button.danger { background: linear-gradient(135deg, var(--bad), #b4232c); box-sh
   font-size: 15px;
   font-weight: 600;
 }
-/* 状态圆点(VRCX): 颜色=社交状态, 实心=游戏在线, 空心=网页在线, 灰=离线 */
-.friend .avatar-wrap::after {
+/* 状态圆点(VRCX): 颜色=社交状态(实心), 不显示在线状态 */
+.avatar-wrap::after {
   content: '';
   position: absolute;
   right: -2px; bottom: -2px;
@@ -413,19 +416,11 @@ button.danger { background: linear-gradient(135deg, var(--bad), #b4232c); box-sh
   box-shadow: 0 0 0 2px var(--bg);
   transition: background var(--t-fast), border-color var(--t-fast), box-shadow var(--t-fast);
 }
-/* 游戏在线: 实心彩点 + 柔和光晕 */
-.friend .avatar-wrap.st-online.status-active::after { background: var(--status-online); box-shadow: 0 0 0 2px var(--bg), 0 0 6px color-mix(in srgb, var(--status-online) 50%, transparent); }
-.friend .avatar-wrap.st-online.status-joinme::after { background: var(--status-joinme); box-shadow: 0 0 0 2px var(--bg), 0 0 6px color-mix(in srgb, var(--status-joinme) 50%, transparent); }
-.friend .avatar-wrap.st-online.status-askme::after { background: var(--status-askme); box-shadow: 0 0 0 2px var(--bg), 0 0 6px color-mix(in srgb, var(--status-askme) 50%, transparent); }
-.friend .avatar-wrap.st-online.status-busy::after { background: var(--status-busy); box-shadow: 0 0 0 2px var(--bg), 0 0 6px color-mix(in srgb, var(--status-busy) 50%, transparent); }
-/* 网页在线: 空心彩环 + 柔和光晕 */
-.friend .avatar-wrap.st-active.status-active::after { background: var(--bg); border: 3px solid var(--status-online); box-shadow: 0 0 0 2px var(--bg), 0 0 6px color-mix(in srgb, var(--status-online) 50%, transparent); }
-.friend .avatar-wrap.st-active.status-joinme::after { background: var(--bg); border: 3px solid var(--status-joinme); box-shadow: 0 0 0 2px var(--bg), 0 0 6px color-mix(in srgb, var(--status-joinme) 50%, transparent); }
-.friend .avatar-wrap.st-active.status-askme::after { background: var(--bg); border: 3px solid var(--status-askme); box-shadow: 0 0 0 2px var(--bg), 0 0 6px color-mix(in srgb, var(--status-askme) 50%, transparent); }
-.friend .avatar-wrap.st-active.status-busy::after { background: var(--bg); border: 3px solid var(--status-busy); box-shadow: 0 0 0 2px var(--bg), 0 0 6px color-mix(in srgb, var(--status-busy) 50%, transparent); }
-/* 离线: 灰点 + 头像灰度(VRCX), hover 恢复彩色 */
-.friend .avatar-wrap.st-offline .avatar { filter: grayscale(1); transition: filter var(--t-fast); }
-.friend:hover .avatar-wrap.st-offline .avatar { filter: none; }
+.avatar-wrap.status-active::after { background: var(--status-online); box-shadow: 0 0 0 2px var(--bg), 0 0 6px color-mix(in srgb, var(--status-online) 50%, transparent); }
+.avatar-wrap.status-joinme::after { background: var(--status-joinme); box-shadow: 0 0 0 2px var(--bg), 0 0 6px color-mix(in srgb, var(--status-joinme) 50%, transparent); }
+.avatar-wrap.status-askme::after { background: var(--status-askme); box-shadow: 0 0 0 2px var(--bg), 0 0 6px color-mix(in srgb, var(--status-askme) 50%, transparent); }
+.avatar-wrap.status-busy::after { background: var(--status-busy); box-shadow: 0 0 0 2px var(--bg), 0 0 6px color-mix(in srgb, var(--status-busy) 50%, transparent); }
+
 .friend .name { flex: 1; min-width: 0; font-weight: 500; }
 .friend .state { font-size: 12px; color: var(--text-3); margin-top: 1px; }
 .friend .checks { display: flex; gap: 10px; font-size: 12px; white-space: nowrap; }
@@ -547,7 +542,13 @@ h3.chan { font-size: 13px; margin: 16px 0 6px; color: var(--text-2); font-weight
     <input type='password' id='accessTokenInput' placeholder='访问令牌' title='访问令牌'>
     <button id='connectBtn' class='secondary'>连接</button>
   </div>
-  <span class='muted' id='userLabel'></span>
+  <div class='me hidden' id='meBox'>
+    <div class='avatar-wrap status-active' id='meAvatar'></div>
+    <div class='me-info'>
+      <span id='userLabel'></span>
+      <span class='me-state' id='meState'></span>
+    </div>
+  </div>
   <span class='spacer'></span>
   <button id='themeBtn' class='theme-btn' title='主题: 跟随系统' aria-label='切换主题'></button>
   <button id='logoutBtn' class='secondary hidden'>登出</button>
@@ -668,8 +669,10 @@ let twofaKind = 'emailOtp';
 let statusTimer = null;
 let friendsCache = [];
 let searchQuery = ''; // 好友搜索关键词
-let myAvatarKey = null; // 当前用户头像 key(分组标题栏"我"的头像)
-let myStatus = 'active'; // 当前用户社交状态
+let myAvatarKey = null; // 当前用户头像 key(header 展示)
+let myStatus = 'active'; // 当前用户社交状态(内存会话)
+let myStatusDescription = ''; // 当前用户自定义状态(内存会话)
+let myState = 'online'; // 当前用户在线状态(内存会话)
 
 function escapeHtml(v) {
   return String(v == null ? '' : v)
@@ -735,9 +738,9 @@ function showView(name) {
   $('#headerConnect').classList.toggle('hidden', name !== 'gate');
 }
 
-function stateLabel(s) {
-  return ({ online: '在线', offline: '离线', active: '网页端在线' })[s] || s || '未知';
-}
+function statusText(s) {
+    return ({ active: '在线', 'join me': '加入我', 'ask me': '询问我', busy: '忙碌' })[s] || s || '未知';
+  }
 
 // ---------- 访问密钥门禁 ----------
 async function loadConfig() {
@@ -831,6 +834,7 @@ $('#logoutBtn').addEventListener('click', async () => {
   if (statusTimer) { clearInterval(statusTimer); statusTimer = null; }
   if (window.__evt) window.__evt.close();
   currentUser = null;
+  $('#meBox').classList.add('hidden');
   showView('login');
 });
 
@@ -838,6 +842,8 @@ function enterMain() {
   showView('main');
   $('#userLabel').textContent = currentUser.display_name || currentUser.vrchat_user_id;
   $('#logoutBtn').classList.remove('hidden');
+  $('#meBox').classList.remove('hidden');
+  updateMeAvatar();
   loadAll();
   startStatus();
   connectEvents();
@@ -859,20 +865,17 @@ async function loadFriends() {
   }
 }
 
-// 分组标题栏"我"的头像: 刷新所有 .me-avatar(头像+VRCX 圆点, 自己恒为在线)
-function updateMeAvatars() {
-  const boxes = document.querySelectorAll('.me-avatar');
-  if (!boxes.length) return;
-  const initial = escapeHtml(((currentUser && currentUser.display_name) || '?').charAt(0).toUpperCase());
+// header 顶部栏"我"的头像: 与好友行同一模板(avatar-wrap + 社交状态色环)
+function updateMeAvatar() {
+  const box = document.getElementById('meAvatar');
+  if (!box) return;
   const statusCls = 'status-' + String(myStatus || 'active').replace(/\s+/g, '');
+  box.className = 'avatar-wrap ' + statusCls; // 圆点只表示社交状态
+  const initial = escapeHtml(((currentUser && currentUser.display_name) || '?').charAt(0).toUpperCase());
   const img = myAvatarKey
     ? "<img class=avatar src='" + avatarUrl(myAvatarKey) + "' loading='lazy' alt='' onerror=\"this.style.display='none';this.nextElementSibling.style.display='flex'\">"
     : '';
-  const html = img + "<div class='avatar-fallback' style='display:" + (img ? 'none' : 'flex') + "'>" + initial + "</div>";
-  for (const box of boxes) {
-    box.className = 'avatar-wrap me-avatar st-online ' + statusCls;
-    box.innerHTML = html;
-  }
+  box.innerHTML = img + "<div class='avatar-fallback' style='display:" + (img ? 'none' : 'flex') + "'>" + initial + "</div>";
 }
 
 function renderFriends() {
@@ -901,13 +904,13 @@ function renderFriends() {
     const worldTxt = f.world_id === 'private' ? '私密世界' : (f.world_name || '');
     // 色环=社交状态(VRCX), 圆点=在线状态
     const statusCls = 'status-' + String(f.status || 'active').replace(/\s+/g, '');
-    const wrapCls = "st-" + (f.state || 'offline') + ' ' + statusCls;
+    const wrapCls = statusCls; // 去掉在线状态圆点语义, 只留社交状态色
     const WRAP_AVATAR = "<div class='avatar-wrap " + wrapCls + "'>" + avatarHtml + "</div>";
     row.innerHTML =
       WRAP_AVATAR +
       '<label class=switch title=特别关注><input type=checkbox class=favorite' + (c.favorite ? ' checked' : '') + '><span class=slider></span></label>' +
       '<div class=name>' + escapeHtml(f.display_name || f.friend_vrchat_id) +
-      '<div class=state>' + stateLabel(f.state) + (worldTxt ? ' · ' + escapeHtml(worldTxt) : '') +
+      '<div class=state>' + statusText(f.status || 'active') + (worldTxt ? ' · ' + escapeHtml(worldTxt) : '') +
       (f.status_description ? ' · ' + escapeHtml(f.status_description) : '') + '</div></div>' +
       '<div class=checks>' +
       '<label><input type=checkbox data-k=notify_online' + (isOn(c.notify_online) ? ' checked' : '') + '>上线</label>' +
@@ -926,11 +929,7 @@ function renderFriends() {
   const addGroup = (title, list2) => {
     const g = document.createElement('div');
     g.className = 'group-title';
-    // 标题栏左侧: 自己的头像+状态(渲染方式与好友行一致)
-    const me = document.createElement('div');
-    me.className = 'avatar-wrap me-avatar';
-    g.appendChild(me);
-    const btn = document.createElement('button');
+      const btn = document.createElement('button');
     btn.className = 'group-toggle';
     btn.type = 'button';
     btn.title = '收起';
@@ -959,7 +958,6 @@ function renderFriends() {
   if (onlineOthers.length) addGroup('在线 (' + onlineOthers.length + ')', onlineOthers);
   if (activeOthers.length) addGroup('网页在线 (' + activeOthers.length + ')', activeOthers);
   if (offlineOthers.length) addGroup('离线 (' + offlineOthers.length + ')', offlineOthers);
-  updateMeAvatars();
 }
 
 $('#friendsList').addEventListener('change', async (e) => {
@@ -1048,7 +1046,10 @@ async function loadStatus() {
   $('#stSnapshot').textContent = d.lastSnapshotAt ? new Date(d.lastSnapshotAt).toLocaleTimeString() : '-';
   myAvatarKey = (d.user && d.user.avatarKey) || null;
   myStatus = (d.user && d.user.status) || 'active';
-  updateMeAvatars();
+  myState = (d.user && d.user.state) || 'online';
+  myStatusDescription = (d.user && d.user.status_description) || '';
+  updateMeAvatar();
+  $('#meState').textContent = statusText(myStatus) + (myStatusDescription ? ' · ' + myStatusDescription : ''); // 全局 statusText: 只显示社交状态+自定义
   const qqInfo = $('#qqBindInfo');
   if (d.qq && d.qq.configured) {
     const bound = d.qq.bound ? (d.qq.bound.nickname || d.qq.bound.openid) : null;

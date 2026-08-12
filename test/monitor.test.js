@@ -19,6 +19,7 @@ function setup(opts = {}) {
   };
   const vrcapi = {
     me: async () => opts.currentUser || { id: 'usr_me', onlineFriends: [], activeFriends: [], offlineFriends: [] },
+    self: async (userId) => opts.selfUser || { id: userId, state: 'active' },
     friends: async ({ offline }) => (offline ? (opts.offlineFriends || []) : (opts.onlineFriends || [])),
     world: async (id) => ({ id, name: `世界_${id}` })
   };
@@ -831,6 +832,29 @@ test('system: watchdog reconnect does not push recovery/connected notifications'
   assert.equal(t.notifications.length, 0, 'watchdog 重连不推已连接');
 });
 
+test('runSnapshot: /users/{id} state offline maps to active and stores statusDescription', async () => {
+  const t = setup({
+    selfUser: { id: 'usr_me', state: 'offline', status: 'join me', statusDescription: '自定义' },
+    currentUser: { id: 'usr_me', onlineFriends: [], activeFriends: [], offlineFriends: [] }
+  });
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+  const u = t.db.getUserByVrcId(user.vrchat_user_id);
+  assert.strictEqual(u.state, 'active');
+  assert.strictEqual(u.status, 'join me');
+  assert.strictEqual(u.status_description, '\u81ea\u5b9a\u4e49');
+});
+
+test('runSnapshot: /users/{id} state active is stored', async () => {
+  const t = setup({
+    selfUser: { id: 'usr_me', state: 'active', status: 'active' },
+    currentUser: { id: 'usr_me', onlineFriends: [], activeFriends: [], offlineFriends: [] }
+  });
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+  assert.strictEqual(t.db.getUserByVrcId(user.vrchat_user_id).state, 'active');
+});
+
 test('system: sendShutdownNotice pushes 服务已停止 to active users', async () => {
   const t = setup();
   const user = addUser(t.db);
@@ -840,4 +864,76 @@ test('system: sendShutdownNotice pushes 服务已停止 to active users', async 
   assert.equal(t.qqTexts.length, 1);
   assert.ok(t.qqTexts[0].text.includes('服务已停止'));
   assert.ok(t.qqTexts[0].text.includes('时间:'));
+});
+
+test('WS own events: user-location updates own state from location', async () => {
+  const t = setup();
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+  // 自己进入游戏
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '1', { type: 'user-location', content: { userId: user.vrchat_user_id, location: 'wrld_x:1~region(us)' } });
+  assert.strictEqual(t.db.getUserByVrcId(user.vrchat_user_id).state, 'online');
+  // 自己退出游戏
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '2', { type: 'user-location', content: { userId: user.vrchat_user_id, location: 'offline' } });
+  assert.strictEqual(t.db.getUserByVrcId(user.vrchat_user_id).state, 'active'); // 自己不会显示离线, offline 视为活动
+});
+
+test('WS own events: user-update syncs statusDescription', async () => {
+  const t = setup();
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '1', {
+    type: 'user-update',
+    content: { userId: user.vrchat_user_id, user: { id: user.vrchat_user_id, statusDescription: '\u6478\u9c7c\u4e2d' } }
+  });
+  assert.strictEqual(t.db.getUserByVrcId(user.vrchat_user_id).status_description, '\u6478\u9c7c\u4e2d');
+  // 清空自定义状态
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '2', {
+    type: 'user-update',
+    content: { userId: user.vrchat_user_id, user: { id: user.vrchat_user_id, statusDescription: '' } }
+  });
+  assert.strictEqual(t.db.getUserByVrcId(user.vrchat_user_id).status_description, '');
+});
+
+test('WS own events: user-location of another user is ignored', async () => {
+  const t = setup();
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+  t.db.updateUserPresence(user.vrchat_user_id, { state: 'active' });
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'x', { type: 'user-location', content: { userId: 'usr_other', location: 'wrld_x:1' } });
+  assert.strictEqual(t.db.getUserByVrcId(user.vrchat_user_id).state, 'active');
+});
+
+test('WS own events: user-update trusts content.user.state (User API schema), offline maps to active', async () => {
+  const t = setup();
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+  t.db.updateUserPresence(user.vrchat_user_id, { state: 'active', status: 'active' });
+  // state=offline: 自己离线视为活动, 社交状态照常更新
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '1', {
+    type: 'user-update',
+    content: { userId: user.vrchat_user_id, user: { id: user.vrchat_user_id, displayName: '我', state: 'offline', status: 'join me' } }
+  });
+  let u = t.db.getUserByVrcId(user.vrchat_user_id);
+  assert.strictEqual(u.state, 'active');
+  assert.strictEqual(u.status, 'join me');
+  // state=online: 游戏在线
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '2', {
+    type: 'user-update',
+    content: { userId: user.vrchat_user_id, user: { id: user.vrchat_user_id, state: 'online' } }
+  });
+  assert.strictEqual(t.db.getUserByVrcId(user.vrchat_user_id).state, 'online');
+  // state 缺失时 presence.status 兑底
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '3', {
+    type: 'user-update',
+    content: { userId: user.vrchat_user_id, user: { id: user.vrchat_user_id, presence: { status: 'active' } } }
+  });
+  assert.strictEqual(t.db.getUserByVrcId(user.vrchat_user_id).state, 'active');
+  // 简化对象无 state/presence: 在线状态保持现值
+  t.db.updateUserPresence(user.vrchat_user_id, { state: 'active' });
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '4', {
+    type: 'user-update',
+    content: { userId: user.vrchat_user_id, user: { id: user.vrchat_user_id, displayName: '我2' } }
+  });
+  assert.strictEqual(t.db.getUserByVrcId(user.vrchat_user_id).state, 'active');
 });

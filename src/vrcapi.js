@@ -113,6 +113,11 @@ function createVrcApi({ baseUrl = 'https://api.vrchat.cloud/api/1', userAgent = 
     return request('/auth/user', { ...opts });
   }
 
+  /** 自己的完整资料(/users/{id}: state 字段为真实在线状态, 与 /auth/user 的恒 offline 不同) */
+  function self(userId, opts = {}) {
+    return request(`/users/${encodeURIComponent(userId)}`, { ...opts });
+  }
+
   /** WS token */
   function authToken() {
     return request('/auth', { noRetry: true });
@@ -140,7 +145,7 @@ function createVrcApi({ baseUrl = 'https://api.vrchat.cloud/api/1', userAgent = 
     return request(`/worlds/${encodeURIComponent(worldId)}`, { ...opts });
   }
 
-  return { request, login, verify2fa, me, authToken, friends, world, jar, setCookiesChanged: (fn) => { cookiesChanged = fn; } };
+  return { request, login, verify2fa, me, self, authToken, friends, world, jar, setCookiesChanged: (fn) => { cookiesChanged = fn; } };
 }
 
 module.exports = { createVrcApi, ApiError };

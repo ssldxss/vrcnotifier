@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS users (
   saved_username TEXT,
   display_name TEXT,
   avatar_url TEXT,
+  state TEXT DEFAULT 'online',
   status TEXT,
   remember_me INTEGER DEFAULT 0,
   cookie_data TEXT,
@@ -99,16 +100,26 @@ function createDb(location = ':memory:', opts = {}) {
   try { db.exec('ALTER TABLE world_cache ADD COLUMN retry_at INTEGER NOT NULL DEFAULT 0'); } catch (e) { /* 已存在 */ }
   // 旧库补充: monitor_config 补 favorite 列(已存在则忽略)
   try { db.exec('ALTER TABLE monitor_config ADD COLUMN favorite INTEGER DEFAULT 0'); } catch (e) { /* 已存在 */ }
-  // 旧库补充: users 补 status 列(已存在则忽略)
+  // 旧库补充: users 补 state/status 列(已存在则忽略)
+  try { db.exec("ALTER TABLE users ADD COLUMN state TEXT DEFAULT 'online'"); } catch (e) { /* 已存在 */ }
   try { db.exec('ALTER TABLE users ADD COLUMN status TEXT'); } catch (e) { /* 已存在 */ }
+  try { db.exec('ALTER TABLE users ADD COLUMN status_description TEXT'); } catch (e) { /* 已存在 */ }
   const stmt = {
-    upsertUser: db.prepare(`INSERT INTO users (vrchat_user_id, username, display_name, avatar_url, status)
-      VALUES (?, ?, ?, ?, ?)
+    upsertUser: db.prepare(`INSERT INTO users (vrchat_user_id, username, display_name, avatar_url, state, status, status_description)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(vrchat_user_id) DO UPDATE SET
         username = excluded.username, display_name = excluded.display_name,
         avatar_url = COALESCE(excluded.avatar_url, users.avatar_url),
+        state = excluded.state,
         status = COALESCE(excluded.status, users.status),
+        status_description = COALESCE(excluded.status_description, users.status_description),
         updated_at = datetime('now')`),
+    updateUserPresence: db.prepare(`UPDATE users SET
+        state = ?, status = COALESCE(?, users.status), status_description = COALESCE(?, users.status_description), updated_at = datetime('now')
+      WHERE vrchat_user_id = ?`),
+    updateUserPresenceStatus: db.prepare(`UPDATE users SET
+        status = COALESCE(?, users.status), status_description = COALESCE(?, users.status_description), updated_at = datetime('now')
+      WHERE vrchat_user_id = ?`),
     getUserByVrcId: db.prepare('SELECT * FROM users WHERE vrchat_user_id = ?'),
     getUserByDbId: db.prepare('SELECT * FROM users WHERE id = ?'),
     listUsers: db.prepare('SELECT * FROM users ORDER BY id'),
@@ -228,8 +239,8 @@ function createDb(location = ':memory:', opts = {}) {
 
   return {
     // users
-    upsertUser(vrcId, { username, displayName, avatarUrl, status }) {
-      stmt.upsertUser.run(vrcId, username ?? null, displayName ?? null, avatarUrl ?? null, status ?? null);
+    upsertUser(vrcId, { username, displayName, avatarUrl, state, status, statusDescription }) {
+      stmt.upsertUser.run(vrcId, username ?? null, displayName ?? null, avatarUrl ?? null, state ?? 'online', status ?? null, statusDescription ?? null);
       return stmt.getUserByVrcId.get(vrcId).id;
     },
     getUserByVrcId: (vrcId) => stmt.getUserByVrcId.get(vrcId) || null,
@@ -242,7 +253,17 @@ function createDb(location = ':memory:', opts = {}) {
       stmt.saveCookies.run(cookieData, username ?? null, dbId);
     },
     clearCookies(dbId) { stmt.clearCookies.run(dbId); },
-    // QQ \u673a\u5668\u4eba\u7ed1\u5b9a (\u6bcf\u7528\u6237\u6bcf app \u4e00\u4efd)
+    // 自己的在线/社交状态入库(与好友的 state/status 落库逻辑一致)
+    // 注意: state 缺省时只更新社交状态, 不得用默认值覆盖在线状态
+    // 且不能使用“无状态传入”时的默认值(online)
+    updateUserPresence(vrcId, { state, status, statusDescription }) {
+      if (state === undefined) {
+        stmt.updateUserPresenceStatus.run(status ?? null, statusDescription ?? null, vrcId);
+        return;
+      }
+      stmt.updateUserPresence.run(state, status ?? null, statusDescription ?? null, vrcId);
+    },
+    // QQ 机器人绑定 (每用户每 app 一份)
     upsertQqBinding(dbId, { appId, openid, nickname, at }) {
       stmt.upsertQqBinding.run(dbId, appId, openid, nickname ?? null, at ?? Date.now());
       return stmt.getQqBinding.get(dbId, appId);

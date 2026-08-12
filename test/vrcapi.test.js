@@ -216,14 +216,39 @@ test('every api call logs the endpoint', async () => {
     '/api/1/auth/user/friends': ({ req }, res) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify([]));
+    },
+    '/api/1/users/usr_1': ({ req }, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ id: 'usr_1', state: 'active' }));
     }
   });
   try {
     const v = createVrcApi({ baseUrl: 'http://127.0.0.1:' + server.address().port + '/api/1', userAgent: 't/1', logger });
     await v.me();
     await v.friends({ offline: false });
+    await v.self('usr_1');
     const joined = logs.map((l) => l.slice(1).join(' ')).join('\n');
     assert.ok(joined.includes('GET /auth/user'), 'logs me endpoint');
     assert.ok(joined.includes('GET /auth/user/friends'), 'logs friends endpoint');
+    assert.ok(joined.includes('GET /users/usr_1'), 'logs self endpoint');
+  } finally { server.close(); }
+});
+
+test('self fetches /users/{id} with real state field', async () => {
+  records.length = 0;
+  const server = await startMockApi({
+    '/api/1/users/usr_abc': ({ req }, res) => {
+      records.push({ path: '/api/1/users/usr_abc' });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ id: 'usr_abc', state: 'active', status: 'join me', statusDescription: 'test desc' }));
+    }
+  });
+  try {
+    const v = api(server);
+    const me = await v.self('usr_abc');
+    assert.equal(me.id, 'usr_abc');
+    assert.equal(me.state, 'active');
+    assert.equal(me.statusDescription, 'test desc');
+    assert.ok(records.some((r) => r.path === '/api/1/users/usr_abc'), 'hits /users/{id}');
   } finally { server.close(); }
 });

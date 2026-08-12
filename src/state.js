@@ -4,10 +4,15 @@
 const GAME_STATUSES = ['active', 'join me', 'ask me', 'busy'];
 
 /** 由 location 字符串派生 presence 状态 */
+/** 自己的在线状态归一化: 只允许 online/active, API/WS 显示 offline 时填 active(服务运行中自己即为活动) */
+function normalizeOwnState(status) {
+  return status === 'offline' ? 'active' : (status || 'online');
+}
+
 function deriveStateFromLocation(location) {
   const s = String(location ?? '');
   if (s === 'offline' || s === '') return 'offline';
-  if (s === 'private' || s === 'traveling' || s.startsWith('wrld_')) return 'online';
+  if (s === 'private' || s.startsWith('traveling') || s.startsWith('wrld_')) return 'online'; // traveling / traveling:traveling 均为传送中
   return 'offline';
 }
 
@@ -154,4 +159,4 @@ function buildChange(transition, prev, next) {
   };
 }
 
-module.exports = { deriveStateFromLocation, deriveStateFromSnapshot, classifyTransition, applyChange };
+module.exports = { deriveStateFromLocation, deriveStateFromSnapshot, normalizeOwnState, classifyTransition, applyChange };

@@ -2,7 +2,7 @@
 // 监控编排层: WS 事件分发 + REST 快照对账 + 状态机落地 + 通知去重 + watchdog。
 
 const { EventEmitter } = require('node:events');
-const { deriveStateFromSnapshot, applyChange } = require('./state');
+const { deriveStateFromSnapshot, applyChange, deriveStateFromLocation, normalizeOwnState } = require('./state');
 const { parseLocation } = require('./location');
 const { formatLocalTime, createLogger } = require('./util');
 const { STARTUP_TEXT } = require('./qq-commands');
@@ -435,6 +435,33 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
     if (!content) return;
     try {
       const { vrcapi } = session;
+      // 自己的消息: state 字段对 API 会话不可信(官方注释 /auth/user 恒返回 offline,
+      // VRCX 也确认 user-location 的 content.user 不可信), 在线状态用 location/presence 推导
+      if (type === 'user-location') {
+        // 自己换房间: location 哨兵值推导(offline->offline, private/traveling/traveling:traveling/wrld_->online), 不动社交状态
+        // 防御: 非本人的 user-location 不处理(VRCX 同款校验)
+        if (content.userId && content.userId !== user.vrchat_user_id) {
+          log.warn('[monitor] user-location 非本人 userId=' + content.userId);
+        } else {
+          db.updateUserPresence(user.vrchat_user_id, {
+            // 自己不会显示离线: offline 视为活动(网页在线)
+            state: normalizeOwnState(deriveStateFromLocation(content.location))
+          });
+        }
+      } else if (content.user && content.user.id === user.vrchat_user_id) {
+        const upd = { status: content.user.status || null }; // COALESCE: 缺失时保留旧值
+        if (content.user.statusDescription !== undefined) {
+          upd.statusDescription = content.user.statusDescription; // 空字符串可清空
+        }
+        // WS 的 user 对象遵循 User API schema, state 是真实值(与 /users/{id} 一致)
+        if (content.user.state) {
+          upd.state = normalizeOwnState(content.user.state); // 自己 offline 视为活动
+        } else if (content.user.presence && content.user.presence.status) {
+          upd.state = normalizeOwnState(content.user.presence.status);
+        }
+        db.updateUserPresence(user.vrchat_user_id, upd);
+      }
+
       switch (type) {
         case 'friend-online': {
           const id = content.user?.id || content.userId;
@@ -572,6 +599,26 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
           log.error(`[monitor] 快照失败 userId=${userId}: ${e.message}`);
         }
         return { ok: false, error: e.message };
+      }
+      // 自己的状态随快照入库: /users/{id} 的 state 字段为真实在线状态,
+      // 失败时回退 /auth/user 的 presence.status(该端点顶层 state 恒 offline 不可信)
+      if (currentUser && currentUser.id) {
+        let selfUser = null;
+        try {
+          selfUser = await vrcapi.self(userId, opts);
+        } catch (e) {
+          log.warn(`[monitor] 获取 /users/${userId} 失败, 回退 /auth/user presence: ${e.message}`);
+        }
+        const own = selfUser || currentUser;
+        db.updateUserPresence(userId, {
+          state: selfUser
+            ? normalizeOwnState(selfUser.state)
+            : normalizeOwnState(
+              (currentUser.presence && currentUser.presence.status)
+              || ((currentUser.state === 'online' || currentUser.state === 'active') ? currentUser.state : undefined)),
+          status: own.status || null,
+          statusDescription: own.statusDescription ?? null
+        });
       }
 
       const merged = new Map();
