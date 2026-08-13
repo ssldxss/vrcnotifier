@@ -15,6 +15,7 @@ const { createQqCommands } = require('./qq-commands');
 const { createAvatarCache } = require('./avatar');
 const { createLogStream } = require('./logstream');
 const { createHealthMonitor } = require('./health');
+const { createVrcStatus } = require('./vrcstatus');
 const { createApp } = require('./server');
 
 const DEFAULT_API_BASE = 'https://api.vrchat.cloud/api/1';
@@ -189,6 +190,13 @@ function buildApplication(opts = {}) {
     sampleTimeoutMs: opts.healthSampleTimeoutMs ?? 3000
   });
   healthMonitor.start();
+  const vrcStatus = opts.vrcStatus || createVrcStatus({
+    apiUrl: opts.vrcStatusUrl || undefined,
+    userAgent: config.userAgent,
+    fetchImpl: opts.fetchImpl || fetch,
+    logger,
+    timeoutMs: opts.vrcStatusTimeoutMs ?? 8000
+  });
   // 启动周期对账 + watchdog 定时器(单用户, 无会话时为空转)
   monitor.startTimers();
 
@@ -208,13 +216,14 @@ function buildApplication(opts = {}) {
     now,
     publicDir: opts.publicDir || null,
     logStream: logStream,
-    healthMonitor
+    healthMonitor,
+    vrcStatus
   });
   connectionStatus.fn = getConnectionStatus;
 
   return {
     app, autoLogin, monitor, pipeline, sessionStore, db, bus,
-    config, avatarCache, qq, logStream, healthMonitor
+    config, avatarCache, qq, logStream, healthMonitor, vrcStatus
   };
 }
 
@@ -241,6 +250,7 @@ async function main() {
     pongTimeoutMs: envInt('WS_PONG_TIMEOUT_MS', 30000),
     qqWsUrl: env('QQ_WS_URL'),
     qqApiBase: env('QQ_API_BASE'),
+    vrcStatusUrl: env('VRC_STATUS_URL'),
     publicDir: env('SERVE_STATIC') ? path.join(__dirname, '..', 'public') : null
   });
   const port = envInt('PORT', 3000);

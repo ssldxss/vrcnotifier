@@ -19,7 +19,7 @@ const SETTING_MAP = {
 function createApp({
   db, notifier, pipeline, monitor,
   sessionStore = new Map(), vrcapiFactory, config = {}, logger = null,
-  now = Date.now, publicDir = null, avatarCache = null, qq = null, logStream = null, healthMonitor = null
+  now = Date.now, publicDir = null, avatarCache = null, qq = null, logStream = null, healthMonitor = null, vrcStatus = null
 }) {
   const log = logger || { info: () => {}, warn: () => {}, error: () => {} };
   const app = express();
@@ -556,6 +556,13 @@ function createApp({
     const s = typeof pipeline.messageSeries === 'function' ? pipeline.messageSeries() : null;
     if (!s) return res.status(503).json({ ok: false, error: '消息统计未启用' });
     return res.json({ ok: true, series: s.series, total: s.total });
+  });
+
+  // VRC 服务器状态: 前端调用时才请求 status.vrchat.com, 后端内存缓存 30s
+  app.get('/api/vrc-status', async (req, res) => {
+    const s = vrcStatus && typeof vrcStatus.status === 'function' ? await vrcStatus.status() : null;
+    if (!s) return res.status(503).json({ ok: false, error: '服务器状态未启用' });
+    return res.json({ ok: true, ...s });
   });
 
   app.post('/api/monitor/snapshot', async (req, res) => {

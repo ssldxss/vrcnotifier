@@ -46,7 +46,7 @@ function setup(opts = {}) {
     status: () => opts.health || { status: 'ok', latencyMs: 123, serverName: 'mock-vrc', updatedAt: 1 }
   };
   const vrcStatus = opts.vrcStatusObj || {
-    status: () => opts.vrcStatus || { state: 'normal', description: 'All Systems Operational', summary: null, fetchedAt: null }
+    status: async () => opts.vrcStatus || { state: 'normal', description: 'All Systems Operational', summary: null, fetchedAt: null }
   };
   const notifier = {
     sendAll: async (user, change) => { notifications.push({ user, change }); return { qq: { ok: true } }; },
@@ -377,6 +377,17 @@ test('status endpoint reports connection and snapshot info', async (t) => {
   assert.equal(r.data.wsConnected, true);
   assert.equal(r.data.lastSnapshotAt, 1000000); // activateUser 触发快照
   assert.ok(r.data.config.watchdogMs > 0);
+});
+
+test('GET /api/vrc-status returns backend-judged server status', async (t) => {
+  const ctx = setup({ vrcStatus: { state: 'outage', description: 'Major System Outage', summary: 'API', updatedAt: '2026-08-13', fetchedAt: 9 } });
+  t.after(() => close(ctx));
+  const r = await get(ctx, '/api/vrc-status');
+  assert.equal(r.status, 200);
+  assert.equal(r.data.ok, true);
+  assert.equal(r.data.state, 'outage');
+  assert.equal(r.data.description, 'Major System Outage');
+  assert.equal(r.data.summary, 'API');
 });
 
 test('POST monitor snapshot triggers reconciliation and updates lastSnapshotAt', async (t) => {

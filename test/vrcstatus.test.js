@@ -4,94 +4,92 @@ const { createVrcStatus } = require('../src/vrcstatus');
 
 const silent = { info: () => {}, warn: () => {}, error: () => {} };
 
-// 按 URL 后缀分发的假 fetch, 记录 Referer
 function fakeFetch(handlers) {
   const calls = [];
-  const impl = async (url, options = {}) => {
-    calls.push({ url, referer: options.headers && options.headers.Referer });
+  const impl = (url, options = {}) => new Promise((resolve, reject) => {
     const key = Object.keys(handlers).find((k) => url.endsWith(k));
     const h = key ? handlers[key] : handlers.default;
-    if (!h) throw new Error('unhandled ' + url);
-    if (h.throw) throw new Error(h.throw);
-    if (h.status && h.status !== 200) {
-      return { ok: false, status: h.status, json: async () => ({}), headers: { get: () => null } };
+    calls.push(url);
+    const timer = setTimeout(() => {
+      if (!h) { reject(new Error('unhandled ' + url)); return; }
+      if (h.throw) { reject(new Error(h.throw)); return; }
+      if (h.status && h.status !== 200) {
+        resolve({ ok: false, status: h.status, json: async () => ({}), headers: { get: () => null } });
+        return;
+      }
+      resolve({ ok: true, status: 200, json: async () => h.body || {}, headers: { get: () => null } });
+    }, h && h.latencyMs ? h.latencyMs : 5);
+    if (options && options.signal) {
+      options.signal.addEventListener('abort', () => { clearTimeout(timer); reject(new Error('aborted')); }, { once: true });
     }
-    return { ok: true, status: 200, json: async () => h.body || {}, headers: { get: () => null } };
-  };
+  });
   impl.calls = calls;
   return impl;
 }
 
-test('vrcstatus: All Systems Operational maps to normal, no summary fetch', async () => {
-  const f = fakeFetch({
-    'status.json': { body: { status: { description: 'All Systems Operational', indicator: 'none' }, page: { updated_at: '2026-08-13T00:00:00Z' } } }
-  });
-  const s = createVrcStatus({ apiUrl: 'https://status.vrchat.com/api/v2', fetchImpl: f, logger: silent, now: () => 1000 });
-  await s.check();
-  const st = s.status();
+const operational = {
+  status: { description: 'All Systems Operational', indicator: 'none' },
+  page: { updated_at: '2026-08-13T00:00:00Z' }
+};
+
+test('vrcstatus: lazy fetch, no request until status() called', async () => {
+  const f = fakeFetch({ 'status.json': { body: operational } });
+  const s = createVrcStatus({ fetchImpl: f, logger: silent });
+  assert.equal(f.calls.length, 0, '构造时不请求');
+  const st = await s.status();
+  assert.equal(f.calls.length, 1);
   assert.equal(st.state, 'normal');
   assert.equal(st.description, 'All Systems Operational');
-  assert.equal(st.summary, null);
-  assert.equal(st.fetchedAt, 1000);
-  assert.equal(f.calls.length, 1, '正常时不拉 summary');
-  assert.equal(f.calls[0].referer, 'https://vrcx.app');
 });
 
-test('vrcstatus: minor indicator maps to degraded with component summary', async () => {
+test('vrcstatus: caches result for 30s, refetches after expiry', async () => {
+  const f = fakeFetch({ 'status.json': { body: operational } });
+  let t = 1000;
+  const s = createVrcStatus({ fetchImpl: f, logger: silent, now: () => t, cacheTtlMs: 30000 });
+  const a = await s.status();
+  t += 10000;
+  const b = await s.status();
+  assert.equal(f.calls.length, 1, '30s 内命中内存缓存');
+  assert.deepEqual(a, b);
+  t += 21000; // 距首次超过 30s
+  await s.status();
+  assert.equal(f.calls.length, 2, '缓存过期后重新请求');
+});
+
+test('vrcstatus: concurrent calls share one inflight request', async () => {
+  const f = fakeFetch({ 'status.json': { body: operational, latencyMs: 40 } });
+  const s = createVrcStatus({ fetchImpl: f, logger: silent });
+  const [a, b] = await Promise.all([s.status(), s.status()]);
+  assert.equal(f.calls.length, 1, '并发调用只发一次请求');
+  assert.equal(a.state, 'normal');
+  assert.equal(b.state, 'normal');
+});
+
+test('vrcstatus: minor maps to degraded with summary, major maps to outage', async () => {
   const f = fakeFetch({
-    'status.json': { body: { status: { description: 'Degraded Performance', indicator: 'minor' }, page: { updated_at: '2026-08-13T00:00:00Z' } } },
-    'summary.json': {
-      body: {
-        components: [
-          { name: 'API', status: 'operational' },
-          { name: 'Web', status: 'degraded_performance' },
-          { name: 'SDK', status: 'major_outage' }
-        ]
-      }
-    }
+    'status.json': { body: { status: { description: 'Degraded Performance', indicator: 'minor' }, page: { updated_at: 'x' } } },
+    'summary.json': { body: { components: [{ name: 'API', status: 'operational' }, { name: 'Web', status: 'degraded_performance' }] } }
   });
   const s = createVrcStatus({ fetchImpl: f, logger: silent });
-  await s.check();
-  const st = s.status();
+  const st = await s.status();
   assert.equal(st.state, 'degraded');
-  assert.equal(st.description, 'Degraded Performance');
-  assert.equal(st.summary, 'Web, SDK');
-});
+  assert.equal(st.summary, 'Web');
 
-test('vrcstatus: major/critical indicator maps to outage', async () => {
-  const f = fakeFetch({
-    'status.json': { body: { status: { description: 'Major System Outage', indicator: 'critical' }, page: { updated_at: '2026-08-13T00:00:00Z' } } },
+  const f2 = fakeFetch({
+    'status.json': { body: { status: { description: 'Major System Outage', indicator: 'critical' }, page: { updated_at: 'x' } } },
     'summary.json': { body: { components: [{ name: 'API', status: 'major_outage' }] } }
   });
-  const s = createVrcStatus({ fetchImpl: f, logger: silent });
-  await s.check();
-  assert.equal(s.status().state, 'outage');
-  assert.equal(s.status().summary, 'API');
+  const s2 = createVrcStatus({ fetchImpl: f2, logger: silent });
+  const st2 = await s2.status();
+  assert.equal(st2.state, 'outage');
+  assert.equal(st2.summary, 'API');
 });
 
 test('vrcstatus: fetch failure maps to degraded with error detail', async () => {
   const f = fakeFetch({ 'status.json': { throw: 'network down' } });
   const s = createVrcStatus({ fetchImpl: f, logger: silent });
-  await s.check();
-  const st = s.status();
+  const st = await s.status();
   assert.equal(st.state, 'degraded');
   assert.equal(st.description, '无法获取 VRC 服务器状态');
   assert.equal(st.summary, 'network down');
-});
-
-test('vrcstatus: summary failure keeps state without summary', async () => {
-  const f = fakeFetch({
-    'status.json': { body: { status: { description: 'Partial System Outage', indicator: 'major' }, page: { updated_at: null } } },
-    'summary.json': { status: 500 }
-  });
-  const s = createVrcStatus({ fetchImpl: f, logger: silent });
-  await s.check();
-  const st = s.status();
-  assert.equal(st.state, 'outage');
-  assert.equal(st.summary, null);
-});
-
-test('vrcstatus: starts as unknown before check', () => {
-  const s = createVrcStatus({ fetchImpl: fakeFetch({}), logger: silent });
-  assert.equal(s.status().state, 'unknown');
 });

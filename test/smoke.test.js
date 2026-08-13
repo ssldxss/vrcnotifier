@@ -44,6 +44,12 @@ function startMockApi() {
       if (url.pathname === '/api/1/config' && req.method === 'GET') {
         return send(200, { clientApiKey: 'mock' }, { 'x-vrc-api-server': 'mock-vrc' });
       }
+      if (url.pathname === '/api/2/status.json' && req.method === 'GET') {
+        return send(200, { status: { description: 'All Systems Operational', indicator: 'none' }, page: { updated_at: '2026-08-13T00:00:00Z' } });
+      }
+      if (url.pathname === '/api/2/summary.json' && req.method === 'GET') {
+        return send(200, { components: [] });
+      }
       if (url.pathname.startsWith('/api/1/worlds/')) {
         return send(200, { id: url.pathname.slice('/api/1/worlds/'.length), name: '世界B' });
       }
@@ -106,6 +112,7 @@ test('end-to-end: login → configure → ws event → QQ notification', async (
     apiBaseUrl: api.base + '/api/1',
     wsBaseUrl: ws.url,
     accessToken: 'smoke-token',
+    vrcStatusUrl: api.base + '/api/2',
     qq
   });
   const server = runtime.app.listen(0);
@@ -143,6 +150,9 @@ test('end-to-end: login → configure → ws event → QQ notification', async (
   }
   assert.ok(health, '/health 持续探测应返回 ok');
   assert.equal(typeof health.latencyMs, 'number');
+  const vrcStatus = await json('GET', '/api/vrc-status');
+  assert.equal(vrcStatus.status, 200);
+  assert.equal(vrcStatus.data.state, 'normal');
 
   // 3. 配置监控 + 开启 QQ 渠道
   const cfg = await json('PUT', '/api/friends/usr_f1/config', { favorite: true });

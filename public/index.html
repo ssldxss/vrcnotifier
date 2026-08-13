@@ -77,7 +77,7 @@
    --t-fast: .16s ease;
    --t-med: .28s cubic-bezier(.22,.8,.3,1);
    --font: system-ui, -apple-system, 'Segoe UI', Roboto, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
-  --font-mono: ui-monospace, 'Cascadia Code', Consolas, 'Courier New', monospace;
+   --font-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', 'Cascadia Code', 'JetBrains Mono', Consolas, 'Courier New', monospace;
 }
 
 /* ---------- 基础 ---------- */
@@ -310,14 +310,18 @@ button.danger { background: linear-gradient(135deg, var(--bad), #b4232c); box-sh
 .switch input:focus-visible + .slider { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* ---------- 徽章 ---------- */
-.badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 12px;
-  padding: 2px 10px;
-  border-radius: var(--r-pill);
-  background: var(--btn-sec);
+ .badge {
+   display: inline-flex;
+   align-items: center;
+   gap: 5px;
+   font-size: 11px;
+   font-weight: 600;
+   letter-spacing: .02em;
+   line-height: 1;
+   white-space: nowrap;
+   padding: 2px 10px;
+   border-radius: var(--r-pill);
+   background: var(--btn-sec);
   color: var(--text-2);
   border: 1px solid var(--line);
 }
@@ -594,13 +598,17 @@ button.danger { background: linear-gradient(135deg, var(--bad), #b4232c); box-sh
  }
  .overview-item:hover { border-color: var(--line-strong); }
  .overview-item:hover::before, .overview-item:hover::after { opacity: 1; transform: scale(1); }
-.ov-label { font-size: 11px; letter-spacing: .04em; text-transform: uppercase; color: var(--text-3); }
-.ov-value { font-size: 13px; color: var(--text-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.overview-item .badge { width: fit-content; }
+ .ov-label { font-size: 10.5px; font-weight: 600; letter-spacing: .08em; line-height: 1.2; text-transform: uppercase; color: var(--text-3); }
+ .ov-value { font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums; letter-spacing: .01em; color: var(--text-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+ .ov-num { font-size: 18px; font-weight: 700; color: var(--accent); }
+ .ov-num-sm { font-size: 15px; font-weight: 600; }
+ #stHealthLatency { font-size: 11px; color: var(--text-3); opacity: .72; }
+ .overview-item .badge { width: fit-content; font-size: 12px; padding: 3px 12px; }
+ .overview-item .badge::before { width: 8px; height: 8px; }
 .overview-item.wide { grid-column: 1 / -1; flex-direction: row; align-items: center; gap: 12px; }
 .overview-item.wide .ov-label { min-width: 92px; }
 .ov-stack { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+ .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; letter-spacing: .01em; }
 .ws-panel-row { flex: 1; display: flex; align-items: center; gap: 12px; min-width: 0; }
 .ws-total { font-size: 12px; color: var(--text-2); white-space: nowrap; }
 .ws-chart { flex: 1; height: 28px; min-width: 120px; display: block; border-radius: 4px; background: var(--input-bg); }
@@ -704,11 +712,11 @@ h3.chan { font-size: 13px; margin: 16px 0 6px; color: var(--text-2); font-weight
 <div class='container hidden' id='mainView'>
   <!-- 常驻概览条: 所有 tab 可见 -->
   <div class='overview'>
-    <div class='overview-item'><span class='ov-label'>好友</span><span id='stMonitored' class='ov-value'>-</span></div>
+    <div class='overview-item'><span class='ov-label'>好友</span><span id='stMonitored' class='ov-value ov-num'>-</span></div>
     <div class='overview-item'><span class='ov-label'>QQ 机器人</span><span id='stQq' class='badge'>-</span></div>
-    <div class='overview-item'><span class='ov-label'>上次刷新</span><span id='stSnapshot' class='ov-value'>-</span></div>
+    <div class='overview-item'><span class='ov-label'>上次刷新</span><span id='stSnapshot' class='ov-value mono ov-num-sm'>-</span></div>
     <div class='overview-item'>
-      <span class='ov-label'>VRChat 延迟</span>
+      <span class='ov-label'>服务器状态</span>
       <span class='ov-stack'>
         <span id='stHealth' class='badge'>-</span>
         <span id='stHealthLatency' class='ov-value mono'>-</span>
@@ -1228,25 +1236,46 @@ async function loadStatus() {
   else renderQqStatus({ configured: true, connected: d.qq.connected });
 }
 
-async function loadHealth() {
-  const r = await api('GET', '/api/health');
-  const d = r.data || {};
+// VRC 服务器状态由后端判断(惰性请求 + 30s 缓存), 前端只负责展示三态
+function renderVrcStatus(d) {
   const badge = $('#stHealth');
+  if (!d || d.state === 'unknown') {
+    badge.textContent = '-';
+    badge.className = 'badge';
+    badge.title = 'VRChat 服务器状态检测中';
+    return;
+  }
+  const detail = (d.description || '') +
+    (d.summary ? ' · ' + d.summary : '') +
+    (d.fetchedAt ? ' · 检测于 ' + new Date(d.fetchedAt).toLocaleTimeString() : '');
+  if (d.state === 'normal') {
+    badge.textContent = '正常';
+    badge.className = 'badge ok';
+    badge.title = 'VRChat 服务器正常';
+  } else if (d.state === 'outage') {
+    badge.textContent = '故障';
+    badge.className = 'badge bad';
+    badge.title = detail;
+  } else {
+    badge.textContent = '降级';
+    badge.className = 'badge warn';
+    badge.title = detail;
+  }
+}
+
+async function loadHealth() {
+  const [r, s] = await Promise.all([
+    api('GET', '/api/health'),
+    api('GET', '/api/vrc-status')
+  ]);
+  const d = r.data || {};
   const lat = $('#stHealthLatency');
   if (d.status === 'ok') {
-    badge.textContent = 'VRCapi: OK';
-    badge.className = 'badge ok';
     lat.textContent = d.latencyMs == null ? '延迟: -' : '延迟: ' + d.latencyMs + ' ms';
-  } else if (d.status === 'starting') {
-    badge.textContent = 'VRCapi: 检测中';
-    badge.className = 'badge';
-    lat.textContent = '延迟: -';
   } else {
-    badge.textContent = 'VRCapi: 错误';
-    badge.className = 'badge warn';
     lat.textContent = '延迟: -';
   }
-  badge.title = d.serverName ? '服务器: ' + d.serverName : 'VRChat API 健康探测';
+  renderVrcStatus(s.data);
 }
 
 function renderWsChart(series) {
