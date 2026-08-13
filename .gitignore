@@ -3,3 +3,22 @@ data/
 *.log
 .env
 .verify/
+<<<<<<< HEAD
+AGENTS.md
+
+# 多平台系统文件
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 数据库临时/缓存文件
+*.db-shm
+*.db-wal
+*.sqlite*
+
+# 开发/测试产物
+.requirements/
+coverage/
+*.tmp
+=======
+>>>>>>> 52434ea (新前端!!!)

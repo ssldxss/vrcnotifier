@@ -6,7 +6,11 @@ const path = require('node:path');
 const { randomBytes, timingSafeEqual } = require('node:crypto');
 const { CookieJar } = require('./cookiejar');
 const { parseLocation } = require('./location');
+<<<<<<< HEAD
+const { deriveStateFromSnapshot, normalizeOwnState } = require('./state');
+=======
 const { deriveStateFromSnapshot } = require('./state');
+>>>>>>> 52434ea (新前端!!!)
 const { detectImageType, toThumbUrl } = require('./avatar');
 const { formatLocalTime, getLogStream } = require('./util');
 

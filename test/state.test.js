@@ -1,7 +1,7 @@
 ﻿const test = require('node:test');
 const assert = require('node:assert');
 const {
-  deriveStateFromLocation, deriveStateFromSnapshot,
+  deriveStateFromLocation, deriveStateFromSnapshot, normalizeOwnState,
   classifyTransition, applyChange
 } = require('../src/state');
 
@@ -12,6 +12,7 @@ test('deriveStateFromLocation maps sentinels and instances', () => {
   assert.equal(deriveStateFromLocation(''), 'offline');
   assert.equal(deriveStateFromLocation('private'), 'online');
   assert.equal(deriveStateFromLocation('traveling'), 'online');
+  assert.equal(deriveStateFromLocation('traveling:traveling'), 'online');
   assert.equal(deriveStateFromLocation('wrld_a:1~region(us)'), 'online');
   assert.equal(deriveStateFromLocation(undefined), 'offline');
 });
@@ -139,4 +140,12 @@ test('applyChange reads status_description from snake_case row', () => {
   assert.equal(r.change.changeType, '自定义状态');
   assert.equal(r.change.oldStatusDescription, '旧');
   assert.equal(r.change.newStatusDescription, '新');
+});
+
+test('normalizeOwnState keeps online/active and maps offline to active', () => {
+  assert.equal(normalizeOwnState('online'), 'online');
+  assert.equal(normalizeOwnState('active'), 'active');
+  assert.equal(normalizeOwnState('offline'), 'active');
+  assert.equal(normalizeOwnState(undefined), 'online');
+  assert.equal(normalizeOwnState(''), 'online');
 });

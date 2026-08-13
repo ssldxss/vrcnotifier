@@ -20,6 +20,7 @@ function setup(opts = {}) {
   };
   const vrcapi = {
     me: async () => opts.currentUser || { id: 'usr_me', onlineFriends: [], activeFriends: [], offlineFriends: [] },
+    self: async (userId) => opts.selfUser || { id: userId, state: 'active' },
     friends: async ({ offline }) => (offline ? (opts.offlineFriends || []) : (opts.onlineFriends || [])),
     world: async (id) => ({ id, name: `世界_${id}` }),
     user: async (id) => {
@@ -836,6 +837,29 @@ test('system: watchdog reconnect does not push recovery/connected notifications'
   t.monitor.events.emit('ws-open', { userId: user.vrchat_user_id, wasFailing: true, isWatchdog: true });
   assert.equal(t.qqTexts.length, 0, 'watchdog 重连不推恢复说明');
   assert.equal(t.notifications.length, 0, 'watchdog 重连不推已连接');
+});
+
+test('runSnapshot: /users/{id} state offline maps to active and stores statusDescription', async () => {
+  const t = setup({
+    selfUser: { id: 'usr_me', state: 'offline', status: 'join me', statusDescription: '自定义' },
+    currentUser: { id: 'usr_me', onlineFriends: [], activeFriends: [], offlineFriends: [] }
+  });
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+  const u = t.db.getUserByVrcId(user.vrchat_user_id);
+  assert.strictEqual(u.state, 'active');
+  assert.strictEqual(u.status, 'join me');
+  assert.strictEqual(u.status_description, '\u81ea\u5b9a\u4e49');
+});
+
+test('runSnapshot: /users/{id} state active is stored', async () => {
+  const t = setup({
+    selfUser: { id: 'usr_me', state: 'active', status: 'active' },
+    currentUser: { id: 'usr_me', onlineFriends: [], activeFriends: [], offlineFriends: [] }
+  });
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+  assert.strictEqual(t.db.getUserByVrcId(user.vrchat_user_id).state, 'active');
 });
 
 test('system: sendShutdownNotice pushes 服务已停止 to active users', async () => {

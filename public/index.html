@@ -126,6 +126,12 @@ header h1 {
 .conn-form { display: flex; align-items: center; gap: 8px; }
 .conn-form input { width: auto; margin: 0; }
 header .spacer { flex: 1; }
+<<<<<<< HEAD
+.me { display: flex; align-items: center; gap: 10px; }
+.me-info { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+.me-state { font-size: 11px; color: var(--text-3); }
+=======
+>>>>>>> 52434ea (新前端!!!)
 
 /* ---------- 布局 ---------- */
 .container { max-width: 980px; margin: 0 auto; padding: 24px 20px 56px; }
@@ -454,11 +460,16 @@ button.danger { background: linear-gradient(135deg, var(--bad), #b4232c); box-sh
 .friend:hover::before, .friend:hover::after { opacity: 1; transition-duration: .2s; }
 .friend:focus-within::after { opacity: 1; }
 .friend .avatar-wrap {
+>>>>>>> 52434ea (新前端!!!)
   position: relative;
   width: 40px; height: 40px;
   flex: 0 0 auto;
 }
+<<<<<<< HEAD
+.avatar, .avatar-fallback {
+=======
 .friend .avatar, .friend .avatar-fallback {
+>>>>>>> 52434ea (新前端!!!)
   width: 40px; height: 40px;
   border-radius: 50%;
   object-fit: cover;
@@ -467,6 +478,7 @@ button.danger { background: linear-gradient(135deg, var(--bad), #b4232c); box-sh
 .friend .avatar { transition: transform var(--t-med), filter var(--t-med); }
 .friend:hover .avatar { transform: scale(1.07); }
 .friend .avatar-fallback {
+>>>>>>> 52434ea (新前端!!!)
   display: none;
   align-items: center;
   justify-content: center;
@@ -478,6 +490,7 @@ button.danger { background: linear-gradient(135deg, var(--bad), #b4232c); box-sh
 .friend:hover .avatar-fallback { background: var(--accent-soft); color: var(--accent); }
 /* 状态圆点(VRCX): 颜色=社交状态, 实心=游戏在线, 空心=网页在线, 灰=离线 */
 .friend .avatar-wrap::after {
+>>>>>>> 52434ea (新前端!!!)
   content: '';
   position: absolute;
   right: -2px; bottom: -2px;
@@ -1063,6 +1076,7 @@ $('#logoutBtn').addEventListener('click', async () => {
   if (wsStatsTimer) { clearInterval(wsStatsTimer); wsStatsTimer = null; }
   if (window.__evt) window.__evt.close();
   currentUser = null;
+  $('#meBox').classList.add('hidden');
   showView('login');
 });
 
@@ -1071,6 +1085,8 @@ function enterMain() {
   myInfo = currentUser;
   renderSelf();
   $('#logoutBtn').classList.remove('hidden');
+  $('#meBox').classList.remove('hidden');
+  updateMeAvatar();
   loadAll();
   startStatus();
   connectEvents();
@@ -1163,6 +1179,7 @@ function renderFriends() {
     const g = document.createElement('div');
     g.className = 'group-title';
     const btn = document.createElement('button');
+>>>>>>> 52434ea (新前端!!!)
     btn.className = 'group-toggle';
     btn.type = 'button';
     btn.title = '收起';

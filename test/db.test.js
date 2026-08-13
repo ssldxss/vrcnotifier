@@ -225,3 +225,21 @@ test('legacy db migration moves notify columns into settings', () => {
   db.upsertQqBinding(id, { appId: 'app1', openid: 'openid_old', nickname: 'x', at: 1 });
   assert.equal(db.getQqBinding(id, 'app1').openid, 'openid_old');
 });
+
+test('updateUserPresence syncs statusDescription with COALESCE semantics', () => {
+  const db = newDb();
+  db.upsertUser('usr_1', { username: 'u1', displayName: '\u6211', avatarUrl: null });
+  db.updateUserPresence('usr_1', { state: 'online', status: 'active', statusDescription: '\u7761\u89c9\u55b5' });
+  assert.equal(db.getUserByVrcId('usr_1').status_description, '\u7761\u89c9\u55b5');
+  // 传空字符串清空
+  db.updateUserPresence('usr_1', { statusDescription: '' });
+  assert.equal(db.getUserByVrcId('usr_1').status_description, '');
+  // 缺省保留旧值
+  db.updateUserPresence('usr_1', { statusDescription: 'again' });
+  db.updateUserPresence('usr_1', {});
+  assert.equal(db.getUserByVrcId('usr_1').status_description, 'again');
+  // 仅 state 不影响 statusDescription
+  db.updateUserPresence('usr_1', { state: 'active' });
+  assert.equal(db.getUserByVrcId('usr_1').status_description, 'again');
+});
+
