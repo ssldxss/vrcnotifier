@@ -678,10 +678,6 @@ button.danger { background: linear-gradient(135deg, var(--bad), #b4232c); box-sh
   flex: 1;
   min-width: 120px;
   height: 30px;
-  border-radius: 7px;
-  background: var(--input-bg);
-  border: 1px solid var(--line);
-  overflow: hidden;
   line-height: 0;
 }
 .ws-chart {
@@ -1391,7 +1387,88 @@ let wsChartMax = 1;        // 当前窗口最大值(高度基准)
 let wsChartRaf = 0;
 let wsChartCv = null;      // canvas 元素
 let wsChartAccentCache = { color: '', at: 0 };
-// 悬停提示: 停留超过阈值才显示; 淡入/淡出 1s, 且全程随柱子同步移动
+let wsChartThemeCache = { bg: '', line: '', at: 0 };
+
+function wsChartAccentColor() {
+  const now = Date.now();
+  if (!wsChartAccentCache.color || now - wsChartAccentCache.at > 500) {
+    // 自定义属性 --accent 的 light-dark() 在 computed value 里不解析, 直接读会得到无效颜色(柱子变黑);
+    // 从已渲染的 #stMonitored(ov-num, color: var(--accent))读取解析后的主题色
+    const probe = $('#stMonitored');
+    wsChartAccentCache.color = (probe && getComputedStyle(probe).color) || '#3b6fe0';
+    wsChartAccentCache.at = now;
+  }
+  return wsChartAccentCache.color;
+}
+
+// 图表自身的背景/描边色(取自 #log 的 input-bg / line 解析值), 全部画进 canvas, 外层无任何 CSS 装饰
+function wsChartTheme() {
+  const now = Date.now();
+  if (!wsChartThemeCache.bg || now - wsChartThemeCache.at > 500) {
+    const log = $('#log');
+    const cs = log && getComputedStyle(log);
+    wsChartThemeCache.bg = (cs && cs.backgroundColor) || 'rgba(255,255,255,0.05)';
+    wsChartThemeCache.line = (cs && cs.borderTopColor) || 'rgba(255,255,255,0.085)';
+    wsChartThemeCache.at = now;
+  }
+  return wsChartThemeCache;
+}
+
+function wsChartRoundRect(ctx, x, y, w, h, r) {
+  r = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+function wsChartDraw() {
+  const cv = wsChartCv || (wsChartCv = $('#wsChart'));
+  if (!cv) { wsChartRaf = 0; return; }
+  const dpr = window.devicePixelRatio || 1;
+  const w = Math.max(10, Math.round(cv.clientWidth * dpr));
+  const h = Math.max(10, Math.round(cv.clientHeight * dpr));
+  if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+  const ctx = cv.getContext('2d');
+  // 全部在设备像素空间绘制并取整: 任何 DPI 缩放下描边/柱缘都精确落格, 不产生抗锯齿浅色重影
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  const theme = wsChartTheme();
+  const radius = Math.round(7 * dpr);
+  ctx.fillStyle = theme.bg;
+  wsChartRoundRect(ctx, 0, 0, w, h, radius);
+  ctx.fill();
+  const nowSec = Date.now() / 1000;
+  const sx = w / 300, sy = h / 28;
+  // 清理滚出左端的柱子
+  for (let i = wsChartBars.length - 1; i >= 0; i--) {
+    const b = wsChartBars[i];
+    if (300 - (nowSec - b.t) * 5 + 5 <= 0) wsChartBars.splice(i, 1);
+  }
+  ctx.globalAlpha = .8;
+  ctx.fillStyle = wsChartAccentColor();
+  const inset = Math.max(2, Math.round(2 * dpr));
+  for (const b of wsChartBars) {
+    const x0 = (300 - (nowSec - b.t) * 5) * sx;
+    if (x0 + 5 * sx <= 0) continue;
+    const hh = 26 * (b.n / wsChartMax); // 相对高度严格和次数成正比
+    const px = Math.round(x0);
+    const pw = Math.max(1, Math.round(x0 + 4 * sx) - px);
+    const yBot = Math.round(28 * sy) - inset; // 底边留出描边 + 空隙
+    const yTop = Math.min(Math.round((28 - hh) * sy), yBot - 1);
+    ctx.fillRect(px, yTop, pw, Math.max(1, yBot - yTop));
+  }
+  ctx.globalAlpha = 1;
+  ctx.strokeStyle = theme.line;
+  ctx.lineWidth = 1; // 1 设备像素, 0.5 偏移精确落格
+  wsChartRoundRect(ctx, 0.5, 0.5, w - 1, h - 1, radius);
+  ctx.stroke();
+  wsChartUpdateHover();
+  wsChartRaf = requestAnimationFrame(wsChartDraw);
+}
 let wsChartTipVisible = false;   // 提示处于显示或淡出阶段
 let wsChartTipHiding = false;    // 淡出进行中
 let wsChartTipDoneTimer = 0;
@@ -1509,53 +1586,6 @@ function wsChartUpdateHover() {
     clearTimeout(wsChartDwellTimer);
     wsChartDwellTimer = 0;
   }
-}
-
-function wsChartAccentColor() {
-  const now = Date.now();
-  if (!wsChartAccentCache.color || now - wsChartAccentCache.at > 500) {
-    // 自定义属性 --accent 的 light-dark() 在 computed value 里不解析, 直接读会得到无效颜色(柱子变黑);
-    // 从已渲染的 #stMonitored(ov-num, color: var(--accent))读取解析后的主题色
-    const probe = $('#stMonitored');
-    wsChartAccentCache.color = (probe && getComputedStyle(probe).color) || '#3b6fe0';
-    wsChartAccentCache.at = now;
-  }
-  return wsChartAccentCache.color;
-}
-
-function wsChartDraw() {
-  const cv = wsChartCv || (wsChartCv = $('#wsChart'));
-  if (!cv) { wsChartRaf = 0; return; }
-  const dpr = window.devicePixelRatio || 1;
-  const w = Math.max(10, Math.round(cv.clientWidth * dpr));
-  const h = Math.max(10, Math.round(cv.clientHeight * dpr));
-  if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
-  const ctx = cv.getContext('2d');
-  const cssW = cv.clientWidth, cssH = cv.clientHeight;
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.clearRect(0, 0, cssW, cssH);
-  const nowSec = Date.now() / 1000;
-  const sx = cssW / 300, sy = cssH / 28;
-  // 清理滚出左端的柱子
-  for (let i = wsChartBars.length - 1; i >= 0; i--) {
-    const b = wsChartBars[i];
-    if (300 - (nowSec - b.t) * 5 + 5 <= 0) wsChartBars.splice(i, 1);
-  }
-  ctx.globalAlpha = .8;
-  ctx.fillStyle = wsChartAccentColor();
-  for (const b of wsChartBars) {
-    const x0 = (300 - (nowSec - b.t) * 5) * sx;
-    if (x0 + 5 * sx <= 0) continue;
-    const hh = 26 * (b.n / wsChartMax); // 相对高度严格和次数成正比
-    const px = Math.round(x0);
-    const pw = Math.max(1, Math.round(x0 + 4 * sx) - px);
-    const yBot = Math.round(28 * sy) - 1; // 底边留 1px, 避免顶到描边产生亮缝
-    const yTop = Math.min(Math.round((28 - hh) * sy), yBot - 1);
-    ctx.fillRect(px, yTop, pw, Math.max(1, yBot - yTop));
-  }
-  ctx.globalAlpha = 1;
-  wsChartUpdateHover();
-  wsChartRaf = requestAnimationFrame(wsChartDraw);
 }
 
 function renderWsChart(series) {
