@@ -203,8 +203,7 @@ header .spacer { flex: 1; }
    border-radius: inherit;
    background: radial-gradient(180px circle at var(--mx, 50%) var(--my, 50%), var(--accent-soft), transparent 68%);
    opacity: 0;
-   transform: scale(.94);
-   transition: opacity .2s ease-out, transform .2s ease-out;
+   transition: opacity .2s ease-out;
    z-index: -1;
    pointer-events: none;
  }
@@ -215,13 +214,12 @@ header .spacer { flex: 1; }
    border-radius: inherit;
    background: var(--btn-sec-hover);
    opacity: 0;
-   transform: scale(.97);
-   transition: opacity .2s ease-out, transform .2s ease-out;
+   transition: opacity .2s ease-out;
    z-index: -2;
    pointer-events: none;
  }
  .tab:hover { color: var(--text-1); }
- .tab:hover::before, .tab:hover::after { opacity: 1; transform: scale(1); }
+ .tab:hover::before, .tab:hover::after { opacity: 1; }
  .tab.active::after { display: none; }
  .tab.active {
    background: linear-gradient(135deg, var(--accent), var(--accent-2));
@@ -436,8 +434,7 @@ button.danger { background: linear-gradient(135deg, var(--bad), #b4232c); box-sh
   border-radius: inherit;
   background: radial-gradient(240px circle at var(--mx, 50%) var(--my, 50%), var(--accent-soft), transparent 68%);
   opacity: 0;
-  transform: scale(.94);
-  transition: opacity .5s ease-out, transform .5s ease-out;
+  transition: opacity .5s ease-out;
   z-index: -1;
   pointer-events: none;
 }
@@ -449,14 +446,13 @@ button.danger { background: linear-gradient(135deg, var(--bad), #b4232c); box-sh
   border-radius: calc(var(--r-md) - 2px);
   background: var(--card-bg-hover);
   opacity: 0;
-  transform: scale(.97);
-  transition: opacity .5s ease-out, transform .5s ease-out;
+  transition: opacity .5s ease-out;
   z-index: -2;
   pointer-events: none;
 }
 .friend:last-child { border-bottom: 0; }
-.friend:hover::before, .friend:hover::after { opacity: 1; transform: scale(1); transition-duration: .2s; }
-.friend:focus-within::after { opacity: 1; transform: scale(1); }
+.friend:hover::before, .friend:hover::after { opacity: 1; transition-duration: .2s; }
+.friend:focus-within::after { opacity: 1; }
 .friend .avatar-wrap {
   position: relative;
   width: 40px; height: 40px;
@@ -591,8 +587,7 @@ button.danger { background: linear-gradient(135deg, var(--bad), #b4232c); box-sh
    border-radius: inherit;
    background: radial-gradient(200px circle at var(--mx, 50%) var(--my, 50%), var(--accent-soft), transparent 68%);
    opacity: 0;
-   transform: scale(.94);
-   transition: opacity .2s ease-out, transform .2s ease-out;
+   transition: opacity .2s ease-out;
    z-index: -1;
    pointer-events: none;
  }
@@ -603,13 +598,12 @@ button.danger { background: linear-gradient(135deg, var(--bad), #b4232c); box-sh
    border-radius: calc(var(--r-md) - 2px);
    background: var(--btn-sec-hover);
    opacity: 0;
-   transform: scale(.97);
-   transition: opacity .2s ease-out, transform .2s ease-out;
+   transition: opacity .2s ease-out;
    z-index: -2;
    pointer-events: none;
  }
  .overview-item:hover { border-color: var(--line-strong); }
- .overview-item:hover::before, .overview-item:hover::after { opacity: 1; transform: scale(1); }
+ .overview-item:hover::before, .overview-item:hover::after { opacity: 1; }
  .ov-label {
    display: flex;
    align-items: baseline;
@@ -679,25 +673,28 @@ button.danger { background: linear-gradient(135deg, var(--bad), #b4232c); box-sh
  .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; letter-spacing: .01em; }
 .ws-panel-row { flex: 1; display: flex; align-items: center; gap: 12px; min-width: 0; }
 .ws-total { font-size: 12px; color: var(--text-2); white-space: nowrap; font-variant-numeric: tabular-nums; }
-.ws-chart {
+.ws-chart-clip {
   flex: 1;
-  height: 30px;
   min-width: 120px;
-  display: block;
+  height: 30px;
   border-radius: 7px;
   background: var(--input-bg);
   border: 1px solid var(--line);
+  overflow: hidden;
+  line-height: 0;
 }
-.ws-chart rect { fill: var(--accent); opacity: .8; }
+.ws-chart {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
 .ws-chart-tip {
   position: fixed;
   z-index: 90;
   pointer-events: none;
   padding: 5px 10px;
   border-radius: 8px;
-  background: var(--card-bg-hover);
-  -webkit-backdrop-filter: blur(10px);
-  backdrop-filter: blur(10px);
+  background: light-dark(rgba(252,253,255,.92), rgba(21,24,31,.92));
   border: 1px solid var(--line-strong);
   box-shadow: var(--shadow-1);
   color: var(--text-1);
@@ -825,7 +822,9 @@ h3.chan { font-size: 13px; margin: 16px 0 6px; color: var(--text-2); font-weight
       <div class='ws-panel-row'>
         <span id='stWs' class='badge'>-</span>
         <span id='stWsTotal' class='ws-total mono'>-</span>
-        <svg id='wsChart' class='ws-chart' viewBox='0 0 300 28' preserveAspectRatio='none' aria-hidden='true'><g id='wsChartG'></g></svg>
+        <div class='ws-chart-clip'>
+          <canvas id='wsChart' class='ws-chart' aria-hidden='true'></canvas>
+        </div>
       </div>
     </div>
   </div>
@@ -1385,11 +1384,12 @@ async function loadHealth() {
   renderVrcStatus(s.data);
 }
 
-// WS 图表: 时间锚定 + rAF 匀速左移; 柱高与次数严格成正比(线性)
-let wsChartBars = [];      // { rect, t, n } t = 秒级时间戳
-let wsChartAnchorMs = 0;
+// WS 图表: canvas 绘制(单图层栅格, 无合成层残留伪影), 时间锚定匀速左移; 柱高与次数严格成正比(线性)
+let wsChartBars = [];      // { t, n } t = 秒级时间戳
+let wsChartMax = 1;        // 当前窗口最大值(高度基准)
 let wsChartRaf = 0;
-let wsChartGEl = null;
+let wsChartCv = null;      // canvas 元素
+let wsChartAccentCache = { color: '', at: 0 };
 // 悬停提示: 停留超过阈值才显示; 淡入/淡出 1s, 且全程随柱子同步移动
 let wsChartTipVisible = false;   // 提示处于显示或淡出阶段
 let wsChartTipHiding = false;    // 淡出进行中
@@ -1416,6 +1416,12 @@ function bindWsChartHover() {
   svg.addEventListener('mouseleave', () => {
     wsChartMouse = null;
     wsChartUpdateHover();
+  });
+  // 失焦时收起提示并清空悬停状态(动画照常运行), 聚焦后鼠标移动会自然恢复
+  window.addEventListener('blur', () => {
+    wsChartMouse = null;
+    if (wsChartDwellTimer) { clearTimeout(wsChartDwellTimer); wsChartDwellTimer = 0; }
+    wsChartHideTip();
   });
 }
 
@@ -1504,14 +1510,57 @@ function wsChartUpdateHover() {
   }
 }
 
+function wsChartAccentColor() {
+  const now = Date.now();
+  if (!wsChartAccentCache.color || now - wsChartAccentCache.at > 500) {
+    // 自定义属性 --accent 的 light-dark() 在 computed value 里不解析, 直接读会得到无效颜色(柱子变黑);
+    // 从已渲染的 #stMonitored(ov-num, color: var(--accent))读取解析后的主题色
+    const probe = $('#stMonitored');
+    wsChartAccentCache.color = (probe && getComputedStyle(probe).color) || '#3b6fe0';
+    wsChartAccentCache.at = now;
+  }
+  return wsChartAccentCache.color;
+}
+
+function wsChartDraw() {
+  const cv = wsChartCv || (wsChartCv = $('#wsChart'));
+  if (!cv) { wsChartRaf = 0; return; }
+  const dpr = window.devicePixelRatio || 1;
+  const w = Math.max(10, Math.round(cv.clientWidth * dpr));
+  const h = Math.max(10, Math.round(cv.clientHeight * dpr));
+  if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+  const ctx = cv.getContext('2d');
+  const cssW = cv.clientWidth, cssH = cv.clientHeight;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, cssW, cssH);
+  const nowSec = Date.now() / 1000;
+  const sx = cssW / 300, sy = cssH / 28;
+  // 清理滚出左端的柱子
+  for (let i = wsChartBars.length - 1; i >= 0; i--) {
+    const b = wsChartBars[i];
+    if (300 - (nowSec - b.t) * 5 + 5 <= 0) wsChartBars.splice(i, 1);
+  }
+  ctx.globalAlpha = .8;
+  ctx.fillStyle = wsChartAccentColor();
+  for (const b of wsChartBars) {
+    const x0 = (300 - (nowSec - b.t) * 5) * sx;
+    if (x0 + 5 * sx <= 0) continue;
+    const hh = 26 * (b.n / wsChartMax); // 相对高度严格和次数成正比
+    const px = Math.round(x0);
+    const pw = Math.max(1, Math.round(x0 + 4 * sx) - px);
+    const yBot = Math.round(28 * sy) - 1; // 底边留 1px, 避免顶到描边产生亮缝
+    const yTop = Math.min(Math.round((28 - hh) * sy), yBot - 1);
+    ctx.fillRect(px, yTop, pw, Math.max(1, yBot - yTop));
+  }
+  ctx.globalAlpha = 1;
+  wsChartUpdateHover();
+  wsChartRaf = requestAnimationFrame(wsChartDraw);
+}
+
 function renderWsChart(series) {
   bindWsChartHover();
-  const g = wsChartGEl || (wsChartGEl = $('#wsChartG'));
-  if (!series || !series.length) { g.innerHTML = ''; wsChartBars = []; return; }
-  const nowMs = Date.now();
-  const nowSec = nowMs / 1000;
-  const barW = 300 / 60;
-  const hhMax = 28 - 2;
+  if (!series || !series.length) { wsChartBars = []; wsChartMax = 1; return; }
+  const nowSec = Date.now() / 1000;
   let max = 0;
   const buckets = [];
   for (let i = 0; i < series.length; i++) {
@@ -1520,43 +1569,10 @@ function renderWsChart(series) {
     if (n > max) max = n;
     buckets.push({ t: nowSec - (series.length - 1 - i), n });
   }
-  if (!max) { g.innerHTML = ''; wsChartBars = []; return; }
-  // 静态坐标以当前时刻为锚, 之后每帧只平移整个组 → 匀速滚动
-  wsChartAnchorMs = nowMs;
-  g.setAttribute('transform', 'translate(0 0)');
-  g.innerHTML = '';
-  wsChartBars = [];
-  for (const b of buckets) {
-    const x = 300 - (nowSec - b.t) * barW;
-    if (x + barW <= 0) continue;
-    const hh = hhMax * (b.n / max); // 相对高度严格和次数成正比
-    const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-    rect.setAttribute('x', x.toFixed(2));
-    rect.setAttribute('y', (28 - hh).toFixed(2));
-    rect.setAttribute('width', (barW - 1).toFixed(2));
-    rect.setAttribute('height', hh.toFixed(2));
-    rect.setAttribute('rx', '1');
-    g.appendChild(rect);
-    wsChartBars.push({ rect, t: b.t, n: b.n });
-  }
-  if (!wsChartRaf) wsChartRaf = requestAnimationFrame(wsChartTick);
-}
-
-function wsChartTick() {
-  const nowSec = Date.now() / 1000;
-  const barW = 300 / 60;
-  const dx = -(nowSec - wsChartAnchorMs / 1000) * barW; // 位移只由时间差决定 → 匀速
-  const g = wsChartGEl || (wsChartGEl = $('#wsChartG'));
-  g.setAttribute('transform', 'translate(' + dx.toFixed(2) + ' 0)');
-  for (let i = wsChartBars.length - 1; i >= 0; i--) {
-    const b = wsChartBars[i];
-    if (300 - (nowSec - b.t) * barW + barW <= 0) {
-      b.rect.remove();
-      wsChartBars.splice(i, 1);
-    }
-  }
+  wsChartMax = max || 1;
+  wsChartBars = buckets.filter((b) => 300 - (nowSec - b.t) * 5 + 5 > 0);
+  if (!wsChartRaf) wsChartRaf = requestAnimationFrame(wsChartDraw);
   wsChartUpdateHover();
-  wsChartRaf = requestAnimationFrame(wsChartTick);
 }
 
 async function loadWsStats() {
