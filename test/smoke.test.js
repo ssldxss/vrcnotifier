@@ -34,6 +34,16 @@ function startMockApi() {
           { id: 'usr_f1', displayName: '朋友1', location: 'offline', status: 'active', platform: 'standalonewindows', currentAvatarImageUrl: null }
         ]);
       }
+      if (url.pathname === '/api/1/users/usr_me' && req.method === 'GET') {
+        return send(200, {
+          id: 'usr_me', displayName: 'SmokeUser', state: 'online', status: 'active',
+          statusDescription: null, location: 'wrld_b:2', last_platform: 'web',
+          currentAvatarImageUrl: null
+        });
+      }
+      if (url.pathname === '/api/1/config' && req.method === 'GET') {
+        return send(200, { clientApiKey: 'mock' }, { 'x-vrc-api-server': 'mock-vrc' });
+      }
       if (url.pathname.startsWith('/api/1/worlds/')) {
         return send(200, { id: url.pathname.slice('/api/1/worlds/'.length), name: '世界B' });
       }
@@ -102,6 +112,7 @@ test('end-to-end: login → configure → ws event → QQ notification', async (
 
   t.after(async () => {
     try { runtime.monitor.stopTimers(); } catch (e) { /* ignore */ }
+    try { runtime.healthMonitor.stop(); } catch (e) { /* ignore */ }
     for (const { user } of runtime.monitor.activeUsers()) {
       try { runtime.monitor.deactivateUser(user.vrchat_user_id); } catch (e) { /* ignore */ }
     }
@@ -122,6 +133,16 @@ test('end-to-end: login → configure → ws event → QQ notification', async (
   assert.equal(login.status, 200);
   assert.equal(login.data.ok, true);
   assert.equal(login.data.user.vrchat_user_id, 'usr_me');
+  assert.equal(login.data.user.state, 'online', '/users/{id} 解析自己的信息并入首屏');
+  assert.equal(login.data.user.world_name, '世界B');
+  let health = null;
+  for (let i = 0; i < 50 && !health; i++) {
+    const r = await json('GET', '/api/health');
+    if (r.data && r.data.status === 'ok') health = r.data;
+    else await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  assert.ok(health, '/health 持续探测应返回 ok');
+  assert.equal(typeof health.latencyMs, 'number');
 
   // 3. 配置监控 + 开启 QQ 渠道
   const cfg = await json('PUT', '/api/friends/usr_f1/config', { favorite: true });
@@ -159,6 +180,7 @@ test('buildApplication starts periodic snapshot timer', async (t) => {
 
   t.after(async () => {
     try { runtime.monitor.stopTimers(); } catch (e) { /* ignore */ }
+    try { runtime.healthMonitor.stop(); } catch (e) { /* ignore */ }
     for (const { user } of runtime.monitor.activeUsers()) {
       try { runtime.monitor.deactivateUser(user.vrchat_user_id); } catch (e) { /* ignore */ }
     }
@@ -211,6 +233,8 @@ test('frontend server serves public dir as standalone process', async (t) => {
   const html = await home.text();
   assert.ok(html.includes('vrcnotifier'));
   assert.ok(html.includes(id='connectBtn'));
+  assert.ok(html.includes("id='wsChart'"), '概览包含 WS 消息图表');
+  assert.ok(html.includes("id='stHealth'"), '概览包含 VRChat 延迟');
 
   const missing = await fetch(base + '/nope.js');
   assert.equal(missing.status, 404);

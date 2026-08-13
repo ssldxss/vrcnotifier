@@ -11,6 +11,7 @@ function setup(opts = {}) {
   bus.on('notification', (e) => events.push({ kind: 'notification', ...e }));
   bus.on('session-expired', (e) => events.push({ kind: 'session-expired', ...e }));
   bus.on('snapshot', (e) => events.push({ kind: 'snapshot', ...e }));
+  bus.on('self-state', (e) => events.push({ kind: 'self-state', ...e }));
   const notifications = [];
   const qqTexts = [];
   const notifier = {
@@ -20,8 +21,14 @@ function setup(opts = {}) {
   const vrcapi = {
     me: async () => opts.currentUser || { id: 'usr_me', onlineFriends: [], activeFriends: [], offlineFriends: [] },
     friends: async ({ offline }) => (offline ? (opts.offlineFriends || []) : (opts.onlineFriends || [])),
-    world: async (id) => ({ id, name: `世界_${id}` })
+    world: async (id) => ({ id, name: `世界_${id}` }),
+    user: async (id) => {
+      vrcapi.userCalls.push(id);
+      if (opts.userError) throw opts.userError;
+      return opts.selfInfo !== undefined ? opts.selfInfo : null;
+    }
   };
+  vrcapi.userCalls = [];
   const pipeline = {
     connects: [], disconnects: [], reconnects: 0,
     connect: (uid, name) => pipeline.connects.push({ uid, name }),
@@ -840,4 +847,148 @@ test('system: sendShutdownNotice pushes 服务已停止 to active users', async 
   assert.equal(t.qqTexts.length, 1);
   assert.ok(t.qqTexts[0].text.includes('服务已停止'));
   assert.ok(t.qqTexts[0].text.includes('时间:'));
+});
+
+// ---------- 自己的信息 ----------
+const selfInfoOnline = () => ({
+  id: 'usr_me', state: 'online', status: 'join me', statusDescription: '摸鱼中',
+  location: 'wrld_self:1~region(jp)', last_platform: 'standalonewindows',
+  currentAvatarImageUrl: 'https://x/me.png',
+  currentAvatarThumbnailImageUrl: 'https://api.vrchat.cloud/api/1/image/file_me/1/256'
+});
+
+test('self: snapshot stores own info from GET /users/{id} without notification', async () => {
+  const t = setup({ selfInfo: selfInfoOnline() });
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+  assert.deepEqual(t.vrcapi.userCalls, ['usr_me']);
+  const me = t.db.getUserByVrcId('usr_me');
+  assert.equal(me.state, 'online');
+  assert.equal(me.status, 'join me');
+  assert.equal(me.status_description, '摸鱼中');
+  assert.equal(me.world_id, 'wrld_self');
+  assert.equal(me.world_name, '世界_wrld_self');
+  assert.equal(me.platform, 'standalonewindows');
+  assert.equal(me.avatar_url, 'https://x/me.png');
+  assert.equal(me.avatar_thumb_url, 'https://api.vrchat.cloud/api/1/image/file_me/1/256');
+  assert.equal(t.notifications.length, 0, '自己变化不通知');
+  assert.ok(t.events.some((e) => e.kind === 'self-state'));
+});
+
+test('self: snapshot offline/empty location derives active (web session alive)', async () => {
+  const t = setup({ selfInfo: { id: 'usr_me', state: 'offline', status: 'offline', location: '' } });
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+  const me = t.db.getUserByVrcId('usr_me');
+  assert.equal(me.state, 'active');
+  assert.equal(me.status, 'active');
+  assert.equal(me.world_id, null);
+  assert.equal(t.notifications.length, 0);
+});
+
+test('self: snapshot keeps existing row when GET /users/{id} fails', async () => {
+  const t = setup({ selfInfo: selfInfoOnline() });
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+  const before = t.db.getUserByVrcId('usr_me');
+  t.vrcapi.user = async () => { throw new Error('network down'); };
+  const result = await t.monitor.runSnapshot(user.vrchat_user_id);
+  assert.equal(result.ok, true, '/users/{id} 失败不影响好友对账');
+  const after = t.db.getUserByVrcId('usr_me');
+  assert.equal(after.state, before.state);
+  assert.equal(after.world_id, before.world_id);
+  assert.equal(t.notifications.length, 0);
+});
+
+test('self: WS user-update updates profile/status, keeps state and world', async () => {
+  const t = setup({ selfInfo: selfInfoOnline() });
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+  t.events.length = 0;
+  t.notifications.length = 0;
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'x', {
+    type: 'user-update',
+    content: {
+      userId: 'usr_me',
+      user: {
+        id: 'usr_me', displayName: '新我', status: 'busy', statusDescription: '忙',
+        currentAvatarImageUrl: 'https://x/new.png',
+        currentAvatarThumbnailImageUrl: 'https://api.vrchat.cloud/api/1/image/file_new/1/256'
+      }
+    }
+  });
+  const me = t.db.getUserByVrcId('usr_me');
+  assert.equal(me.display_name, '新我');
+  assert.equal(me.avatar_url, 'https://x/new.png');
+  assert.equal(me.avatar_thumb_url, 'https://api.vrchat.cloud/api/1/image/file_new/1/256');
+  assert.equal(me.status, 'busy');
+  assert.equal(me.status_description, '忙');
+  assert.equal(me.state, 'online');
+  assert.equal(me.world_id, 'wrld_self');
+  assert.equal(t.notifications.length, 0, '自己不触发通知');
+  assert.ok(t.events.some((e) => e.kind === 'self-state'));
+});
+
+test('self: WS user-location real location updates own world', async () => {
+  const t = setup({ selfInfo: selfInfoOnline() });
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+  t.events.length = 0;
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'x', {
+    type: 'user-location',
+    content: {
+      userId: 'usr_me', location: 'wrld_b:2',
+      user: { id: 'usr_me', displayName: '我', status: 'active', statusDescription: null, last_platform: 'android' }
+    }
+  });
+  const me = t.db.getUserByVrcId('usr_me');
+  assert.equal(me.state, 'online');
+  assert.equal(me.world_id, 'wrld_b');
+  assert.equal(me.world_name, '世界_wrld_b');
+  assert.equal(me.platform, 'android');
+  assert.ok(t.events.some((e) => e.kind === 'self-state'));
+});
+
+test('self: WS user-location offline fills active and clears world', async () => {
+  const t = setup({ selfInfo: selfInfoOnline() });
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+  t.events.length = 0;
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'x', {
+    type: 'user-location',
+    content: { userId: 'usr_me', location: 'offline', user: { id: 'usr_me', status: 'offline' } }
+  });
+  const me = t.db.getUserByVrcId('usr_me');
+  assert.equal(me.state, 'active');
+  assert.equal(me.status, 'active');
+  assert.equal(me.world_id, null);
+  assert.equal(me.world_name, null);
+});
+
+test('self: WS user-location private fills online + 私密世界', async () => {
+  const t = setup({ selfInfo: selfInfoOnline() });
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'x', {
+    type: 'user-location',
+    content: { userId: 'usr_me', location: 'private', user: { id: 'usr_me', displayName: '我', status: 'active' } }
+  });
+  const me = t.db.getUserByVrcId('usr_me');
+  assert.equal(me.state, 'online');
+  assert.equal(me.world_id, 'private');
+  assert.equal(me.world_name, '私密世界');
+});
+
+test('self: WS user-location traveling keeps existing world', async () => {
+  const t = setup({ selfInfo: selfInfoOnline() });
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'x', {
+    type: 'user-location',
+    content: { userId: 'usr_me', location: 'traveling', user: { id: 'usr_me', displayName: '我', status: 'active' } }
+  });
+  const me = t.db.getUserByVrcId('usr_me');
+  assert.equal(me.state, 'online');
+  assert.equal(me.world_id, 'wrld_self');
+  assert.equal(me.world_name, '世界_wrld_self');
 });

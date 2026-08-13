@@ -73,10 +73,10 @@
   --r-md: 12px;
   --r-lg: 18px;
   --r-pill: 999px;
-  --blur: 18px;
-  --t-fast: .16s ease;
-  --t-med: .28s cubic-bezier(.22,.8,.3,1);
-  --font: system-ui, -apple-system, 'Segoe UI', Roboto, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+   --blur: 18px;
+   --t-fast: .16s ease;
+   --t-med: .28s cubic-bezier(.22,.8,.3,1);
+   --font: system-ui, -apple-system, 'Segoe UI', Roboto, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
   --font-mono: ui-monospace, 'Cascadia Code', Consolas, 'Courier New', monospace;
 }
 
@@ -185,19 +185,48 @@ header .spacer { flex: 1; }
   -webkit-backdrop-filter: blur(12px);
   backdrop-filter: blur(12px);
 }
-.tab {
-  background: transparent;
-  color: var(--text-2);
-  border: 0;
-  border-radius: var(--r-pill);
-  padding: 7px 18px;
-  box-shadow: none;
-}
-.tab:hover { background: var(--btn-sec-hover); color: var(--text-1); }
-.tab.active {
-  background: linear-gradient(135deg, var(--accent), var(--accent-2));
-  color: var(--accent-contrast);
-  box-shadow: 0 2px 10px var(--accent-soft);
+ .tab {
+   position: relative;
+   isolation: isolate;
+   background: transparent;
+   color: var(--text-2);
+   border: 0;
+   border-radius: var(--r-pill);
+   padding: 7px 18px;
+   box-shadow: none;
+   transition: color var(--t-fast);
+ }
+ .tab::before {
+   content: '';
+   position: absolute;
+   inset: 0;
+   border-radius: inherit;
+   background: radial-gradient(180px circle at var(--mx, 50%) var(--my, 50%), var(--accent-soft), transparent 68%);
+   opacity: 0;
+   transform: scale(.94);
+   transition: opacity .2s ease-out, transform .2s ease-out;
+   z-index: -1;
+   pointer-events: none;
+ }
+ .tab::after {
+   content: '';
+   position: absolute;
+   inset: 1px;
+   border-radius: inherit;
+   background: var(--btn-sec-hover);
+   opacity: 0;
+   transform: scale(.97);
+   transition: opacity .2s ease-out, transform .2s ease-out;
+   z-index: -2;
+   pointer-events: none;
+ }
+ .tab:hover { color: var(--text-1); }
+ .tab:hover::before, .tab:hover::after { opacity: 1; transform: scale(1); }
+ .tab.active::after { display: none; }
+ .tab.active {
+   background: linear-gradient(135deg, var(--accent), var(--accent-2));
+   color: var(--accent-contrast);
+   box-shadow: 0 2px 10px var(--accent-soft);
 }
 #tab-friends:not(.hidden), #tab-log:not(.hidden), #tab-settings:not(.hidden) { animation: viewIn .28s ease both; }
 @keyframes viewIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
@@ -333,53 +362,97 @@ button.danger { background: linear-gradient(135deg, var(--bad), #b4232c); box-sh
 }
 .group-body.collapsed { grid-template-rows: 0fr; }
 .group-inner { overflow: hidden; min-height: 0; }
-/* 分组标题栏"我"的头像: 小尺寸, 圆点逻辑与好友行一致 */
-.group-title .avatar-wrap {
-  width: 22px; height: 22px;
-  flex: 0 0 auto;
-  position: relative;
-}
-.group-title .avatar-wrap .avatar,
-.group-title .avatar-wrap .avatar-fallback {
-  width: 22px; height: 22px;
+/* 页面标题栏"我": 头像+圆点语义与好友行一致, 尺寸适配标题栏 */
+.self-info { display: flex; align-items: center; gap: 9px; min-width: 0; max-width: 48vw; }
+.self-info .avatar-wrap { position: relative; width: 32px; height: 32px; flex: 0 0 auto; }
+.self-info .avatar, .self-info .avatar-fallback {
+  width: 32px; height: 32px;
   border-radius: 50%;
   object-fit: cover;
   background: var(--btn-sec);
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 600;
 }
-.group-title .avatar-wrap .avatar-fallback {
+.self-info .avatar-fallback {
   display: none;
   align-items: center;
   justify-content: center;
   color: var(--text-3);
 }
-.group-title .avatar-wrap::after {
+.self-info .avatar-wrap::after {
   content: '';
   position: absolute;
   right: -1px; bottom: -1px;
-  width: 8px; height: 8px;
+  width: 10px; height: 10px;
   border-radius: 50%;
+  box-sizing: border-box;
   background: var(--status-offline);
   box-shadow: 0 0 0 2px var(--bg);
-  box-sizing: border-box;
   transition: background var(--t-fast), border-color var(--t-fast), box-shadow var(--t-fast);
 }
-.group-title .avatar-wrap.st-online.status-active::after { background: var(--status-online); box-shadow: 0 0 0 2px var(--bg), 0 0 5px color-mix(in srgb, var(--status-online) 50%, transparent); }
-.group-title .avatar-wrap.st-online.status-joinme::after { background: var(--status-joinme); box-shadow: 0 0 0 2px var(--bg), 0 0 5px color-mix(in srgb, var(--status-joinme) 50%, transparent); }
-.group-title .avatar-wrap.st-online.status-askme::after { background: var(--status-askme); box-shadow: 0 0 0 2px var(--bg), 0 0 5px color-mix(in srgb, var(--status-askme) 50%, transparent); }
-.group-title .avatar-wrap.st-online.status-busy::after { background: var(--status-busy); box-shadow: 0 0 0 2px var(--bg), 0 0 5px color-mix(in srgb, var(--status-busy) 50%, transparent); }
+.self-info .avatar-wrap.st-online.status-active::after { background: var(--status-online); box-shadow: 0 0 0 2px var(--bg), 0 0 5px color-mix(in srgb, var(--status-online) 50%, transparent); }
+.self-info .avatar-wrap.st-online.status-joinme::after { background: var(--status-joinme); box-shadow: 0 0 0 2px var(--bg), 0 0 5px color-mix(in srgb, var(--status-joinme) 50%, transparent); }
+.self-info .avatar-wrap.st-online.status-askme::after { background: var(--status-askme); box-shadow: 0 0 0 2px var(--bg), 0 0 5px color-mix(in srgb, var(--status-askme) 50%, transparent); }
+.self-info .avatar-wrap.st-online.status-busy::after { background: var(--status-busy); box-shadow: 0 0 0 2px var(--bg), 0 0 5px color-mix(in srgb, var(--status-busy) 50%, transparent); }
+.self-info .avatar-wrap.st-active.status-active::after { background: var(--bg); border: 3px solid var(--status-online); box-shadow: 0 0 0 2px var(--bg), 0 0 5px color-mix(in srgb, var(--status-online) 50%, transparent); }
+.self-info .avatar-wrap.st-active.status-joinme::after { background: var(--bg); border: 3px solid var(--status-joinme); box-shadow: 0 0 0 2px var(--bg), 0 0 5px color-mix(in srgb, var(--status-joinme) 50%, transparent); }
+.self-info .avatar-wrap.st-active.status-askme::after { background: var(--bg); border: 3px solid var(--status-askme); box-shadow: 0 0 0 2px var(--bg), 0 0 5px color-mix(in srgb, var(--status-askme) 50%, transparent); }
+.self-info .avatar-wrap.st-active.status-busy::after { background: var(--bg); border: 3px solid var(--status-busy); box-shadow: 0 0 0 2px var(--bg), 0 0 5px color-mix(in srgb, var(--status-busy) 50%, transparent); }
+.self-info .name {
+  min-width: 0;
+  font-weight: 500;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.self-info .state {
+  font-size: 11px;
+  color: var(--text-3);
+  margin-top: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .friend {
+  position: relative;
+  isolation: isolate;
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 10px;
+  padding: 10px 12px;
   border-radius: var(--r-md);
   border-bottom: 1px solid var(--line);
-  transition: background var(--t-fast), transform var(--t-fast);
+}
+/* 悬停高光: 径向光斑跟随鼠标, 位置由 JS 写入 --mx/--my 并补间 */
+.friend::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(240px circle at var(--mx, 50%) var(--my, 50%), var(--accent-soft), transparent 68%);
+  opacity: 0;
+  transform: scale(.94);
+  transition: opacity .5s ease-out, transform .5s ease-out;
+  z-index: -1;
+  pointer-events: none;
+}
+/* 基底浮起层: 与光斑叠加, 让整行有柔和抬升感 */
+.friend::after {
+  content: '';
+  position: absolute;
+  inset: 2px;
+  border-radius: calc(var(--r-md) - 2px);
+  background: var(--card-bg-hover);
+  opacity: 0;
+  transform: scale(.97);
+  transition: opacity .5s ease-out, transform .5s ease-out;
+  z-index: -2;
+  pointer-events: none;
 }
 .friend:last-child { border-bottom: 0; }
-.friend:hover { background: var(--card-bg-hover); }
+.friend:hover::before, .friend:hover::after { opacity: 1; transform: scale(1); transition-duration: .2s; }
+.friend:focus-within::after { opacity: 1; transform: scale(1); }
 .friend .avatar-wrap {
   position: relative;
   width: 40px; height: 40px;
@@ -391,8 +464,8 @@ button.danger { background: linear-gradient(135deg, var(--bad), #b4232c); box-sh
   object-fit: cover;
   background: var(--btn-sec);
 }
-.friend .avatar { transition: transform var(--t-fast); }
-.friend:hover .avatar { transform: scale(1.06); }
+.friend .avatar { transition: transform var(--t-med), filter var(--t-med); }
+.friend:hover .avatar { transform: scale(1.07); }
 .friend .avatar-fallback {
   display: none;
   align-items: center;
@@ -400,7 +473,9 @@ button.danger { background: linear-gradient(135deg, var(--bad), #b4232c); box-sh
   color: var(--text-3);
   font-size: 15px;
   font-weight: 600;
+  transition: background var(--t-med), color var(--t-med);
 }
+.friend:hover .avatar-fallback { background: var(--accent-soft); color: var(--accent); }
 /* 状态圆点(VRCX): 颜色=社交状态, 实心=游戏在线, 空心=网页在线, 灰=离线 */
 .friend .avatar-wrap::after {
   content: '';
@@ -411,7 +486,7 @@ button.danger { background: linear-gradient(135deg, var(--bad), #b4232c); box-sh
   box-sizing: border-box;
   background: var(--status-offline);
   box-shadow: 0 0 0 2px var(--bg);
-  transition: background var(--t-fast), border-color var(--t-fast), box-shadow var(--t-fast);
+  transition: background var(--t-med), border-color var(--t-med), box-shadow var(--t-med), transform var(--t-med);
 }
 /* 游戏在线: 实心彩点 + 柔和光晕 */
 .friend .avatar-wrap.st-online.status-active::after { background: var(--status-online); box-shadow: 0 0 0 2px var(--bg), 0 0 6px color-mix(in srgb, var(--status-online) 50%, transparent); }
@@ -426,8 +501,11 @@ button.danger { background: linear-gradient(135deg, var(--bad), #b4232c); box-sh
 /* 离线: 灰点 + 头像灰度(VRCX), hover 恢复彩色 */
 .friend .avatar-wrap.st-offline .avatar { filter: grayscale(1); transition: filter var(--t-fast); }
 .friend:hover .avatar-wrap.st-offline .avatar { filter: none; }
-.friend .name { flex: 1; min-width: 0; font-weight: 500; }
-.friend .state { font-size: 12px; color: var(--text-3); margin-top: 1px; }
+.friend:hover .avatar-wrap::after { transform: scale(1.1); }
+.friend .name { flex: 1; min-width: 0; font-weight: 500; transition: color var(--t-med); }
+.friend:hover .name { color: var(--accent); }
+.friend .state { font-size: 12px; color: var(--text-3); margin-top: 1px; transition: color var(--t-med); }
+.friend:hover .state { color: var(--text-2); }
 .friend .checks { display: flex; gap: 10px; font-size: 12px; white-space: nowrap; }
 .friend label { display: flex; align-items: center; gap: 5px; cursor: pointer; color: var(--text-2); }
 
@@ -478,22 +556,55 @@ button.danger { background: linear-gradient(135deg, var(--bad), #b4232c); box-sh
   gap: 10px;
   margin-bottom: 16px;
 }
-.overview-item {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  padding: 10px 12px;
-  background: var(--btn-sec);
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  -webkit-backdrop-filter: blur(12px);
-  backdrop-filter: blur(12px);
-  transition: background var(--t-fast), border-color var(--t-fast);
-}
-.overview-item:hover { background: var(--btn-sec-hover); border-color: var(--line-strong); }
+ .overview-item {
+   position: relative;
+   isolation: isolate;
+   display: flex;
+   flex-direction: column;
+   gap: 3px;
+   padding: 10px 12px;
+   background: var(--btn-sec);
+   border: 1px solid var(--line);
+   border-radius: var(--r-md);
+   transition: border-color var(--t-fast);
+ }
+ .overview-item::before {
+   content: '';
+   position: absolute;
+   inset: 0;
+   border-radius: inherit;
+   background: radial-gradient(200px circle at var(--mx, 50%) var(--my, 50%), var(--accent-soft), transparent 68%);
+   opacity: 0;
+   transform: scale(.94);
+   transition: opacity .2s ease-out, transform .2s ease-out;
+   z-index: -1;
+   pointer-events: none;
+ }
+ .overview-item::after {
+   content: '';
+   position: absolute;
+   inset: 2px;
+   border-radius: calc(var(--r-md) - 2px);
+   background: var(--btn-sec-hover);
+   opacity: 0;
+   transform: scale(.97);
+   transition: opacity .2s ease-out, transform .2s ease-out;
+   z-index: -2;
+   pointer-events: none;
+ }
+ .overview-item:hover { border-color: var(--line-strong); }
+ .overview-item:hover::before, .overview-item:hover::after { opacity: 1; transform: scale(1); }
 .ov-label { font-size: 11px; letter-spacing: .04em; text-transform: uppercase; color: var(--text-3); }
 .ov-value { font-size: 13px; color: var(--text-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .overview-item .badge { width: fit-content; }
+.overview-item.wide { grid-column: 1 / -1; flex-direction: row; align-items: center; gap: 12px; }
+.overview-item.wide .ov-label { min-width: 92px; }
+.ov-stack { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.ws-panel-row { flex: 1; display: flex; align-items: center; gap: 12px; min-width: 0; }
+.ws-total { font-size: 12px; color: var(--text-2); white-space: nowrap; }
+.ws-chart { flex: 1; height: 28px; min-width: 120px; display: block; border-radius: 4px; background: var(--input-bg); }
+.ws-chart rect { fill: var(--accent); opacity: .8; }
 
 /* ---------- 好友工具栏 ---------- */
 .toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
@@ -525,6 +636,9 @@ h3.chan { font-size: 13px; margin: 16px 0 6px; color: var(--text-2); font-weight
   .conn-form input { flex: 1; min-width: 120px; }
   .grid2 { grid-template-columns: 1fr; }
   .overview { grid-template-columns: 1fr 1fr; }
+  .overview-item.wide { flex-wrap: wrap; }
+  .overview-item.wide .ov-label { min-width: 100%; }
+  .ws-panel-row { width: 100%; }
   .friend { flex-wrap: wrap; }
   .friend .checks { width: 100%; flex-wrap: wrap; gap: 8px 14px; padding-left: 52px; }
   .tabs { width: 100%; }
@@ -542,12 +656,12 @@ h3.chan { font-size: 13px; margin: 16px 0 6px; color: var(--text-2); font-weight
 <body>
 <header>
   <h1>vrcnotifier</h1>
-  <div class='conn-form' id='headerConnect'>
+  <div class='conn-form hidden' id='headerConnect'>
     <input type='text' id='backendUrl' placeholder='后端地址' title='后端地址'>
     <input type='password' id='accessTokenInput' placeholder='访问令牌' title='访问令牌'>
     <button id='connectBtn' class='secondary'>连接</button>
   </div>
-  <span class='muted' id='userLabel'></span>
+  <div class='self-info' id='selfInfo'></div>
   <span class='spacer'></span>
   <button id='themeBtn' class='theme-btn' title='主题: 跟随系统' aria-label='切换主题'></button>
   <button id='logoutBtn' class='secondary hidden'>登出</button>
@@ -590,10 +704,24 @@ h3.chan { font-size: 13px; margin: 16px 0 6px; color: var(--text-2); font-weight
 <div class='container hidden' id='mainView'>
   <!-- 常驻概览条: 所有 tab 可见 -->
   <div class='overview'>
-    <div class='overview-item'><span class='ov-label'>WS 连接</span><span id='stWs' class='badge'>-</span></div>
-    <div class='overview-item'><span class='ov-label'>上次快照</span><span id='stSnapshot' class='ov-value'>-</span></div>
-    <div class='overview-item'><span class='ov-label'>QQ 机器人</span><span id='qqBindInfo' class='ov-value'>-</span></div>
-    <div class='overview-item'><span class='ov-label'>监控好友</span><span id='stMonitored' class='ov-value'>-</span></div>
+    <div class='overview-item'><span class='ov-label'>好友</span><span id='stMonitored' class='ov-value'>-</span></div>
+    <div class='overview-item'><span class='ov-label'>QQ 机器人</span><span id='stQq' class='badge'>-</span></div>
+    <div class='overview-item'><span class='ov-label'>上次刷新</span><span id='stSnapshot' class='ov-value'>-</span></div>
+    <div class='overview-item'>
+      <span class='ov-label'>VRChat 延迟</span>
+      <span class='ov-stack'>
+        <span id='stHealth' class='badge'>-</span>
+        <span id='stHealthLatency' class='ov-value mono'>-</span>
+      </span>
+    </div>
+    <div class='overview-item wide'>
+      <span class='ov-label'>WebSocket 连接</span>
+      <div class='ws-panel-row'>
+        <span id='stWs' class='badge'>-</span>
+        <span id='stWsTotal' class='ws-total mono'>-</span>
+        <svg id='wsChart' class='ws-chart' viewBox='0 0 300 28' preserveAspectRatio='none' aria-hidden='true'></svg>
+      </div>
+    </div>
   </div>
 
   <div class='tabs'>
@@ -666,10 +794,11 @@ let currentUser = null;
 let tempSessionId = null;
 let twofaKind = 'emailOtp';
 let statusTimer = null;
+let healthTimer = null;
+let wsStatsTimer = null;
 let friendsCache = [];
 let searchQuery = ''; // 好友搜索关键词
-let myAvatarKey = null; // 当前用户头像 key(分组标题栏"我"的头像)
-let myStatus = 'active'; // 当前用户社交状态
+let myInfo = null; // 当前用户信息(页面标题栏展示, 与好友行共用渲染)
 
 function escapeHtml(v) {
   return String(v == null ? '' : v)
@@ -829,6 +958,8 @@ $('#twofaCancel').addEventListener('click', () => {
 $('#logoutBtn').addEventListener('click', async () => {
   await api('POST', '/api/logout', {});
   if (statusTimer) { clearInterval(statusTimer); statusTimer = null; }
+  if (healthTimer) { clearInterval(healthTimer); healthTimer = null; }
+  if (wsStatsTimer) { clearInterval(wsStatsTimer); wsStatsTimer = null; }
   if (window.__evt) window.__evt.close();
   currentUser = null;
   showView('login');
@@ -836,7 +967,8 @@ $('#logoutBtn').addEventListener('click', async () => {
 
 function enterMain() {
   showView('main');
-  $('#userLabel').textContent = currentUser.display_name || currentUser.vrchat_user_id;
+  myInfo = currentUser;
+  renderSelf();
   $('#logoutBtn').classList.remove('hidden');
   loadAll();
   startStatus();
@@ -847,6 +979,8 @@ function loadAll() {
   loadFriends();
   loadSettings();
   loadStatus();
+  loadHealth();
+  loadWsStats();
 }
 
 // ---------- 好友与监控配置 ----------
@@ -859,20 +993,27 @@ async function loadFriends() {
   }
 }
 
-// 分组标题栏"我"的头像: 刷新所有 .me-avatar(头像+VRCX 圆点, 自己恒为在线)
-function updateMeAvatars() {
-  const boxes = document.querySelectorAll('.me-avatar');
-  if (!boxes.length) return;
-  const initial = escapeHtml(((currentUser && currentUser.display_name) || '?').charAt(0).toUpperCase());
-  const statusCls = 'status-' + String(myStatus || 'active').replace(/\s+/g, '');
-  const img = myAvatarKey
-    ? "<img class=avatar src='" + avatarUrl(myAvatarKey) + "' loading='lazy' alt='' onerror=\"this.style.display='none';this.nextElementSibling.style.display='flex'\">"
-    : '';
-  const html = img + "<div class='avatar-fallback' style='display:" + (img ? 'none' : 'flex') + "'>" + initial + "</div>";
-  for (const box of boxes) {
-    box.className = 'avatar-wrap me-avatar st-online ' + statusCls;
-    box.innerHTML = html;
-  }
+// 头像+VRCX 圆点+状态行: 好友行与页面标题栏"我"共用
+function personParts(p) {
+  const initial = escapeHtml((p.display_name || '?').charAt(0).toUpperCase());
+  const avatarHtml = p.avatarKey
+    ? "<img class=avatar src='" + avatarUrl(p.avatarKey) + "' loading='lazy' alt='' onerror=\"this.style.display='none';this.nextElementSibling.style.display='flex'\"><div class='avatar-fallback'>" + initial + '</div>'
+    : "<div class='avatar-fallback' style='display:flex'>" + initial + '</div>';
+  const statusCls = 'status-' + String(p.status || 'active').replace(/\s+/g, '');
+  const wrapCls = 'st-' + (p.state || 'offline') + ' ' + statusCls;
+  const worldTxt = p.world_id === 'private' ? '私密世界' : (p.world_name || '');
+  return {
+    avatarWrap: "<div class='avatar-wrap " + wrapCls + "'>" + avatarHtml + '</div>',
+    name: escapeHtml(p.display_name || p.friend_vrchat_id || p.vrchat_user_id || '?'),
+    stateTxt: stateLabel(p.state) + (worldTxt ? ' · ' + escapeHtml(worldTxt) : '') + (p.status_description ? ' · ' + escapeHtml(p.status_description) : '')
+  };
+}
+
+function renderSelf() {
+  const box = $('#selfInfo');
+  if (!myInfo) { box.innerHTML = ''; return; }
+  const p = personParts(myInfo);
+  box.innerHTML = p.avatarWrap + "<div class='name'>" + p.name + "<div class='state'>" + p.stateTxt + '</div></div>';
 }
 
 function renderFriends() {
@@ -894,21 +1035,11 @@ function renderFriends() {
     const row = document.createElement('div');
     row.className = 'friend';
     row.dataset.id = f.friend_vrchat_id;
-    const initial = escapeHtml((f.display_name || '?').charAt(0).toUpperCase());
-    const avatarHtml = f.avatarKey
-      ? "<img class=avatar src='" + avatarUrl(f.avatarKey) + "' loading='lazy' alt='' onerror=\"this.style.display='none';this.nextElementSibling.style.display='flex'\"><div class='avatar-fallback'>" + initial + '</div>'
-      : "<div class='avatar-fallback' style='display:flex'>" + initial + '</div>';
-    const worldTxt = f.world_id === 'private' ? '私密世界' : (f.world_name || '');
-    // 色环=社交状态(VRCX), 圆点=在线状态
-    const statusCls = 'status-' + String(f.status || 'active').replace(/\s+/g, '');
-    const wrapCls = "st-" + (f.state || 'offline') + ' ' + statusCls;
-    const WRAP_AVATAR = "<div class='avatar-wrap " + wrapCls + "'>" + avatarHtml + "</div>";
+    const p = personParts(f);
     row.innerHTML =
-      WRAP_AVATAR +
+      p.avatarWrap +
       '<label class=switch title=特别关注><input type=checkbox class=favorite' + (c.favorite ? ' checked' : '') + '><span class=slider></span></label>' +
-      '<div class=name>' + escapeHtml(f.display_name || f.friend_vrchat_id) +
-      '<div class=state>' + stateLabel(f.state) + (worldTxt ? ' · ' + escapeHtml(worldTxt) : '') +
-      (f.status_description ? ' · ' + escapeHtml(f.status_description) : '') + '</div></div>' +
+      '<div class=name>' + p.name + '<div class=state>' + p.stateTxt + '</div></div>' +
       '<div class=checks>' +
       '<label><input type=checkbox data-k=notify_online' + (isOn(c.notify_online) ? ' checked' : '') + '>上线</label>' +
       '<label><input type=checkbox data-k=notify_offline' + (isOn(c.notify_offline) ? ' checked' : '') + '>下线</label>' +
@@ -926,10 +1057,6 @@ function renderFriends() {
   const addGroup = (title, list2) => {
     const g = document.createElement('div');
     g.className = 'group-title';
-    // 标题栏左侧: 自己的头像+状态(渲染方式与好友行一致)
-    const me = document.createElement('div');
-    me.className = 'avatar-wrap me-avatar';
-    g.appendChild(me);
     const btn = document.createElement('button');
     btn.className = 'group-toggle';
     btn.type = 'button';
@@ -959,7 +1086,6 @@ function renderFriends() {
   if (onlineOthers.length) addGroup('在线 (' + onlineOthers.length + ')', onlineOthers);
   if (activeOthers.length) addGroup('网页在线 (' + activeOthers.length + ')', activeOthers);
   if (offlineOthers.length) addGroup('离线 (' + offlineOthers.length + ')', offlineOthers);
-  updateMeAvatars();
 }
 
 $('#friendsList').addEventListener('change', async (e) => {
@@ -983,6 +1109,44 @@ $('#friendsList').addEventListener('change', async (e) => {
   } else {
     log(r.data.error || '配置保存失败', 'err');
   }
+});
+
+// 高光跟随鼠标(好友行/tab/概览卡片): 事件委托 + rAF 补间, 只维护当前悬停元素
+let spotRow = null;
+let spotTarget = null;
+let spotCurrent = null;
+let spotRaf = null;
+function tickSpotlight() {
+  spotRaf = null;
+  const row = spotRow;
+  if (!row || !spotTarget || !spotCurrent) return;
+  spotCurrent.x += (spotTarget.x - spotCurrent.x) * 0.24;
+  spotCurrent.y += (spotTarget.y - spotCurrent.y) * 0.24;
+  row.style.setProperty('--mx', spotCurrent.x.toFixed(1) + 'px');
+  row.style.setProperty('--my', spotCurrent.y.toFixed(1) + 'px');
+  if (Math.hypot(spotTarget.x - spotCurrent.x, spotTarget.y - spotCurrent.y) > 0.35) {
+    spotRaf = requestAnimationFrame(tickSpotlight);
+  }
+}
+document.addEventListener('mousemove', (e) => {
+  const row = e.target.closest ? e.target.closest('.friend, .tab, .overview-item') : null;
+  if (!row) {
+    spotRow = null;
+    spotTarget = null;
+    spotCurrent = null;
+    return;
+  }
+  const rect = row.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+  if (spotRow !== row) {
+    spotRow = row;
+    spotCurrent = { x, y };
+    row.style.setProperty('--mx', x + 'px');
+    row.style.setProperty('--my', y + 'px');
+  }
+  spotTarget = { x, y };
+  if (!spotRaf) spotRaf = requestAnimationFrame(tickSpotlight);
 });
 
 $('#forceSnapshot').addEventListener('click', async () => {
@@ -1038,6 +1202,19 @@ function bindTest(kind, btnId) {
 bindTest('qq', '#testQq');
 
 // ---------- 状态与事件 ----------
+function renderQqStatus(info) {
+  const el = $('#stQq');
+  if (!info || info.configured === false) {
+    el.textContent = '未配置';
+    el.className = 'badge';
+    el.title = 'QQ 机器人未配置';
+    return;
+  }
+  el.textContent = info.connected ? '已连接' : '未连接';
+  el.className = 'badge ' + (info.connected ? 'ok' : 'warn');
+  el.title = info.connected ? 'QQ 机器人已连接' : 'QQ 机器人未连接';
+}
+
 async function loadStatus() {
   const r = await api('GET', '/api/status');
   const d = r.data || {};
@@ -1046,22 +1223,64 @@ async function loadStatus() {
   else if (d.wsConnected) { ws.textContent = '已连接'; ws.className = 'badge ok'; }
   else { ws.textContent = '未连接/重连中'; ws.className = 'badge warn'; }
   $('#stSnapshot').textContent = d.lastSnapshotAt ? new Date(d.lastSnapshotAt).toLocaleTimeString() : '-';
-  myAvatarKey = (d.user && d.user.avatarKey) || null;
-  myStatus = (d.user && d.user.status) || 'active';
-  updateMeAvatars();
-  const qqInfo = $('#qqBindInfo');
-  if (d.qq && d.qq.configured) {
-    const bound = d.qq.bound ? (d.qq.bound.nickname || d.qq.bound.openid) : null;
-    qqInfo.textContent = (d.qq.connected ? 'WS已连接' : 'WS未连接') + (bound ? ', 已绑定: ' + bound : ', 未绑定(给机器人发消息)') + (d.qq.lastError ? ', 错误: ' + d.qq.lastError : '');
+  if (d.user) { myInfo = d.user; renderSelf(); }
+  if (!d.qq || !d.qq.configured) renderQqStatus({ configured: false });
+  else renderQqStatus({ configured: true, connected: d.qq.connected });
+}
+
+async function loadHealth() {
+  const r = await api('GET', '/api/health');
+  const d = r.data || {};
+  const badge = $('#stHealth');
+  const lat = $('#stHealthLatency');
+  if (d.status === 'ok') {
+    badge.textContent = 'VRCapi: OK';
+    badge.className = 'badge ok';
+    lat.textContent = d.latencyMs == null ? '延迟: -' : '延迟: ' + d.latencyMs + ' ms';
+  } else if (d.status === 'starting') {
+    badge.textContent = 'VRCapi: 检测中';
+    badge.className = 'badge';
+    lat.textContent = '延迟: -';
   } else {
-    qqInfo.textContent = '未配置';
+    badge.textContent = 'VRCapi: 错误';
+    badge.className = 'badge warn';
+    lat.textContent = '延迟: -';
   }
-  qqInfo.title = qqInfo.textContent;
+  badge.title = d.serverName ? '服务器: ' + d.serverName : 'VRChat API 健康探测';
+}
+
+function renderWsChart(series) {
+  const svg = $('#wsChart');
+  if (!series || !series.length) { svg.innerHTML = ''; return; }
+  const w = 300, h = 28;
+  const max = Math.max(1, ...series);
+  const barW = w / series.length;
+  let rects = '';
+  series.forEach((n, i) => {
+    if (!n) return;
+    const hh = Math.max(3, (h - 2) * Math.sqrt(n / max));
+    const x = i * barW;
+    const y = h - hh;
+    rects += `<rect x='${x.toFixed(2)}' y='${y.toFixed(2)}' width='${Math.max(1.2, barW - 1).toFixed(2)}' height='${hh.toFixed(2)}' rx='1'></rect>`;
+  });
+  svg.innerHTML = rects;
+}
+
+async function loadWsStats() {
+  const r = await api('GET', '/api/ws-stats');
+  if (!r.data || !Array.isArray(r.data.series)) return;
+  const total = r.data.total || 0;
+  $('#stWsTotal').textContent = '最近一分钟 ' + total + ' 条';
+  renderWsChart(r.data.series.slice(-60));
 }
 
 function startStatus() {
   if (statusTimer) clearInterval(statusTimer);
   statusTimer = setInterval(loadStatus, 5000);
+  if (healthTimer) clearInterval(healthTimer);
+  healthTimer = setInterval(loadHealth, 5000);
+  if (wsStatsTimer) clearInterval(wsStatsTimer);
+  wsStatsTimer = setInterval(loadWsStats, 1000);
 }
 
 function connectEvents() {
@@ -1080,6 +1299,12 @@ function connectEvents() {
   // 事件仅驱动 UI 刷新, 日志展示统一走后端日志流
   evt.addEventListener('notification', () => { loadFriends(); });
   evt.addEventListener('snapshot', () => { loadFriends(); loadStatus(); });
+  evt.addEventListener('self-state', () => { loadStatus(); });
+  evt.addEventListener('qq-status', (e) => {
+    let d = null;
+    try { d = JSON.parse(e.data); } catch (err) { /* 忽略异常帧 */ }
+    if (d) renderQqStatus({ configured: true, connected: !!d.connected });
+  });
   evt.addEventListener('session-expired', () => { currentUser = null; showView('login'); });
   evt.addEventListener('ws-failure', () => { /* 后端日志已记录 */ });
 }

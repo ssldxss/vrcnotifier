@@ -117,6 +117,39 @@ test('friends paginates until short page; world returns name; authToken returns 
   } finally { server.close(); }
 });
 
+test('user(id) calls GET /users/{id} and returns profile', async () => {
+  records.length = 0;
+  const server = await startMockApi({
+    '/api/1/users/usr_a': ({ req }, res) => {
+      records.push({ path: 'user', cookieHeader: req.headers.cookie || '' });
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Set-Cookie': 'auth=me; Path=/' });
+      res.end(JSON.stringify({ id: 'usr_a', displayName: 'A', state: 'online', location: 'wrld_x:1' }));
+    }
+  });
+  try {
+    const v = api(server);
+    const u = await v.user('usr_a');
+    assert.equal(u.id, 'usr_a');
+    assert.equal(u.state, 'online');
+    assert.equal(records[0].path, 'user');
+  } finally { server.close(); }
+});
+
+test('user(id) inherits transient retry/backoff like other endpoints', async () => {
+  const { impl, calls } = fakeFetch({ throwTimes: 1, body: JSON.stringify({ id: 'usr_a' }) });
+  const v = createVrcApi({ baseUrl: 'https://api.vrchat.cloud/api/1', userAgent: 't/1', cookieJar: null, fetchImpl: impl, retryBaseMs: 1, jitterMs: 0 });
+  const u = await v.user('usr_a');
+  assert.equal(u.id, 'usr_a');
+  assert.equal(calls.n, 2, '网络错误应退避重试一次');
+});
+
+test('user(id) noRetry throws immediately', async () => {
+  const { impl, calls } = fakeFetch({ badStatuses: [401], body: JSON.stringify({ error: { message: 'Missing Credentials', status_code: 401 } }) });
+  const v = createVrcApi({ baseUrl: 'https://api.vrchat.cloud/api/1', userAgent: 't/1', cookieJar: null, fetchImpl: impl, retryBaseMs: 1, jitterMs: 0 });
+  await assert.rejects(() => v.user('usr_a', { noRetry: true }), (err) => err.status === 401);
+  assert.equal(calls.n, 1);
+});
+
 test('4xx responses throw ApiError with status', async () => {
   records.length = 0;
   const server = await startMockApi({

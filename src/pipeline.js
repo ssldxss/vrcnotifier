@@ -25,6 +25,33 @@ function createPipelineManager(opts) {
 
   const conns = new Map();   // userId -> conn
   const chains = new Map();  // userId -> promise chain
+  const msgCounts = new Map(); // 秒 -> 收到消息数(供最近一分钟图表)
+
+  function noteMessage(atMs) {
+    const sec = Math.floor(atMs / 1000);
+    msgCounts.set(sec, (msgCounts.get(sec) || 0) + 1);
+  }
+
+  function pruneMessageCounts(nowMs) {
+    const cutoffSec = Math.floor(nowMs / 1000) - 60;
+    for (const sec of [...msgCounts.keys()]) {
+      if (sec < cutoffSec) msgCounts.delete(sec);
+    }
+  }
+
+  // 最近 60 个秒桶(下标 0 = 最早, 59 = 当前秒)+ 总量
+  function messageSeries(nowMs = Date.now()) {
+    pruneMessageCounts(nowMs);
+    const endSec = Math.floor(nowMs / 1000);
+    const series = [];
+    let total = 0;
+    for (let s = endSec - 59; s <= endSec; s++) {
+      const n = msgCounts.get(s) || 0;
+      series.push(n);
+      total += n;
+    }
+    return { series, total };
+  }
 
   function ensureConn(userId, displayName) {
     let conn = conns.get(userId);
@@ -164,6 +191,7 @@ function createPipelineManager(opts) {
       if (raw === conn.lastRaw) return; // 帧去重
       conn.lastRaw = raw;
       conn.lastMessageAt = now();
+      noteMessage(now());
       let parsed = null;
       try {
         parsed = JSON.parse(raw);
@@ -261,7 +289,7 @@ function createPipelineManager(opts) {
     };
   }
 
-  return { connect, disconnect, forceReconnect, isConnected, lastMessageAt, status };
+  return { connect, disconnect, forceReconnect, isConnected, lastMessageAt, status, messageSeries };
 }
 
 module.exports = { createPipelineManager };

@@ -13,7 +13,14 @@ CREATE TABLE IF NOT EXISTS users (
   saved_username TEXT,
   display_name TEXT,
   avatar_url TEXT,
+  avatar_thumb_url TEXT,
   status TEXT,
+  status_description TEXT,
+  platform TEXT,
+  state TEXT DEFAULT 'offline',
+  world_id TEXT,
+  world_name TEXT,
+  last_seen INTEGER,
   remember_me INTEGER DEFAULT 0,
   cookie_data TEXT,
   created_at TEXT DEFAULT (datetime('now')),
@@ -101,14 +108,35 @@ function createDb(location = ':memory:', opts = {}) {
   try { db.exec('ALTER TABLE monitor_config ADD COLUMN favorite INTEGER DEFAULT 0'); } catch (e) { /* 已存在 */ }
   // 旧库补充: users 补 status 列(已存在则忽略)
   try { db.exec('ALTER TABLE users ADD COLUMN status TEXT'); } catch (e) { /* 已存在 */ }
+  // 旧库补充: users 补自己在线状态列(已存在则忽略)
+  try { db.exec('ALTER TABLE users ADD COLUMN avatar_thumb_url TEXT'); } catch (e) { /* 已存在 */ }
+  try { db.exec('ALTER TABLE users ADD COLUMN status_description TEXT'); } catch (e) { /* 已存在 */ }
+  try { db.exec('ALTER TABLE users ADD COLUMN platform TEXT'); } catch (e) { /* 已存在 */ }
+  try { db.exec("ALTER TABLE users ADD COLUMN state TEXT DEFAULT 'offline'"); } catch (e) { /* 已存在 */ }
+  try { db.exec('ALTER TABLE users ADD COLUMN world_id TEXT'); } catch (e) { /* 已存在 */ }
+  try { db.exec('ALTER TABLE users ADD COLUMN world_name TEXT'); } catch (e) { /* 已存在 */ }
+  try { db.exec('ALTER TABLE users ADD COLUMN last_seen INTEGER'); } catch (e) { /* 已存在 */ }
   const stmt = {
-    upsertUser: db.prepare(`INSERT INTO users (vrchat_user_id, username, display_name, avatar_url, status)
-      VALUES (?, ?, ?, ?, ?)
+    upsertUser: db.prepare(`INSERT INTO users (vrchat_user_id, username, display_name, avatar_url, avatar_thumb_url, status, status_description, platform, state)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active')
       ON CONFLICT(vrchat_user_id) DO UPDATE SET
         username = excluded.username, display_name = excluded.display_name,
         avatar_url = COALESCE(excluded.avatar_url, users.avatar_url),
+        avatar_thumb_url = COALESCE(excluded.avatar_thumb_url, users.avatar_thumb_url),
         status = COALESCE(excluded.status, users.status),
+        status_description = COALESCE(excluded.status_description, users.status_description),
+        platform = COALESCE(excluded.platform, users.platform),
         updated_at = datetime('now')`),
+    updateSelfProfile: db.prepare(`UPDATE users SET
+        display_name = COALESCE(?, display_name),
+        avatar_url = COALESCE(?, avatar_url),
+        avatar_thumb_url = COALESCE(?, avatar_thumb_url),
+        updated_at = datetime('now')
+        WHERE id = ?`),
+    updateSelfPresence: db.prepare(`UPDATE users SET
+        state = ?, status = ?, world_id = ?, world_name = ?, status_description = ?, platform = ?,
+        last_seen = ?, updated_at = datetime('now')
+        WHERE id = ?`),
     getUserByVrcId: db.prepare('SELECT * FROM users WHERE vrchat_user_id = ?'),
     getUserByDbId: db.prepare('SELECT * FROM users WHERE id = ?'),
     listUsers: db.prepare('SELECT * FROM users ORDER BY id'),
@@ -228,9 +256,18 @@ function createDb(location = ':memory:', opts = {}) {
 
   return {
     // users
-    upsertUser(vrcId, { username, displayName, avatarUrl, status }) {
-      stmt.upsertUser.run(vrcId, username ?? null, displayName ?? null, avatarUrl ?? null, status ?? null);
+    upsertUser(vrcId, { username, displayName, avatarUrl, avatarThumbUrl, status, statusDescription, platform }) {
+      stmt.upsertUser.run(vrcId, username ?? null, displayName ?? null, avatarUrl ?? null, avatarThumbUrl ?? null, status ?? null, statusDescription ?? null, platform ?? null);
       return stmt.getUserByVrcId.get(vrcId).id;
+    },
+    updateSelfProfile(rowId, { displayName, avatarUrl, avatarThumbUrl }) {
+      stmt.updateSelfProfile.run(displayName ?? null, avatarUrl ?? null, avatarThumbUrl ?? null, rowId);
+    },
+    updateSelfPresence(rowId, fields) {
+      stmt.updateSelfPresence.run(
+        fields.state, fields.status ?? null, fields.worldId ?? null, fields.worldName ?? null,
+        fields.statusDescription ?? null, fields.platform ?? null, fields.lastSeen ?? Date.now(), rowId
+      );
     },
     getUserByVrcId: (vrcId) => stmt.getUserByVrcId.get(vrcId) || null,
     getUserByDbId: (id) => stmt.getUserByDbId.get(id) || null,

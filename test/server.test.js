@@ -25,8 +25,13 @@ function setup(opts = {}) {
     authToken: async () => ({ token: 'authcookie_test' }),
     setCookiesChanged: (fn) => { vrcapi._cookiesChanged = fn; },
     friends: async ({ offline }) => (offline ? (opts.offlineFriends || []) : (opts.onlineFriends || [])),
-    world: async (id) => ({ id, name: '世界_' + id })
+    world: async (id) => ({ id, name: '世界_' + id }),
+    user: async (id) => {
+      vrcapi.userCalls.push(id);
+      return opts.selfInfo !== undefined ? opts.selfInfo : null;
+    }
   };
+  vrcapi.userCalls = [];
   const pipeline = {
     connects: [], disconnects: [], reconnects: 0,
     connect: (uid, name) => pipeline.connects.push({ uid, name }),
@@ -34,7 +39,14 @@ function setup(opts = {}) {
     forceReconnect: () => { pipeline.reconnects++; },
     isConnected: () => opts.connected ?? false,
     lastMessageAt: () => opts.lastMessageAt ?? 0,
-    status: () => ({ connected: opts.connected ?? false, lastMessageAt: opts.lastMessageAt ?? 0 })
+    status: () => ({ connected: opts.connected ?? false, lastMessageAt: opts.lastMessageAt ?? 0 }),
+    messageSeries: () => opts.wsStats || { series: new Array(60).fill(0), total: 0 }
+  };
+  const healthMonitor = opts.healthMonitor || {
+    status: () => opts.health || { status: 'ok', latencyMs: 123, serverName: 'mock-vrc', updatedAt: 1 }
+  };
+  const vrcStatus = opts.vrcStatusObj || {
+    status: () => opts.vrcStatus || { state: 'normal', description: 'All Systems Operational', summary: null, fetchedAt: null }
   };
   const notifier = {
     sendAll: async (user, change) => { notifications.push({ user, change }); return { qq: { ok: true } }; },
@@ -62,6 +74,8 @@ function setup(opts = {}) {
     db, notifier, pipeline, monitor, sessionStore,
     vrcapiFactory: (jar) => (jar ? { ...vrcapi, jar } : vrcapi),
     avatarCache,
+    healthMonitor,
+    vrcStatus,
     config: { accessToken: opts.accessToken || null, confirmDelayMs: 30000, dedupeWindowMs: 30000, snapshotIntervalMs: 3600000, watchdogMs: 600000, autoLoginRetryBaseMs: opts.autoLoginRetryBaseMs ?? 5000, autoLoginRetryMaxMs: opts.autoLoginRetryMaxMs ?? 3600000, autoLoginRetryJitterMs: opts.autoLoginRetryJitterMs ?? 1000 },
     logger: opts.logger || silent,
     now: opts.now || (() => 1000000),
@@ -134,6 +148,43 @@ test('login without 2FA activates monitor and returns masked user', async (t) =>
   const s = await get(ctx, '/api/session');
   assert.equal(s.data.loggedIn, true);
   assert.equal(s.data.user.display_name, '我');
+});
+
+test('login/session expose own presence fields and avatarKey', async (t) => {
+  const meThumb = 'https://api.vrchat.cloud/api/1/image/file_me-111/1/256';
+  const ctx = setup({
+    loginResult: {
+      id: 'usr_me', displayName: '我', status: 'active', statusDescription: '摸鱼',
+      last_platform: 'web',
+      currentAvatarImageUrl: 'https://api.vrchat.cloud/api/1/file/file_me-111/1/file',
+      profilePicOverrideThumbnail: meThumb,
+      onlineFriends: [], activeFriends: [], offlineFriends: []
+    },
+    selfInfo: {
+      id: 'usr_me', state: 'online', status: 'join me', statusDescription: '摸鱼',
+      location: 'wrld_me:1', last_platform: 'standalonewindows',
+      currentAvatarImageUrl: 'https://api.vrchat.cloud/api/1/file/file_me-111/1/file',
+      currentAvatarThumbnailImageUrl: meThumb
+    }
+  });
+  t.after(() => close(ctx));
+  const r = await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: false });
+  assert.equal(r.status, 200);
+  assert.equal(r.data.user.avatarKey, 'file_me-111_1_256');
+  assert.deepEqual(ctx.vrcapi.userCalls, ['usr_me']);
+  const row = ctx.db.getUserByVrcId('usr_me');
+  assert.equal(row.avatar_thumb_url, meThumb);
+  assert.equal(row.status_description, '摸鱼');
+  assert.equal(row.state, 'online');
+  assert.equal(row.world_id, 'wrld_me');
+  assert.equal(row.world_name, '世界_wrld_me');
+  assert.equal(row.platform, 'standalonewindows');
+  const s = await get(ctx, '/api/session');
+  assert.equal(s.data.user.state, 'online');
+  assert.equal(s.data.user.world_name, '世界_wrld_me');
+  assert.equal(s.data.user.platform, 'standalonewindows');
+  assert.equal(s.data.user.status_description, '摸鱼');
+  assert.equal(s.data.user.avatarKey, 'file_me-111_1_256');
 });
 
 test('login with 2FA: temp session then verify code completes login', async (t) => {
@@ -429,6 +480,56 @@ test('SSE stream receives notification events', async (t) => {
   ac.abort();
 });
 
+test('GET /api/health returns continuous probe status', async (t) => {
+  const ctx = setup({ health: { status: 'ok', latencyMs: 87, serverName: 'mock-vrc', updatedAt: 42 } });
+  t.after(() => close(ctx));
+  const r = await get(ctx, '/api/health');
+  assert.equal(r.status, 200);
+  assert.equal(r.data.ok, true);
+  assert.equal(r.data.status, 'ok');
+  assert.equal(r.data.latencyMs, 87);
+  assert.equal(r.data.serverName, 'mock-vrc');
+  assert.equal(r.data.updatedAt, 42);
+});
+
+test('GET /api/ws-stats returns last-60s series and total', async (t) => {
+  const series = Array.from({ length: 60 }, (_, i) => (i === 59 ? 3 : 0));
+  const ctx = setup({ wsStats: { series, total: 3 } });
+  t.after(() => close(ctx));
+  const r = await get(ctx, '/api/ws-stats');
+  assert.equal(r.status, 200);
+  assert.equal(r.data.ok, true);
+  assert.deepEqual(r.data.series, series);
+  assert.equal(r.data.total, 3);
+});
+
+test('SSE stream receives qq-status events', async (t) => {
+  const ctx = setup();
+  t.after(() => close(ctx));
+  await post(ctx, '/api/login', { username: 'me', password: 'pw' });
+  const ac = new AbortController();
+  t.after(() => ac.abort());
+  const res = await fetch(ctx.base + '/api/events', { signal: ac.signal });
+  assert.equal(res.status, 200);
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  const readUntil = async (needle, timeoutMs = 3000) => {
+    const deadline = Date.now() + timeoutMs;
+    let buf = '';
+    while (Date.now() < deadline) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      if (buf.includes(needle)) return buf;
+    }
+    return buf;
+  };
+  ctx.bus.emit('qq-status', { dbId: 1, appId: 'app1', connected: true });
+  const buf = await readUntil('qq-status');
+  assert.ok(buf.includes('"connected":true'));
+  ac.abort();
+});
+
 test('avatar endpoint: 401 / whitelist / download / cache hit / immutable', async (t) => {
   const thumb = 'https://api.vrchat.cloud/api/1/image/file_aaa-111/1/256';
   const ctx = setup({
@@ -463,6 +564,23 @@ test('avatar endpoint: 401 / whitelist / download / cache hit / immutable', asyn
   assert.ok((await r.text()).includes('AVATARPNG'));
   assert.equal(r.headers.get('content-type'), 'image/png', 'cache hit must keep image content type');
   assert.equal(ctx.avatarCalls.n, 1, '缓存命中不应再次下载');
+});
+
+test('avatar whitelist accepts own avatar thumb url', async (t) => {
+  const meThumb = 'https://api.vrchat.cloud/api/1/image/file_me-222/1/256';
+  const ctx = setup({
+    loginResult: {
+      id: 'usr_me', displayName: '我', status: 'active',
+      currentAvatarImageUrl: null,
+      profilePicOverrideThumbnail: meThumb,
+      onlineFriends: [], activeFriends: [], offlineFriends: []
+    }
+  });
+  t.after(() => close(ctx));
+  await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: false });
+  const r = await fetch(ctx.base + '/api/avatar/file_me-222_1_256');
+  assert.equal(r.status, 200);
+  assert.ok((await r.text()).includes('AVATARPNG'));
 });
 
 test('avatar endpoint: download failure returns 502 and is not cached', async (t) => {

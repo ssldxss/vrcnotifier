@@ -24,6 +24,48 @@ test('users: upsert, get by vrc id, settings update', () => {
   assert.equal(db.listUsers().length, 1);
 });
 
+test('users: self profile and presence fields are stored and updated', () => {
+  const db = newDb();
+  const thumb = 'https://api.vrchat.cloud/api/1/image/file_me/1/256';
+  const id = db.upsertUser('usr_1', {
+    username: 'u1', displayName: '我', avatarUrl: 'https://a.png',
+    avatarThumbUrl: thumb, statusDescription: '摸鱼中', platform: 'standalonewindows'
+  });
+  let u = db.getUserByDbId(id);
+  assert.equal(u.avatar_thumb_url, thumb);
+  assert.equal(u.status_description, '摸鱼中');
+  assert.equal(u.platform, 'standalonewindows');
+  assert.equal(u.state, 'active', '新用户基线: 网页会话在线');
+
+  // 资料更新: 缺失字段保留旧值
+  db.updateSelfProfile(id, { displayName: '新名', avatarUrl: null, avatarThumbUrl: null });
+  u = db.getUserByDbId(id);
+  assert.equal(u.display_name, '新名');
+  assert.equal(u.avatar_url, 'https://a.png');
+  assert.equal(u.avatar_thumb_url, thumb);
+
+  // presence 全量写入
+  db.updateSelfPresence(id, {
+    state: 'online', status: 'join me', worldId: 'wrld_x', worldName: 'X世界',
+    statusDescription: '开黑', platform: 'android', lastSeen: 123
+  });
+  u = db.getUserByDbId(id);
+  assert.equal(u.state, 'online');
+  assert.equal(u.status, 'join me');
+  assert.equal(u.world_id, 'wrld_x');
+  assert.equal(u.world_name, 'X世界');
+  assert.equal(u.status_description, '开黑');
+  assert.equal(u.platform, 'android');
+  assert.equal(u.last_seen, 123);
+
+  // 再次 upsert 资料不改 presence
+  db.upsertUser('usr_1', { username: 'u1', displayName: '新名', avatarUrl: null });
+  u = db.getUserByDbId(id);
+  assert.equal(u.state, 'online');
+  assert.equal(u.world_id, 'wrld_x');
+  assert.equal(u.world_name, 'X世界');
+});
+
 test('cookies: save/clear/remember_me and saved_username', () => {
   const db = newDb();
   const id = db.upsertUser('usr_1', { username: 'u1', displayName: 'n', avatarUrl: null });

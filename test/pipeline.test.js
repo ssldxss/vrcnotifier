@@ -128,6 +128,37 @@ test('onReconnect fires after reconnect succeeds, not on first connect', async (
   } finally { await close(); }
 });
 
+test('counts received messages per second and exposes last-60s series', async () => {
+  const { state, url, close } = await startMockPipeline();
+  try {
+    let t = 1700000000000;
+    const pm = createPipelineManager({
+      getToken: async () => ({ status: 'ok', token: 't' }),
+      onMessage: () => {},
+      now: () => t,
+      userAgent: 't/1',
+      wsUrl: (token) => `${url}/?authToken=${token}`,
+      config: { ...cfg, pingIntervalMs: 100000, pongTimeoutMs: 100000 },
+      logger: { info: () => {}, warn: () => {}, error: () => {} }
+    });
+    pm.connect('u1', '我');
+    await sleep(80);
+    const frame = (i) => JSON.stringify({ type: 'friend-online', content: JSON.stringify({ userId: `usr_${i}` }) });
+    state.connections[0].ws.send(frame(1));
+    state.connections[0].ws.send(frame(2));
+    await sleep(50);
+    t += 1000; // 进入下一秒
+    state.connections[0].ws.send(frame(3));
+    await sleep(50);
+    const stats = pm.messageSeries(t);
+    assert.equal(stats.series.length, 60);
+    assert.equal(stats.total, 3);
+    assert.equal(stats.series[59], 1, '当前秒 1 条');
+    assert.equal(stats.series[58], 2, '上一秒 2 条');
+    pm.disconnect('u1');
+  } finally { await close(); }
+});
+
 test('disconnect during in-flight getToken does not open a zombie connection', async () => {
   const { state, url, close } = await startMockPipeline();
   try {

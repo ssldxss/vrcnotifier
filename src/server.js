@@ -19,7 +19,7 @@ const SETTING_MAP = {
 function createApp({
   db, notifier, pipeline, monitor,
   sessionStore = new Map(), vrcapiFactory, config = {}, logger = null,
-  now = Date.now, publicDir = null, avatarCache = null, qq = null, logStream = null
+  now = Date.now, publicDir = null, avatarCache = null, qq = null, logStream = null, healthMonitor = null
 }) {
   const log = logger || { info: () => {}, warn: () => {}, error: () => {} };
   const app = express();
@@ -53,6 +53,15 @@ function createApp({
     if (!row) return null;
     const out = { ...row };
     delete out.cookie_data;
+    return out;
+  }
+
+  // 当前用户返回体: 附带缩略图缓存 key(优先已存的缩略图, 兜底原图转换)
+  function selfUserForClient(row) {
+    const out = maskUser(row);
+    if (!out) return null;
+    const thumbUrl = out.avatar_thumb_url || toThumbUrl(out.avatar_url);
+    out.avatarKey = thumbUrl && avatarCache ? avatarCache.thumbKeyFromUrl(thumbUrl) : null;
     return out;
   }
 
@@ -118,7 +127,10 @@ function createApp({
       username,
       displayName: currentUser.displayName || null,
       avatarUrl: currentUser.currentAvatarImageUrl || null,
-      status: currentUser.status || null
+      avatarThumbUrl: currentUser.profilePicOverrideThumbnail || currentUser.currentAvatarThumbnailImageUrl || null,
+      status: currentUser.status || null,
+      statusDescription: currentUser.statusDescription || null,
+      platform: currentUser.last_platform || currentUser.platform || null
     });
     const cookieCtx = { cancelled: false, timer: null };
     if (rememberMe) {
@@ -142,7 +154,7 @@ function createApp({
     current = { userId, dbId, vrcapi, cookieCtx };
     sessionStore.set(userId, vrcapi);
     await monitor.activateUser(user, vrcapi);
-    return user;
+    return db.getUserByDbId(dbId);
   }
 
   async function tryAutoLogin() {
@@ -266,6 +278,8 @@ function createApp({
     broadcast('session-expired', { userId });
   });
   bus.on('ws-failure', (e) => broadcast('ws-failure', e));
+  bus.on('self-state', ({ userId }) => broadcast('self-state', { userId }));
+  bus.on('qq-status', (e) => broadcast('qq-status', e));
 
   app.use(express.json({ limit: '1mb' }));
 
@@ -332,7 +346,7 @@ function createApp({
       if (!result || !result.id) throw new Error('login response missing user');
       const user = await finalizeLogin(vrcapi, result, { rememberMe: !!rememberMe, username: String(username) });
       log.info(`[server] 登录成功: ${user.display_name || user.vrchat_user_id} (rememberMe=${!!rememberMe})`);
-      return res.json({ ok: true, user: maskUser(user) });
+      return res.json({ ok: true, user: selfUserForClient(user) });
     } catch (e) {
       if (e.status === 401) return res.status(401).json({ error: '用户名或密码错误' });
       log.error(`[server] 登录失败: ${e.message}`);
@@ -352,7 +366,7 @@ function createApp({
       pending2fa.delete(tempSessionId);
       const user = await finalizeLogin(pending.vrcapi, currentUser, { rememberMe: pending.rememberMe, username: pending.username });
       log.info(`[server] 2FA 验证成功: ${user.display_name || user.vrchat_user_id}`);
-      return res.json({ ok: true, user: maskUser(user) });
+      return res.json({ ok: true, user: selfUserForClient(user) });
     } catch (e) {
       if (e.status === 400 || e.status === 401) {
         return res.status(400).json({ error: '验证码错误或已过期' });
@@ -386,12 +400,12 @@ function createApp({
     if (!current) {
       try { await tryAutoLogin(); } catch (e) { log.warn(`[server] 自动登录失败: ${e.message}`); }
     }
-    return res.json({ ok: true, loggedIn: !!current, user: current ? maskUser(db.getUserByDbId(current.dbId)) : null });
+    return res.json({ ok: true, loggedIn: !!current, user: current ? selfUserForClient(db.getUserByDbId(current.dbId)) : null });
   });
 
   app.get('/api/me', (req, res) => {
     if (!current) return res.status(401).json({ error: '未登录' });
-    return res.json({ ok: true, user: maskUser(db.getUserByDbId(current.dbId)) });
+    return res.json({ ok: true, user: selfUserForClient(db.getUserByDbId(current.dbId)) });
   });
 
   app.get('/api/friends', (req, res) => {
@@ -414,10 +428,10 @@ function createApp({
       if (!f.avatar_thumb_url) continue;
       if (avatarCache.thumbKeyFromUrl(f.avatar_thumb_url) === key) { url = f.avatar_thumb_url; break; }
     }
-    // 当前用户自己的头像也放行(分组标题栏我的头像)
+    // 当前用户自己的头像也放行(页面标题栏我的头像)
     if (!url) {
       const me = db.getUserByDbId(current.dbId);
-      const ownUrl = me && me.avatar_url ? toThumbUrl(me.avatar_url) : null;
+      const ownUrl = me && (me.avatar_thumb_url || (me.avatar_url ? toThumbUrl(me.avatar_url) : null));
       if (ownUrl && avatarCache.thumbKeyFromUrl(ownUrl) === key) url = ownUrl;
     }
     if (!url) return res.status(404).json({ error: 'key 不在白名单' });
@@ -504,10 +518,7 @@ function createApp({
   app.get('/api/status', (req, res) => {
     const active = monitor.activeUsers();
     const ws = current ? pipeline.status(current.userId) : null;
-    const u = current ? maskUser(db.getUserByDbId(current.dbId)) : null;
-    if (u && avatarCache && u.avatar_url) {
-      u.avatarKey = avatarCache.thumbKeyFromUrl(toThumbUrl(u.avatar_url)) || null;
-    }
+    const u = current ? selfUserForClient(db.getUserByDbId(current.dbId)) : null;
     return res.json({
       ok: true,
       loggedIn: !!current,
@@ -525,6 +536,26 @@ function createApp({
         dedupeWindowMs: config.dedupeWindowMs ?? 30000
       }
     });
+  });
+
+  // VRChat API 健康探测(持续进行, 无 cookie): 返回最近一轮的 3 样本平均延迟
+  app.get('/api/health', (req, res) => {
+    const h = healthMonitor && typeof healthMonitor.status === 'function' ? healthMonitor.status() : null;
+    if (!h) return res.status(503).json({ ok: false, error: '健康探测未启用' });
+    return res.json({
+      ok: h.status === 'ok',
+      status: h.status,
+      latencyMs: h.latencyMs,
+      serverName: h.serverName,
+      updatedAt: h.updatedAt
+    });
+  });
+
+  // 最近 60s 每秒 WS 收到消息数(前端图表, 每秒轮询)
+  app.get('/api/ws-stats', (req, res) => {
+    const s = typeof pipeline.messageSeries === 'function' ? pipeline.messageSeries() : null;
+    if (!s) return res.status(503).json({ ok: false, error: '消息统计未启用' });
+    return res.json({ ok: true, series: s.series, total: s.total });
   });
 
   app.post('/api/monitor/snapshot', async (req, res) => {

@@ -14,7 +14,7 @@ const INTENTS = 1 << 25;
 const MAX_TEXT_LEN = 2000;
 
 function createQqManager(opts = {}) {
-  const { db, logger = null, fetchImpl = fetch, WsClient = WebSocket, now = Date.now, config = {}, getSettings = null, onCommand = null } = opts;
+  const { db, logger = null, fetchImpl = fetch, WsClient = WebSocket, now = Date.now, config = {}, getSettings = null, onCommand = null, onStatusChange = null } = opts;
   const log = logger || { info: () => {}, warn: () => {}, error: () => {} };
   const tokenUrl = config.tokenUrl || DEFAULT_TOKEN_URL;
   const apiBase = (config.apiBase || DEFAULT_API_BASE).replace(/\/+$/, '');
@@ -25,6 +25,11 @@ function createQqManager(opts = {}) {
   const tokenSafetyMs = (config.tokenSafetyMs ?? 60) * 1000;
 
   const bots = new Map(); // dbId -> bot
+
+  function notifyStatus(dbId, appId, connected) {
+    if (!onStatusChange) return;
+    try { onStatusChange({ dbId, appId, connected }); } catch (e) { /* 订阅者异常不影响连接 */ }
+  }
 
   function truncate(text) {
     const s = String(text || '');
@@ -249,6 +254,7 @@ function createQqManager(opts = {}) {
       bot.ready = true;
       bot.lastError = null;
       log.info(`[qq] 鉴权成功 appId=${bot.appId}`);
+      notifyStatus(bot.dbId, bot.appId, true);
       return;
     }
     if (t === 'C2C_MESSAGE_CREATE' || t === 'C2C_MSG_RECEIVE') {
@@ -321,6 +327,7 @@ function createQqManager(opts = {}) {
       ws.on('open', () => {
         bot.attempt = 0;
         log.info(`[qq] WS 已连接 appId=${bot.appId}`);
+        notifyStatus(bot.dbId, bot.appId, false);
       });
       ws.on('message', (data) => handleFrame(bot, ws, String(data)));
       ws.on('close', (code, reason) => {
@@ -328,6 +335,7 @@ function createQqManager(opts = {}) {
         bot.ws = null;
         bot.ready = false;
         stopHeartbeat(bot);
+        notifyStatus(bot.dbId, bot.appId, false);
         if (bot.stopped) return;
         const reasonText = reason && reason.length ? String(reason) : '';
         log.info(`[qq] WS 断开 appId=${bot.appId} code=${code}${reasonText ? ` ${reasonText}` : ''}`);
@@ -400,6 +408,7 @@ function createQqManager(opts = {}) {
     const ws = bot.ws;
     bot.ws = null;
     if (ws) { try { ws.close(); } catch (e) { /* 忽略 */ } }
+    notifyStatus(dbId, bot.appId, false);
     bots.delete(dbId);
   }
 

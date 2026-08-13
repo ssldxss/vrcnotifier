@@ -413,6 +413,45 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
     }
   }
 
+  // ---------- 自己的状态 ----------
+  // 自己的信息只入库 + 推给前端, 不走通知/去重/pending。
+  // WS 返回 offline/空位置时网页会话仍在活动, 统一按 active(网页在线)处理。
+  function deriveSelfState(location, apiState) {
+    if (apiState === 'online') return 'online';
+    if (apiState === 'active') return 'active';
+    const s = String(location ?? '');
+    if (s === 'private' || s === 'traveling' || s.startsWith('wrld_')) return 'online';
+    return 'active';
+  }
+
+  async function applySelfInput(user, input) {
+    const existed = db.getUserByVrcId(user.vrchat_user_id);
+    if (!existed) return;
+    if (input.displayName !== undefined || input.avatarUrl !== undefined || input.avatarThumbUrl !== undefined) {
+      db.updateSelfProfile(existed.id, {
+        displayName: input.displayName,
+        avatarUrl: input.avatarUrl,
+        avatarThumbUrl: input.avatarThumbUrl || null
+      });
+    }
+    const hasPresence = [input.state, input.status, input.worldId, input.worldName, input.statusDescription, input.platform].some((v) => v !== undefined);
+    if (hasPresence) {
+      const cur = db.getUserByVrcId(user.vrchat_user_id);
+      const pick = (v, fallback) => (v !== undefined ? v : fallback);
+      const next = {
+        state: pick(input.state, cur.state),
+        status: pick(input.status, cur.status),
+        worldId: pick(input.worldId, cur.world_id),
+        worldName: pick(input.worldName, cur.world_name),
+        statusDescription: pick(input.statusDescription, cur.status_description),
+        platform: pick(input.platform, cur.platform)
+      };
+      db.updateSelfPresence(cur.id, { ...next, lastSeen: now() });
+      log.info(`[monitor] 自己状态 userId=${user.vrchat_user_id}: state=${next.state} status=${next.status} world=${next.worldId || '-'}`);
+    }
+    events.emit('self-state', { userId: user.vrchat_user_id });
+  }
+
   // ws 重连成功: 先全量对账, 对账完成前忽略 WS 消息
   async function handleWsReconnect(userId) {
     if (!sessions.has(userId)) return;
@@ -499,6 +538,40 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
           }, { eventType: 'friend-update' });
           break;
         }
+        case 'user-update': {
+          // 自己资料变化: 简化 user 对象, 无 location/平台, 只更新资料与社交状态
+          const u = content.user;
+          if (!u || !u.id) break;
+          await applySelfInput(user, {
+            displayName: u.displayName,
+            avatarUrl: u.currentAvatarImageUrl,
+            avatarThumbUrl: u.currentAvatarThumbnailImageUrl,
+            status: u.status,
+            statusDescription: u.statusDescription
+          });
+          break;
+        }
+        case 'user-location': {
+          // 自己换房间: 带完整 User 对象; offline/空位置按网页在线(active)处理
+          const u = content.user || {};
+          const existing = db.getUserByVrcId(user.vrchat_user_id);
+          const loc = parseLocation(content.location);
+          const traveling = content.location === 'traveling';
+          const state = deriveSelfState(content.location, u.state);
+          const worldId = loc.isReal ? loc.worldId : (content.location === 'private' ? 'private' : (traveling && existing ? existing.world_id : null));
+          const worldName = worldId && worldId !== 'private' ? await resolveWorldName(vrcapi, worldId) : (worldId === 'private' ? '私密世界' : (traveling && existing ? existing.world_name : null));
+          await applySelfInput(user, {
+            state,
+            status: u.status && u.status !== 'offline' ? u.status : 'active',
+            statusDescription: u.statusDescription,
+            worldId, worldName,
+            platform: u.last_platform || u.platform,
+            displayName: u.displayName,
+            avatarUrl: u.currentAvatarImageUrl,
+            avatarThumbUrl: u.profilePicOverrideThumbnail || u.currentAvatarThumbnailImageUrl
+          });
+          break;
+        }
         case 'friend-add': {
           const u = content.user || {};
           const id = content.userId || u.id;
@@ -577,6 +650,31 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
       const merged = new Map();
       for (const f of online) if (f && f.id) merged.set(f.id, f);
       for (const f of offline) if (f && f.id && !merged.has(f.id)) merged.set(f.id, f);
+
+      // 自己的信息走公开资料端点; 失败不兜底也不影响好友对账
+      let selfInfo = null;
+      try {
+        selfInfo = await vrcapi.user(userId, { noRetry: opts.noRetry });
+      } catch (e) {
+        log.warn(`[monitor] 自己信息获取失败 userId=${userId}: ${e.message}`);
+      }
+      if (selfInfo && selfInfo.id) {
+        const existingSelf = db.getUserByVrcId(userId);
+        const selfLoc = parseLocation(selfInfo.location);
+        const selfTraveling = selfInfo.location === 'traveling';
+        const selfWorldId = selfLoc.isReal ? selfLoc.worldId : (selfInfo.location === 'private' ? 'private' : (selfTraveling && existingSelf ? existingSelf.world_id : null));
+        const selfWorldName = selfWorldId && selfWorldId !== 'private' ? await resolveWorldName(vrcapi, selfWorldId) : (selfWorldId === 'private' ? '私密世界' : (selfTraveling && existingSelf ? existingSelf.world_name : null));
+        await applySelfInput(user, {
+          state: deriveSelfState(selfInfo.location, selfInfo.state),
+          status: selfInfo.status && selfInfo.status !== 'offline' ? selfInfo.status : 'active',
+          statusDescription: selfInfo.statusDescription,
+          worldId: selfWorldId, worldName: selfWorldName,
+          platform: selfInfo.last_platform || selfInfo.platform,
+          displayName: selfInfo.displayName,
+          avatarUrl: selfInfo.currentAvatarImageUrl,
+          avatarThumbUrl: selfInfo.profilePicOverrideThumbnail || selfInfo.currentAvatarThumbnailImageUrl
+        });
+      }
 
       let worldResolves = 0;
       const applyOpts = opts.initial ? { silent: true } : {};

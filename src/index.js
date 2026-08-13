@@ -14,6 +14,7 @@ const { createQqManager } = require('./qq');
 const { createQqCommands } = require('./qq-commands');
 const { createAvatarCache } = require('./avatar');
 const { createLogStream } = require('./logstream');
+const { createHealthMonitor } = require('./health');
 const { createApp } = require('./server');
 
 const DEFAULT_API_BASE = 'https://api.vrchat.cloud/api/1';
@@ -134,6 +135,7 @@ function buildApplication(opts = {}) {
   const qq = opts.qq || createQqManager({
     db, logger,
     onCommand: qqCommands,
+    onStatusChange: (info) => bus.emit('qq-status', info),
     getSettings: () => db.getGlobalSettings(),
     config: {
       tokenUrl: opts.qqTokenUrl || null,
@@ -177,6 +179,16 @@ function buildApplication(opts = {}) {
     db, notifier, pipeline, bus, logger, now,
     config: config.monitor
   });
+  const healthMonitor = opts.healthMonitor || createHealthMonitor({
+    apiBaseUrl: config.apiBaseUrl,
+    userAgent: config.userAgent,
+    fetchImpl: opts.fetchImpl || fetch,
+    logger,
+    intervalMs: opts.healthIntervalMs ?? 5000,
+    sampleCount: opts.healthSampleCount ?? 3,
+    sampleTimeoutMs: opts.healthSampleTimeoutMs ?? 3000
+  });
+  healthMonitor.start();
   // 启动周期对账 + watchdog 定时器(单用户, 无会话时为空转)
   monitor.startTimers();
 
@@ -195,13 +207,14 @@ function buildApplication(opts = {}) {
     logger,
     now,
     publicDir: opts.publicDir || null,
-    logStream: logStream
+    logStream: logStream,
+    healthMonitor
   });
   connectionStatus.fn = getConnectionStatus;
 
   return {
     app, autoLogin, monitor, pipeline, sessionStore, db, bus,
-    config, avatarCache, qq, logStream
+    config, avatarCache, qq, logStream, healthMonitor
   };
 }
 
@@ -245,6 +258,7 @@ async function main() {
     logger.info('[退出] 正在停止监控与连接...');
     try { await runtime.monitor.sendShutdownNotice(); } catch (e) { logger.warn(`[退出] 停止通知发送失败: ${e.message}`); }
     try { runtime.monitor.stopTimers(); } catch (e) { logger.warn(`[退出] stopTimers: ${e.message}`); }
+    try { runtime.healthMonitor.stop(); } catch (e) { logger.warn(`[退出] healthMonitor.stop: ${e.message}`); }
     try { runtime.qq.stopAll(); } catch (e) { logger.warn(`[退出] qq.stopAll: ${e.message}`); }
     for (const { user } of runtime.monitor.activeUsers()) {
       try { runtime.monitor.deactivateUser(user.vrchat_user_id); } catch (e) { /* ignore */ }
