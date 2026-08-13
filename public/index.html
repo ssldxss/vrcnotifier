@@ -565,12 +565,24 @@ button.danger { background: linear-gradient(135deg, var(--bad), #b4232c); box-sh
    isolation: isolate;
    display: flex;
    flex-direction: column;
-   gap: 3px;
-   padding: 10px 12px;
+   justify-content: flex-start;
+   gap: 6px;
+   min-width: 0;
+   padding: 11px 14px 12px;
    background: var(--btn-sec);
    border: 1px solid var(--line);
    border-radius: var(--r-md);
-   transition: border-color var(--t-fast);
+   box-shadow: inset 0 1px 0 var(--card-hl);
+   transition: border-color var(--t-fast), background var(--t-fast);
+   animation: ovIn .42s cubic-bezier(.22,.8,.3,1) both;
+ }
+ .overview-item:nth-child(2) { animation-delay: .05s; }
+ .overview-item:nth-child(3) { animation-delay: .1s; }
+ .overview-item:nth-child(4) { animation-delay: .15s; }
+ .overview-item:nth-child(5) { animation-delay: .2s; }
+ @keyframes ovIn {
+   from { opacity: 0; transform: translateY(8px) scale(.99); }
+   to { opacity: 1; transform: none; }
  }
  .overview-item::before {
    content: '';
@@ -598,21 +610,107 @@ button.danger { background: linear-gradient(135deg, var(--bad), #b4232c); box-sh
  }
  .overview-item:hover { border-color: var(--line-strong); }
  .overview-item:hover::before, .overview-item:hover::after { opacity: 1; transform: scale(1); }
- .ov-label { font-size: 10.5px; font-weight: 600; letter-spacing: .08em; line-height: 1.2; text-transform: uppercase; color: var(--text-3); }
- .ov-value { font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums; letter-spacing: .01em; color: var(--text-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
- .ov-num { font-size: 18px; font-weight: 700; color: var(--accent); }
- .ov-num-sm { font-size: 15px; font-weight: 600; }
- #stHealthLatency { font-size: 11px; color: var(--text-3); opacity: .72; }
- .overview-item .badge { width: fit-content; font-size: 12px; padding: 3px 12px; }
+ .ov-label {
+   display: flex;
+   align-items: baseline;
+   justify-content: space-between;
+   gap: 8px;
+   font-size: 10px;
+   font-weight: 600;
+   letter-spacing: .09em;
+   line-height: 1.4;
+   text-transform: uppercase;
+   color: var(--text-3);
+   white-space: nowrap;
+   transition: color var(--t-fast);
+ }
+ .ov-label-text { flex-shrink: 0; }
+ .ov-meta {
+   min-width: 0;
+   font-family: var(--font-mono);
+   font-size: 11px;
+   font-weight: 400;
+   letter-spacing: .01em;
+   text-transform: none;
+   color: var(--text-3);
+   opacity: .78;
+   overflow: hidden;
+   text-overflow: ellipsis;
+ }
+ .ov-meta.lat-ok { color: var(--ok); }
+ .ov-meta.lat-warn { color: var(--warn); }
+ .ov-meta.lat-bad { color: var(--bad); }
+ .overview-item:hover .ov-label { color: var(--text-2); }
+ .ov-value {
+   display: block;
+   line-height: 24px;
+   font-size: 13px;
+   font-weight: 500;
+   font-variant-numeric: tabular-nums;
+   letter-spacing: .01em;
+   color: var(--text-1);
+   white-space: nowrap;
+   overflow: hidden;
+   text-overflow: ellipsis;
+ }
+ .ov-num {
+   font-size: 21px;
+   font-weight: 700;
+   letter-spacing: -.01em;
+   line-height: 24px;
+   background: linear-gradient(135deg, var(--accent), var(--accent-2));
+   -webkit-background-clip: text;
+   background-clip: text;
+   -webkit-text-fill-color: transparent;
+   color: var(--accent);
+ }
+ .ov-num-sm { font-size: 15px; font-weight: 600; line-height: 24px; color: var(--text-1); }
+ .overview-item .badge {
+   width: fit-content;
+   min-height: 24px;
+   font-size: 11.5px;
+   font-weight: 600;
+   padding: 3px 11px;
+   transition: background var(--t-fast), color var(--t-fast), border-color var(--t-fast);
+ }
  .overview-item .badge::before { width: 8px; height: 8px; }
-.overview-item.wide { grid-column: 1 / -1; flex-direction: row; align-items: center; gap: 12px; }
-.overview-item.wide .ov-label { min-width: 92px; }
-.ov-stack { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.overview-item.wide { grid-column: 1 / -1; flex-direction: row; align-items: center; gap: 14px; }
+.overview-item.wide .ov-label { min-width: 96px; justify-content: flex-start; }
  .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; letter-spacing: .01em; }
 .ws-panel-row { flex: 1; display: flex; align-items: center; gap: 12px; min-width: 0; }
-.ws-total { font-size: 12px; color: var(--text-2); white-space: nowrap; }
-.ws-chart { flex: 1; height: 28px; min-width: 120px; display: block; border-radius: 4px; background: var(--input-bg); }
+.ws-total { font-size: 12px; color: var(--text-2); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.ws-chart {
+  flex: 1;
+  height: 30px;
+  min-width: 120px;
+  display: block;
+  border-radius: 7px;
+  background: var(--input-bg);
+  border: 1px solid var(--line);
+}
 .ws-chart rect { fill: var(--accent); opacity: .8; }
+.ws-chart-tip {
+  position: fixed;
+  z-index: 90;
+  pointer-events: none;
+  padding: 5px 10px;
+  border-radius: 8px;
+  background: var(--card-bg-hover);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--line-strong);
+  box-shadow: var(--shadow-1);
+  color: var(--text-1);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  transform: translate(-50%, 6px);
+  opacity: 0;
+}
+.ws-chart-tip:not(.hidden) {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
 
 /* ---------- 好友工具栏 ---------- */
 .toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
@@ -716,18 +814,18 @@ h3.chan { font-size: 13px; margin: 16px 0 6px; color: var(--text-2); font-weight
     <div class='overview-item'><span class='ov-label'>QQ 机器人</span><span id='stQq' class='badge'>-</span></div>
     <div class='overview-item'><span class='ov-label'>上次刷新</span><span id='stSnapshot' class='ov-value mono ov-num-sm'>-</span></div>
     <div class='overview-item'>
-      <span class='ov-label'>服务器状态</span>
-      <span class='ov-stack'>
-        <span id='stHealth' class='badge'>-</span>
-        <span id='stHealthLatency' class='ov-value mono'>-</span>
+      <span class='ov-label'>
+        <span class='ov-label-text'>服务器状态</span>
+        <span id='stHealthLatency' class='ov-meta'>-</span>
       </span>
+      <span id='stHealth' class='badge'>-</span>
     </div>
     <div class='overview-item wide'>
       <span class='ov-label'>WebSocket 连接</span>
       <div class='ws-panel-row'>
         <span id='stWs' class='badge'>-</span>
         <span id='stWsTotal' class='ws-total mono'>-</span>
-        <svg id='wsChart' class='ws-chart' viewBox='0 0 300 28' preserveAspectRatio='none' aria-hidden='true'></svg>
+        <svg id='wsChart' class='ws-chart' viewBox='0 0 300 28' preserveAspectRatio='none' aria-hidden='true'><g id='wsChartG'></g></svg>
       </div>
     </div>
   </div>
@@ -872,10 +970,6 @@ function showView(name) {
   $('#headerConnect').classList.toggle('hidden', name !== 'gate');
 }
 
-function stateLabel(s) {
-  return ({ online: '在线', offline: '离线', active: '网页端在线' })[s] || s || '未知';
-}
-
 // ---------- 访问密钥门禁 ----------
 async function loadConfig() {
   $('#backendUrl').value = localStorage.getItem(LS_BASE) || 'http://127.0.0.1:3000';
@@ -1010,10 +1104,11 @@ function personParts(p) {
   const statusCls = 'status-' + String(p.status || 'active').replace(/\s+/g, '');
   const wrapCls = 'st-' + (p.state || 'offline') + ' ' + statusCls;
   const worldTxt = p.world_id === 'private' ? '私密世界' : (p.world_name || '');
+  const stateTxt = [worldTxt, p.status_description].filter(Boolean).map(escapeHtml).join(' · ');
   return {
     avatarWrap: "<div class='avatar-wrap " + wrapCls + "'>" + avatarHtml + '</div>',
     name: escapeHtml(p.display_name || p.friend_vrchat_id || p.vrchat_user_id || '?'),
-    stateTxt: stateLabel(p.state) + (worldTxt ? ' · ' + escapeHtml(worldTxt) : '') + (p.status_description ? ' · ' + escapeHtml(p.status_description) : '')
+    stateHtml: stateTxt ? "<div class='state'>" + stateTxt + '</div>' : ''
   };
 }
 
@@ -1021,7 +1116,7 @@ function renderSelf() {
   const box = $('#selfInfo');
   if (!myInfo) { box.innerHTML = ''; return; }
   const p = personParts(myInfo);
-  box.innerHTML = p.avatarWrap + "<div class='name'>" + p.name + "<div class='state'>" + p.stateTxt + '</div></div>';
+  box.innerHTML = p.avatarWrap + "<div class='name'>" + p.name + p.stateHtml + '</div>';
 }
 
 function renderFriends() {
@@ -1047,7 +1142,7 @@ function renderFriends() {
     row.innerHTML =
       p.avatarWrap +
       '<label class=switch title=特别关注><input type=checkbox class=favorite' + (c.favorite ? ' checked' : '') + '><span class=slider></span></label>' +
-      '<div class=name>' + p.name + '<div class=state>' + p.stateTxt + '</div></div>' +
+      '<div class=name>' + p.name + p.stateHtml + '</div>' +
       '<div class=checks>' +
       '<label><input type=checkbox data-k=notify_online' + (isOn(c.notify_online) ? ' checked' : '') + '>上线</label>' +
       '<label><input type=checkbox data-k=notify_offline' + (isOn(c.notify_offline) ? ' checked' : '') + '>下线</label>' +
@@ -1056,8 +1151,11 @@ function renderFriends() {
       '</div>';
     return row;
   };
-  const favList = pool.filter((f) => f.config && f.config.favorite === 1);
-  // 其他好友按状态分类: 在线 -> 网页在线 -> 离线(特别关注组不动)
+  const stateRank = { online: 0, active: 1, offline: 2 };
+  const byState = (a, b) => (stateRank[a.state] ?? 3) - (stateRank[b.state] ?? 3);
+  // 特别关注组内部按状态排序: 在线 -> 活动(网页在线) -> 离线
+  const favList = pool.filter((f) => f.config && f.config.favorite === 1).sort(byState);
+  // 其他好友按状态分类: 在线 -> 网页在线 -> 离线
   const otherList = pool.filter((f) => !(f.config && f.config.favorite === 1));
   const onlineOthers = otherList.filter((f) => f.state === 'online');
   const activeOthers = otherList.filter((f) => f.state === 'active');
@@ -1263,6 +1361,13 @@ function renderVrcStatus(d) {
   }
 }
 
+// 延迟着色: 1-200 绿, 201-800 黄, 其余(0/负值/800以上)红
+function latencyClass(ms) {
+  if (ms >= 1 && ms <= 200) return 'lat-ok';
+  if (ms >= 201 && ms <= 800) return 'lat-warn';
+  return 'lat-bad';
+}
+
 async function loadHealth() {
   const [r, s] = await Promise.all([
     api('GET', '/api/health'),
@@ -1270,36 +1375,195 @@ async function loadHealth() {
   ]);
   const d = r.data || {};
   const lat = $('#stHealthLatency');
-  if (d.status === 'ok') {
-    lat.textContent = d.latencyMs == null ? '延迟: -' : '延迟: ' + d.latencyMs + ' ms';
+  if (d.status === 'ok' && typeof d.latencyMs === 'number') {
+    lat.textContent = '延迟: ' + d.latencyMs + ' ms';
+    lat.className = 'ov-meta ' + latencyClass(d.latencyMs);
   } else {
     lat.textContent = '延迟: -';
+    lat.className = 'ov-meta';
   }
   renderVrcStatus(s.data);
 }
 
-function renderWsChart(series) {
+// WS 图表: 时间锚定 + rAF 匀速左移; 柱高与次数严格成正比(线性)
+let wsChartBars = [];      // { rect, t, n } t = 秒级时间戳
+let wsChartAnchorMs = 0;
+let wsChartRaf = 0;
+let wsChartGEl = null;
+// 悬停提示: 停留超过阈值才显示; 淡入/淡出 1s, 且全程随柱子同步移动
+let wsChartTipVisible = false;   // 提示处于显示或淡出阶段
+let wsChartTipHiding = false;    // 淡出进行中
+let wsChartTipDoneTimer = 0;
+let wsChartDwellTimer = 0;
+let wsChartLastHitAt = 0;
+let wsChartLastBar = null;
+let wsChartTipEl = null;
+let wsChartMouse = null;   // { x } viewBox 坐标, 鼠标在图表内时非空
+let wsChartBound = false;
+const WS_CHART_DWELL_MS = 500;  // 停留超过此时长才显示
+const WS_CHART_GRACE_MS = 500;  // 离开柱子后的宽限(桥接柱间 1px 间隙), 之后开始淡出
+const WS_CHART_FADE_MS = 1000;  // 淡入/淡出时长
+
+function bindWsChartHover() {
+  if (wsChartBound) return;
+  wsChartBound = true;
   const svg = $('#wsChart');
-  if (!series || !series.length) { svg.innerHTML = ''; return; }
-  const w = 300, h = 28;
-  const max = Math.max(1, ...series);
-  const barW = w / series.length;
-  let rects = '';
-  series.forEach((n, i) => {
-    if (!n) return;
-    const hh = Math.max(3, (h - 2) * Math.sqrt(n / max));
-    const x = i * barW;
-    const y = h - hh;
-    rects += `<rect x='${x.toFixed(2)}' y='${y.toFixed(2)}' width='${Math.max(1.2, barW - 1).toFixed(2)}' height='${hh.toFixed(2)}' rx='1'></rect>`;
+  svg.addEventListener('mousemove', (e) => {
+    const r = svg.getBoundingClientRect();
+    wsChartMouse = { x: (e.clientX - r.left) / r.width * 300 };
+    wsChartUpdateHover();
   });
-  svg.innerHTML = rects;
+  svg.addEventListener('mouseleave', () => {
+    wsChartMouse = null;
+    wsChartUpdateHover();
+  });
+}
+
+function wsChartBarAt(mx) {
+  const nowSec = Date.now() / 1000;
+  const barW = 300 / 60;
+  // 命中范围: 柱子本身 + 左右各 1 个柱宽(合计 3 个柱宽); 重叠时取距离最近的柱子
+  let best = null;
+  let bestD = Infinity;
+  for (const b of wsChartBars) {
+    const x = 300 - (nowSec - b.t) * barW;
+    const d = Math.abs(mx - (x + barW / 2));
+    if (d <= barW * 1.5 && d < bestD) { bestD = d; best = b; }
+  }
+  return best;
+}
+
+function wsChartTrackTip(bar) {
+  if (!wsChartTipEl || !bar) return;
+  const svg = $('#wsChart');
+  const r = svg.getBoundingClientRect();
+  const nowSec = Date.now() / 1000;
+  const barW = 300 / 60;
+  const x = 300 - (nowSec - bar.t) * barW;
+  wsChartTipEl.style.left = (r.left + (x + barW / 2) / 300 * r.width) + 'px';
+  wsChartTipEl.style.top = (r.bottom + 8) + 'px'; // 提示框放在柱子下方
+}
+
+function wsChartShowTip(bar) {
+  if (!bar) return;
+  if (wsChartTipDoneTimer) { clearTimeout(wsChartTipDoneTimer); wsChartTipDoneTimer = 0; }
+  wsChartTipHiding = false;
+  wsChartTipVisible = true;
+  if (!wsChartTipEl) {
+    wsChartTipEl = document.createElement('div');
+    wsChartTipEl.className = 'ws-chart-tip hidden';
+    wsChartTipEl.style.transition = 'opacity ' + (WS_CHART_FADE_MS / 1000) + 's ease, transform ' + (WS_CHART_FADE_MS / 1000) + 's ease';
+    document.body.appendChild(wsChartTipEl);
+  }
+  wsChartTipEl.textContent = bar.n + ' 条消息';
+  wsChartTipEl.classList.remove('hidden');
+  wsChartTrackTip(bar);
+}
+
+function wsChartHideTip() {
+  if (!wsChartTipEl) return;
+  wsChartTipHiding = true;
+  wsChartTipEl.classList.add('hidden');
+  if (!wsChartTipDoneTimer) {
+    wsChartTipDoneTimer = setTimeout(() => {
+      wsChartTipDoneTimer = 0;
+      wsChartTipHiding = false;
+      wsChartTipVisible = false;
+    }, WS_CHART_FADE_MS);
+  }
+}
+
+function wsChartUpdateHover() {
+  const bar = (wsChartMouse && wsChartBars.length) ? wsChartBarAt(wsChartMouse.x) : null;
+  const now = Date.now();
+  if (bar) {
+    wsChartLastHitAt = now;
+    wsChartLastBar = bar;
+    if (wsChartTipHiding) {
+      wsChartShowTip(bar); // 淡出中重新命中: 取消淡出并恢复显示
+    } else if (wsChartTipVisible) {
+      wsChartShowTip(bar); // 已显示: 内容与位置随柱子每帧同步
+    } else if (!wsChartDwellTimer) {
+      // 停留超过阈值才显示
+      wsChartDwellTimer = setTimeout(() => {
+        wsChartDwellTimer = 0;
+        if (Date.now() - wsChartLastHitAt <= WS_CHART_GRACE_MS) wsChartShowTip(wsChartLastBar);
+      }, WS_CHART_DWELL_MS);
+    }
+  } else if (wsChartTipHiding) {
+    wsChartTrackTip(wsChartLastBar); // 淡出期间继续跟随柱子移动
+  } else if (wsChartTipVisible) {
+    if (now - wsChartLastHitAt > WS_CHART_GRACE_MS) {
+      wsChartHideTip(); // 鼠标离开或柱子移开超过宽限 → 开始淡出
+    } else {
+      wsChartTrackTip(wsChartLastBar); // 宽限期内(柱间间隙)仍跟随
+    }
+  } else if (wsChartDwellTimer && now - wsChartLastHitAt > WS_CHART_GRACE_MS) {
+    clearTimeout(wsChartDwellTimer);
+    wsChartDwellTimer = 0;
+  }
+}
+
+function renderWsChart(series) {
+  bindWsChartHover();
+  const g = wsChartGEl || (wsChartGEl = $('#wsChartG'));
+  if (!series || !series.length) { g.innerHTML = ''; wsChartBars = []; return; }
+  const nowMs = Date.now();
+  const nowSec = nowMs / 1000;
+  const barW = 300 / 60;
+  const hhMax = 28 - 2;
+  let max = 0;
+  const buckets = [];
+  for (let i = 0; i < series.length; i++) {
+    const n = series[i];
+    if (!n) continue;
+    if (n > max) max = n;
+    buckets.push({ t: nowSec - (series.length - 1 - i), n });
+  }
+  if (!max) { g.innerHTML = ''; wsChartBars = []; return; }
+  // 静态坐标以当前时刻为锚, 之后每帧只平移整个组 → 匀速滚动
+  wsChartAnchorMs = nowMs;
+  g.setAttribute('transform', 'translate(0 0)');
+  g.innerHTML = '';
+  wsChartBars = [];
+  for (const b of buckets) {
+    const x = 300 - (nowSec - b.t) * barW;
+    if (x + barW <= 0) continue;
+    const hh = hhMax * (b.n / max); // 相对高度严格和次数成正比
+    const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    rect.setAttribute('x', x.toFixed(2));
+    rect.setAttribute('y', (28 - hh).toFixed(2));
+    rect.setAttribute('width', (barW - 1).toFixed(2));
+    rect.setAttribute('height', hh.toFixed(2));
+    rect.setAttribute('rx', '1');
+    g.appendChild(rect);
+    wsChartBars.push({ rect, t: b.t, n: b.n });
+  }
+  if (!wsChartRaf) wsChartRaf = requestAnimationFrame(wsChartTick);
+}
+
+function wsChartTick() {
+  const nowSec = Date.now() / 1000;
+  const barW = 300 / 60;
+  const dx = -(nowSec - wsChartAnchorMs / 1000) * barW; // 位移只由时间差决定 → 匀速
+  const g = wsChartGEl || (wsChartGEl = $('#wsChartG'));
+  g.setAttribute('transform', 'translate(' + dx.toFixed(2) + ' 0)');
+  for (let i = wsChartBars.length - 1; i >= 0; i--) {
+    const b = wsChartBars[i];
+    if (300 - (nowSec - b.t) * barW + barW <= 0) {
+      b.rect.remove();
+      wsChartBars.splice(i, 1);
+    }
+  }
+  wsChartUpdateHover();
+  wsChartRaf = requestAnimationFrame(wsChartTick);
 }
 
 async function loadWsStats() {
   const r = await api('GET', '/api/ws-stats');
   if (!r.data || !Array.isArray(r.data.series)) return;
   const total = r.data.total || 0;
-  $('#stWsTotal').textContent = '最近一分钟 ' + total + ' 条';
+  $('#stWsTotal').textContent = '平均 ' + total + ' 次/分钟';
   renderWsChart(r.data.series.slice(-60));
 }
 
