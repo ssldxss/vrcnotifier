@@ -4,11 +4,12 @@
 <meta charset='utf-8'>
 <meta name='viewport' content='width=device-width, initial-scale=1'>
 <title>vrcnotifier</title>
+<script>try{var t=localStorage.getItem('vrcn_theme')||'dark';if(t!=='auto')document.documentElement.setAttribute('data-theme',t);}catch(e){document.documentElement.setAttribute('data-theme','dark');}</script>
 <style>
 /* ================================================================
    vrcnotifier 前端样式
    设计系统: Primitive(原始色) -> Semantic(语义) -> Component(组件)
-   主题: 默认跟随系统 prefers-color-scheme, 可手动切换 深/浅/自动
+   主题: 默认深色, 可手动切换 深/浅/自动(跟随系统)
    风格: 毛玻璃卡片 + 渐变光晕 + 丝滑过渡(尊重 prefers-reduced-motion)
    ================================================================ */
 
@@ -1646,10 +1647,10 @@ function applyTheme(mode) {
   $('#themeBtn').title = THEME_LABELS[mode] + '(点击切换)';
 }
 $('#themeBtn').addEventListener('click', () => {
-  const cur = localStorage.getItem(THEME_KEY) || 'auto';
-  applyTheme(cur === 'auto' ? 'light' : (cur === 'light' ? 'dark' : 'auto'));
+  const cur = localStorage.getItem(THEME_KEY) || 'dark';
+  applyTheme(cur === 'dark' ? 'auto' : (cur === 'auto' ? 'light' : 'dark'));
 });
-applyTheme(localStorage.getItem(THEME_KEY) || 'auto');
+applyTheme(localStorage.getItem(THEME_KEY) || 'dark');
 
 loadConfig();
 </script>
