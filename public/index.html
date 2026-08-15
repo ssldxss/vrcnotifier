@@ -741,6 +741,28 @@ button.danger { background: linear-gradient(135deg, var(--bad), #b4232c); box-sh
  .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; letter-spacing: .01em; }
 .ws-panel-row { flex: 1; display: flex; align-items: center; gap: 12px; min-width: 0; }
 .ws-total { font-size: 12px; color: var(--text-2); white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* 次数切换的上下翻动动画: 右对齐槽位, 滚动期间宽度取新旧较宽者, 结束后收缩(无多余空格) */
+.ws-num-wrap {
+  position: relative;
+  display: inline-flex;
+  justify-content: flex-end;
+  overflow: hidden;
+  min-width: 1ch;
+  height: 1.05em;
+  line-height: 1;
+}
+.ws-num-in { display: inline-block; line-height: 1; }
+.ws-num-in.roll { animation: wsRollIn .45s cubic-bezier(.22,.8,.3,1); }
+.ws-old {
+  position: absolute;
+  right: 0;
+  top: 0;
+  line-height: 1;
+  pointer-events: none;
+  animation: wsRollOut .45s cubic-bezier(.22,.8,.3,1) forwards;
+}
+@keyframes wsRollIn { from { transform: translateY(110%); } to { transform: translateY(0); } }
+@keyframes wsRollOut { from { transform: translateY(0); opacity: 1; } to { transform: translateY(-110%); opacity: 0; } }
 .ws-chart-clip {
   flex: 1;
   min-width: 120px;
@@ -914,7 +936,7 @@ h3.chan { font-size: 13px; margin: 16px 0 6px; color: var(--text-2); font-weight
       <span class='ov-label'>WebSocket 连接</span>
       <div class='ws-panel-row'>
         <span id='stWs' class='badge'>-</span>
-        <span id='stWsTotal' class='ws-total mono'>-</span>
+        <span class='ws-total mono'>平均&thinsp;<span class='ws-num-wrap'><span id='stWsNum' class='ws-num-in'>-</span></span>&thinsp;次/分钟</span>
         <div class='ws-chart-clip'>
           <canvas id='wsChart' class='ws-chart' aria-hidden='true'></canvas>
         </div>
@@ -1735,7 +1757,7 @@ function wsChartDraw() {
   const h = Math.max(10, Math.round(cv.clientHeight * dpr));
   if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
   const ctx = cv.getContext('2d');
-  // 全部在设备像素空间绘制并取整: 任何 DPI 缩放下描边/柱缘都精确落格, 不产生抗锯齿浅色重影
+  // 背景/描边在设备像素空间精确落格(避免亮边); 柱子横向用亚像素坐标保证滑动丝滑
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, w, h);
   const theme = wsChartTheme();
@@ -1757,11 +1779,10 @@ function wsChartDraw() {
     const x0 = (300 - (nowSec - b.t) * 5) * sx;
     if (x0 + 5 * sx <= 0) continue;
     const hh = 26 * (b.n / wsChartMax); // 相对高度严格和次数成正比
-    const px = Math.round(x0);
-    const pw = Math.max(1, Math.round(x0 + 4 * sx) - px);
     const yBot = Math.round(28 * sy) - inset; // 底边留出描边 + 空隙
     const yTop = Math.min(Math.round((28 - hh) * sy), yBot - 1);
-    ctx.fillRect(px, yTop, pw, Math.max(1, yBot - yTop));
+    // 横向亚像素绘制: 每帧连续位移(此前取整导致 ~6 帧跳 1px 的卡顿感)
+    ctx.fillRect(x0, yTop, 4 * sx, Math.max(1, yBot - yTop));
   }
   ctx.globalAlpha = 1;
   ctx.strokeStyle = theme.line;
@@ -1908,11 +1929,37 @@ function renderWsChart(series) {
   wsChartUpdateHover();
 }
 
+// 平均次数更新: 数值变化时旧值向上滚出、新值从下方滚入
+function setWsTotal(total) {
+  const num = $('#stWsNum');
+  if (!num) return;
+  const txt = String(total);
+  if (num.dataset.val === txt) return;
+  num.dataset.val = txt;
+  const wrap = num.parentElement;
+  const old = document.createElement('span');
+  old.className = 'ws-old';
+  old.textContent = num.textContent;
+  // 滚动期间槽位宽度取新旧较宽者, 右对齐不变; 动画结束后收缩到新值宽度, 不留多余空格
+  wrap.style.minWidth = Math.max(old.textContent.length, txt.length) + 'ch';
+  num.textContent = txt;
+  num.getAnimations().forEach((a) => a.cancel()); // 打断进行中的动画, 避免叠加抖动
+  num.classList.remove('roll');
+  void num.offsetWidth; // 强制重排, 重启动画
+  num.classList.add('roll');
+  wrap.appendChild(old);
+  const done = () => {
+    old.remove();
+    wrap.style.minWidth = txt.length + 'ch';
+  };
+  old.addEventListener('animationend', done, { once: true });
+}
+
 async function loadWsStats() {
   const r = await api('GET', '/api/ws-stats');
   if (!r.data || !Array.isArray(r.data.series)) return;
   const total = r.data.total || 0;
-  $('#stWsTotal').textContent = '平均 ' + total + ' 次/分钟';
+  setWsTotal(total);
   renderWsChart(r.data.series.slice(-60));
 }
 
