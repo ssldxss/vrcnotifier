@@ -145,7 +145,7 @@ function createQqManager(opts = {}) {
       await sendTextMessage(bot, openid, msgId, reply.text || '');
       return;
     }
-    await sendTextMessage(bot, openid, msgId, typeof reply === 'string' ? reply : String(reply || ''));
+    await sendTextMessage(bot, openid, msgId, typeof reply === 'string' ? reply : (reply && typeof reply.text === 'string' ? reply.text : String(reply || '')));
   }
 
   // ---------- WebSocket 网关 ----------

@@ -41,6 +41,19 @@ test('buildOnlineList empty returns no-online message', () => {
   assert.equal(r.markdown, undefined);
 });
 
+test('buildOnlineList without favorites omits 其他在线 header, table follows title directly', () => {
+  const friends = [
+    { friend_vrchat_id: 'usr_a', display_name: 'Alice', state: 'online', status: 'active', world_name: 'WorldX' },
+    { friend_vrchat_id: 'usr_b', display_name: 'Bob', state: 'offline', status: 'busy', world_name: null }
+  ];
+  const r = buildOnlineList(friends);
+  assert.ok(r.text.startsWith('【在线列表】1 人在线'));
+  assert.ok(!r.text.includes('【其他在线】'), '无特别关注时不显示【其他在线】');
+  assert.ok(r.text.includes('🟢 Alice'), '在线好友直接跟在主标题下');
+  assert.ok(!r.markdown.includes('## 其他在线'), 'markdown 无特别关注时不显示 其他在线');
+  assert.ok(r.markdown.includes('| 🟢 Alice | WorldX |'));
+});
+
 test('buildOnlineList puts favorites first and includes offline favorites', () => {
   const friends = [
     { friend_vrchat_id: 'usr_a', display_name: 'Alice', state: 'online', status: 'active', world_name: 'WorldX' },

@@ -268,6 +268,35 @@ test('WS: onCommand 返回 markdown 对象 -> 一次发送 msg_type=2', async ()
   } finally { await platform.close(); }
 });
 
+test('WS: onCommand 返回纯文本对象(无 markdown)-> 发送 text 而非 [object Object]', async () => {
+  const platform = await startQqPlatform({ appId: 'app1', clientSecret: 'sec1', token: 'tok1' });
+  const db = createDb(':memory:');
+  db.upsertQqBinding(1, { appId: 'app1', openid: 'openid_me', nickname: '我的昵称', at: 1 });
+  const onCommand = async () => ({ text: '当前没有游戏在线的朋友。' });
+  const qq = createQqManager({
+    db, logger: silent, onCommand,
+    fetchImpl: async (u, i) => fetch(u, i),
+    now: () => Date.now(),
+    config: { tokenUrl: platform.base + '/app/getAppAccessToken', apiBase: platform.base, wsUrl: platform.wsUrl }
+  });
+  try {
+    qq.sync(1, { qq_enabled: 1, qq_app_id: 'app1', qq_app_secret: 'sec1' });
+    await sleep(250);
+    platform.state.httpCalls.length = 0;
+    platform.state.connections[0].ws.send(JSON.stringify({
+      op: 0, s: 2, t: 'C2C_MESSAGE_CREATE',
+      d: { id: 'ROBOT.msg4', content: '/在线列表', author: { id: 'openid_me', user_openid: 'openid_me', username: '我的昵称' } }
+    }));
+    await sleep(250);
+    const replies = platform.state.httpCalls.filter((c) => c.url.includes('/v2/users/openid_me/messages'));
+    assert.ok(replies.length >= 1, '被动回复已发送');
+    const body = JSON.parse(replies[0].body);
+    assert.equal(body.msg_type, 0);
+    assert.equal(body.content, '当前没有游戏在线的朋友。');
+    qq.stopAll();
+  } finally { await platform.close(); }
+});
+
 test('WS: markdown 被动回复失败回退文本消息', async () => {
   const platform = await startQqPlatform({
     appId: 'app1', clientSecret: 'sec1', token: 'tok1',

@@ -42,9 +42,8 @@ function createApp({
   const autoLoginRetryBaseMs = config.autoLoginRetryBaseMs ?? 5000;
   const autoLoginRetryMaxMs = config.autoLoginRetryMaxMs ?? 3600000;
   const autoLoginRetryJitterMs = config.autoLoginRetryJitterMs ?? 1000;
-  // 自动重登参数(换 IP/cookie 失效时用保存的密码重登)
+  // 自动重登参数(换 IP/cookie 失效时用保存的密码重登); 故障/恢复通知由 monitor 故障窗口负责
   const reloginMaxPerHour = config.reloginMaxPerHour ?? 5;
-  const reloginFailNotifyMs = config.reloginFailNotifyMs ?? 5 * 60 * 1000;
   const reloginRetryBaseMs = config.reloginRetryBaseMs ?? autoLoginRetryBaseMs;
   const reloginRetryMaxMs = config.reloginRetryMaxMs ?? autoLoginRetryMaxMs;
   const reloginRetryJitterMs = config.reloginRetryJitterMs ?? autoLoginRetryJitterMs;
@@ -283,14 +282,14 @@ function createApp({
 
   // ---------- 自动重新登录 / 2FA(与 VRCX 同款 API 路径) ----------
   // 每用户状态: attempts=1 小时内尝试次数, pending=等待验证码的会话,
-  // failedSince/failNotified/failTimer=5 分钟失败通知窗口, retryTimer/retryAttempt=指数退避
+  // retryTimer/retryAttempt=指数退避。故障/恢复通知统一由 monitor 的故障窗口负责。
   const relogin = new Map();
   const RELOGIN_PENDING_TTL_MS = 15 * 60 * 1000;
 
   function reloginState(userId) {
     let st = relogin.get(userId);
     if (!st) {
-      st = { inFlight: false, attempts: [], pending: null, failedSince: 0, failNotified: false, failTimer: null, retryTimer: null, retryAttempt: 0 };
+      st = { inFlight: false, attempts: [], pending: null, retryTimer: null, retryAttempt: 0 };
       relogin.set(userId, st);
     }
     return st;
@@ -303,7 +302,6 @@ function createApp({
   }
 
   function clearReloginTimers(st) {
-    if (st.failTimer) { clearTimeout(st.failTimer); st.failTimer = null; }
     if (st.retryTimer) { clearTimeout(st.retryTimer); st.retryTimer = null; }
   }
 
@@ -336,19 +334,6 @@ function createApp({
     bus.emit('session-expired', { userId });
   }
 
-  // 失败通知: 连续失败超过 reloginFailNotifyMs 才推一次; 等待 2FA 不算失败
-  function scheduleFailNotify(userId, st, user) {
-    if (st.failNotified || st.failTimer) return;
-    st.failTimer = setTimeout(() => {
-      st.failTimer = null;
-      const cur = relogin.get(userId);
-      if (!cur || cur.failedSince === 0 || cur.pending) return; // 已恢复或等待 2FA: 不通知
-      cur.failNotified = true;
-      notifyRelogin(user, '⚠️ 自动重新登录失败, 仍在退避重试, 请留意网络/邮箱', '⚠️ 自动重登失败').catch(() => {});
-    }, reloginFailNotifyMs);
-    if (st.failTimer.unref) st.failTimer.unref();
-  }
-
   // 指数退避重试(与 WS/自动登录一致: base*2^n 封顶 max + jitter)
   function scheduleReloginRetry(userId, st, reason, savedJar) {
     if (st.retryTimer) return;
@@ -363,16 +348,11 @@ function createApp({
     if (st.retryTimer.unref) st.retryTimer.unref();
   }
 
-  // 重登成功后的通知策略: 5 分钟内恢复不发任何通知; 超过 5 分钟补发成功通知
+  // 重登成功: 清理退避状态; 故障/恢复通知由 monitor 统一故障窗口负责
   function finishReloginSuccess(userId, st) {
-    const wasFailing = st.failedSince !== 0;
-    const duration = wasFailing ? now() - st.failedSince : 0;
     clearReloginTimers(st);
-    st.failedSince = 0;
-    st.failNotified = false;
     st.retryAttempt = 0;
     st.pending = null;
-    return wasFailing && duration >= reloginFailNotifyMs;
   }
 
   // 单次重登: 携带旧 cookies + 密码登录(VRCX 同款, 换 IP 免 2FA)
@@ -408,18 +388,15 @@ function createApp({
       if (!result || !result.id) throw new Error('relogin response missing user');
       await finalizeLogin(vrcapi, result, { rememberMe: true, username, password: user.password });
       log.info(`[server] 自动重新登录成功: ${userId} (${reason})`);
-      const notifySuccess = finishReloginSuccess(userId, st);
+      finishReloginSuccess(userId, st);
       broadcast('relogin-ok', { userId });
-      if (notifySuccess) await notifyRelogin(user, `🔄 检测到会话失效(${reason}), 已自动重新登录`, '🔄 已自动重新登录');
     } catch (e) {
       log.warn(`[server] 自动重新登录失败(${userId}): ${e.message}`);
       if (e && e.status === 401) {
         giveUpRelogin(userId); // 密码错误等凭证问题: 立即放弃, 不退避
         return;
       }
-      // 网络/429/5xx: 记录失败起点, 5 分钟后才通知, 指数退避重试
-      if (!st.failedSince) st.failedSince = now();
-      scheduleFailNotify(userId, st, user);
+      // 网络/429/5xx: 指数退避重试(通知由 monitor 故障窗口负责)
       scheduleReloginRetry(userId, st, reason, savedJar);
     } finally {
       st.inFlight = false;

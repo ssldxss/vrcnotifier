@@ -38,7 +38,10 @@ function buildOnlineList(friends) {
   const renderTable = (rows) => `| 昵称 | 世界 |\n| :--- | :--- |\n${rows.map((r) => `| ${r.emoji} ${r.name} | ${r.world} |`).join('\n')}`;
   const sections = [];
   if (fav.length) sections.push(`## ⭐ 特别关注\n\n${renderTable(toRows(fav))}`);
-  if (online.length) sections.push(`## 其他在线\n\n${renderTable(toRows(online))}`);
+  if (online.length) {
+    // 没有特别关注时不再加「其他在线」小标题, 表格直接跟在主标题下
+    sections.push(fav.length ? `## 其他在线\n\n${renderTable(toRows(online))}` : renderTable(toRows(online)));
+  }
   const header = `# 在线列表 (${onlineCount})`;
   const markdown = `${header}\n\n${sections.join('\n\n')}`;
   // 纯文本: 同样分块
@@ -46,7 +49,10 @@ function buildOnlineList(friends) {
   const nameW = Math.max(...allRows.map((r) => displayWidth(r.name)));
   const textParts = [`【在线列表】${onlineCount} 人在线`];
   if (fav.length) textParts.push(`【特别关注】\n${toRows(fav).map((r) => `${r.emoji} ${padEnd(r.name, nameW)}  ${r.world}`).join('\n')}`);
-  if (online.length) textParts.push(`【其他在线】\n${toRows(online).map((r) => `${r.emoji} ${padEnd(r.name, nameW)}  ${r.world}`).join('\n')}`);
+  if (online.length) {
+    const onlineText = toRows(online).map((r) => `${r.emoji} ${padEnd(r.name, nameW)}  ${r.world}`).join('\n');
+    textParts.push(fav.length ? `【其他在线】\n${onlineText}` : onlineText);
+  }
   const text = textParts.join('\n');
   return { text, markdown };
 }

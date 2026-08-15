@@ -79,7 +79,7 @@ function setup(opts = {}) {
     avatarCache,
     healthMonitor,
     vrcStatus,
-    config: { accessToken: opts.accessToken || null, confirmDelayMs: 30000, dedupeWindowMs: 30000, snapshotIntervalMs: 3600000, watchdogMs: 600000, autoLoginRetryBaseMs: opts.autoLoginRetryBaseMs ?? 5000, autoLoginRetryMaxMs: opts.autoLoginRetryMaxMs ?? 3600000, autoLoginRetryJitterMs: opts.autoLoginRetryJitterMs ?? 1000, reloginMaxPerHour: opts.reloginMaxPerHour ?? 5, reloginFailNotifyMs: opts.reloginFailNotifyMs ?? 300000, reloginRetryBaseMs: opts.reloginRetryBaseMs ?? 5000, reloginRetryMaxMs: opts.reloginRetryMaxMs ?? 3600000, reloginRetryJitterMs: opts.reloginRetryJitterMs ?? 0 },
+    config: { accessToken: opts.accessToken || null, confirmDelayMs: 30000, dedupeWindowMs: 30000, snapshotIntervalMs: 3600000, watchdogMs: 600000, autoLoginRetryBaseMs: opts.autoLoginRetryBaseMs ?? 5000, autoLoginRetryMaxMs: opts.autoLoginRetryMaxMs ?? 3600000, autoLoginRetryJitterMs: opts.autoLoginRetryJitterMs ?? 1000, reloginMaxPerHour: opts.reloginMaxPerHour ?? 5, reloginRetryBaseMs: opts.reloginRetryBaseMs ?? 5000, reloginRetryMaxMs: opts.reloginRetryMaxMs ?? 3600000, reloginRetryJitterMs: opts.reloginRetryJitterMs ?? 0 },
     logger: opts.logger || silent,
     now: opts.now || (() => 1000000),
     publicDir: null,
@@ -315,8 +315,8 @@ test('rememberMe login saves password, logout clears it', async (t) => {
   assert.equal(ctx.db.getUserByVrcId('usr_me').password, null, '登出清除密码');
 });
 
-test('auto-relogin quick recovery sends no notification (5min window)', async (t) => {
-  const ctx = setup({ reloginFailNotifyMs: 1000, reloginRetryBaseMs: 50, reloginRetryJitterMs: 0 });
+test('auto-relogin retries after network failure and succeeds (notifications handled by monitor)', async (t) => {
+  const ctx = setup({ reloginRetryBaseMs: 50, reloginRetryJitterMs: 0 });
   t.after(() => close(ctx));
   await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: true });
   let calls = 0;
@@ -325,22 +325,22 @@ test('auto-relogin quick recovery sends no notification (5min window)', async (t
     if (calls === 1) { const e = new Error('网络错误'); e.status = -1; throw e; }
     return { id: 'usr_me', displayName: '我', currentAvatarImageUrl: null };
   };
+  const connectsBefore = ctx.pipeline.connects.length;
   ctx.bus.emit('relogin-needed', { userId: 'usr_me', reason: 'IP 变化' });
   await sleep(200);
   assert.ok(calls >= 2, '退避后重试成功');
-  assert.equal(ctx.notifications.filter((n) => String(n.change.notificationBody).includes('自动重新登录') || String(n.change.notificationBody).includes('重登失败')).length, 0, '5 分钟内恢复不发任何通知');
+  assert.ok(ctx.pipeline.connects.length > connectsBefore, '重登成功后重新激活会话');
 });
 
-test('auto-relogin failure beyond 5min sends exactly one failure notice', async (t) => {
-  const ctx = setup({ reloginFailNotifyMs: 60, reloginRetryBaseMs: 40, reloginRetryJitterMs: 0 });
+test('auto-relogin network failure keeps retrying without deactivating (no server-side notify)', async (t) => {
+  const ctx = setup({ reloginRetryBaseMs: 40, reloginRetryJitterMs: 0 });
   t.after(() => close(ctx));
   await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: true });
   ctx.vrcapi.login = async () => { const e = new Error('网络错误'); e.status = -1; throw e; };
   ctx.bus.emit('relogin-needed', { userId: 'usr_me', reason: 'IP 变化' });
-  await sleep(220);
-  const fails = ctx.notifications.filter((n) => String(n.change.notificationBody).includes('自动重新登录失败'));
-  assert.equal(fails.length, 1, '失败超过阈值只通知一次');
-  assert.equal(ctx.pipeline.disconnects.length, 0, '仍在退避重试, 未停用会话');
+  await sleep(150);
+  assert.equal(ctx.pipeline.disconnects.length, 0, '网络失败不退避停用, 持续重试');
+  assert.equal(ctx.notifications.filter((n) => String(n.change.notificationBody).includes('自动重新登录失败')).length, 0, '失败通知由 monitor 故障窗口统一负责');
 });
 
 test('auto-relogin with wrong password gives up and deactivates', async (t) => {
