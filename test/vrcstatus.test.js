@@ -85,11 +85,11 @@ test('vrcstatus: minor maps to degraded with summary, major maps to outage', asy
   assert.equal(st2.summary, 'API');
 });
 
-test('vrcstatus: fetch failure maps to degraded with error detail', async () => {
+test('vrcstatus: fetch failure maps to unknown with error detail', async () => {
   const f = fakeFetch({ 'status.json': { throw: 'network down' } });
   const s = createVrcStatus({ fetchImpl: f, logger: silent });
   const st = await s.status();
-  assert.equal(st.state, 'degraded');
-  assert.equal(st.description, '无法获取 VRC 服务器状态');
+  assert.equal(st.state, 'unknown');
+  assert.equal(st.description, '无法获取');
   assert.equal(st.summary, 'network down');
 });

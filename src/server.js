@@ -328,6 +328,21 @@ function createApp({
     return res.json({ ok });
   });
 
+  // VRChat 登录错误 → 用户可操作提示
+  function loginError(e) {
+    const m = String((e && e.message) || '');
+    log.warn(`[server] 登录错误原始信息: status=${e && e.status} message=${m}`);
+    // 登录接口的 429 报文固定带邮箱验证文案(实测), 一律按限流提示;
+    // 邮箱提示只留给非 429 状态且报文含 verification link 的情况
+    if ((e && e.status) === 429) {
+      return { status: 429, error: '登录过于频繁/失败过多, 请稍后再试' };
+    }
+    if (m.includes('verification link')) {
+      return { status: 429, error: '登录地点过多, 请检查邮箱, 点击验证链接后重试' };
+    }
+    return null;
+  }
+
   app.post('/api/login', async (req, res) => {
     const { username, password, rememberMe } = req.body || {};
     if (!username || !password) return res.status(400).json({ error: '缺少用户名或密码' });
@@ -349,6 +364,11 @@ function createApp({
       return res.json({ ok: true, user: selfUserForClient(user) });
     } catch (e) {
       if (e.status === 401) return res.status(401).json({ error: '用户名或密码错误' });
+      const friendly = loginError(e);
+      if (friendly) {
+        if (friendly.error.startsWith('登录过于频繁')) log.warn(`[server] 登录被限流: ${e.message}`);
+        return res.status(friendly.status).json({ error: friendly.error });
+      }
       log.error(`[server] 登录失败: ${e.message}`);
       return res.status(500).json({ error: '登录失败, 请稍后重试' });
     }
@@ -371,12 +391,20 @@ function createApp({
       if (e.status === 400 || e.status === 401) {
         return res.status(400).json({ error: '验证码错误或已过期' });
       }
+      const friendly = loginError(e);
+      if (friendly) {
+        if (friendly.error.startsWith('登录过于频繁')) log.warn(`[server] 2FA 被限流: ${e.message}`);
+        return res.status(friendly.status).json({ error: friendly.error });
+      }
       log.error(`[server] 2FA 验证失败: ${e.message}`);
       return res.status(500).json({ error: '验证失败, 请重试' });
     }
   });
 
   app.post('/api/logout', async (req, res) => {
+    const body = req.body || {};
+    const clearFriends = !!body.clearFriends;
+    const clearCache = !!body.clearCache;
     if (!current) return res.json({ ok: true });
     if (autoLoginRetryTimer) { clearTimeout(autoLoginRetryTimer); autoLoginRetryTimer = null; }
     autoLoginRetryAttempt = 0;
@@ -391,6 +419,16 @@ function createApp({
     try { monitor.deactivateUser(userId); } catch (e) { log.warn(`[server] 停用失败: ${e.message}`); }
     sessionStore.delete(userId);
     db.clearCookies(dbId);
+    if (clearFriends) {
+      const r = db.clearFriends();
+      log.info(`[server] 登出全清数据(保留设置与世界名缓存): 好友 ${r.friends}, 配置 ${r.configs}, 去重 ${r.dedupe}, 绑定 ${r.bindings}, 用户 ${r.users}`);
+    }
+    if (clearCache) {
+      const worlds = db.clearWorldCache();
+      let avatars = 0;
+      try { if (avatarCache) avatars = avatarCache.clear(); } catch (e) { log.warn(`[server] 头像缓存清理失败: ${e.message}`); }
+      log.info(`[server] 登出清除缓存: 世界名 ${worlds} 条, 头像 ${avatars} 个`);
+    }
     log.info(`[server] 登出: ${userId}`);
     current = null;
     return res.json({ ok: true });

@@ -74,8 +74,8 @@ function createVrcStatus({
       } catch (e) {
         log.warn(`[vrcstatus] 状态获取失败: ${e.message}`);
         cache = {
-          state: 'degraded',
-          description: '无法获取 VRC 服务器状态',
+          state: 'unknown',
+          description: '无法获取',
           summary: e && e.message ? e.message : String(e),
           updatedAt: null,
           fetchedAt: now()

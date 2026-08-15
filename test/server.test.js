@@ -19,7 +19,10 @@ function setup(opts = {}) {
   const notifications = [];
   const vrcapi = {
     jar: opts.jar || new CookieJar(),
-    login: async (username, password) => (opts.loginResult !== undefined ? opts.loginResult : { id: 'usr_me', displayName: '我', currentAvatarImageUrl: null }),
+    login: async (username, password) => {
+      if (opts.loginError) throw opts.loginError;
+      return opts.loginResult !== undefined ? opts.loginResult : { id: 'usr_me', displayName: '我', currentAvatarImageUrl: null };
+    },
     verify2fa: async (kind, code) => { vrcapi.verifyCalls = vrcapi.verifyCalls || []; vrcapi.verifyCalls.push({ kind, code }); return { verified: true }; },
     me: async () => (opts.currentUser !== undefined ? opts.currentUser : { id: 'usr_me', displayName: '我', onlineFriends: [], activeFriends: [], offlineFriends: [] }),
     authToken: async () => ({ token: 'authcookie_test' }),
@@ -207,6 +210,33 @@ test('login with 2FA: temp session then verify code completes login', async (t) 
   assert.equal(again.status, 400);
 });
 
+test('login with 429 always returns rate-limit guidance (even with email text)', async (t) => {
+  const err = Object.assign(new Error('Logging in from too many places? Check your email for verification link'), { status: 429 });
+  const ctx = setup({ loginError: err });
+  t.after(() => close(ctx));
+  const r = await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: false });
+  assert.equal(r.status, 429);
+  assert.equal(r.data.error, '登录过于频繁/失败过多, 请稍后再试');
+});
+
+test('login with non-429 email-verification error returns email guidance', async (t) => {
+  const err = Object.assign(new Error('Logging in from too many places? Check your email for verification link'), { status: 403 });
+  const ctx = setup({ loginError: err });
+  t.after(() => close(ctx));
+  const r = await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: false });
+  assert.equal(r.status, 429);
+  assert.equal(r.data.error, '登录地点过多, 请检查邮箱, 点击验证链接后重试');
+});
+
+test('login with plain 429 returns rate-limit guidance', async (t) => {
+  const err = Object.assign(new Error('HTTP 429'), { status: 429 });
+  const ctx = setup({ loginError: err });
+  t.after(() => close(ctx));
+  const r = await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: false });
+  assert.equal(r.status, 429);
+  assert.equal(r.data.error, '登录过于频繁/失败过多, 请稍后再试');
+});
+
 test('logout deactivates session and clears saved cookies', async (t) => {
   const ctx = setup();
   t.after(() => close(ctx));
@@ -232,6 +262,46 @@ test('logout stays effective when a debounced cookie save is pending', async (t)
   const row = ctx.db.getUserByVrcId('usr_me');
   assert.equal(row.cookie_data, null, '登出后不应被防抖定时器写回');
   assert.equal(row.remember_me, 0);
+});
+
+test('logout with clearFriends/clearCache clears all data except settings and world cache', async (t) => {
+  const ctx = setup();
+  t.after(() => close(ctx));
+  await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: true });
+  const dbId = ctx.db.getUserByVrcId('usr_me').id;
+  ctx.db.upsertFriend(dbId, 'usr_f1', { displayName: 'F1', state: 'online' });
+  ctx.db.upsertConfig(dbId, 'usr_f1', { favorite: true });
+  ctx.db.upsertQqBinding(dbId, { appId: 'app1', openid: 'open1' });
+  ctx.db.markNotified('k1', 999999);
+  ctx.db.setSetting('qq_enabled', '1');
+  ctx.db.upsertWorldCache('wrld_1', '世界一');
+  const avatarFile = path.join(ctx.avatarCache.dir, 'file_test_1_256');
+  fs.writeFileSync(avatarFile, 'fake-image');
+  const r = await post(ctx, '/api/logout', { clearFriends: true, clearCache: true });
+  assert.equal(r.data.ok, true);
+  assert.equal(ctx.db.listFriends(dbId).length, 0, '好友数据已清除');
+  assert.equal(ctx.db.listConfigs(dbId).length, 0, '监控配置已清除');
+  assert.equal(ctx.db.listUsers().length, 0, '用户表已清除');
+  assert.equal(ctx.db.getQqBinding(dbId, 'app1'), null, 'QQ 绑定已清除');
+  assert.equal(ctx.db.isDuplicate('k1', 60000, 1000000), false, '通知去重已清除');
+  assert.equal(ctx.db.getSetting('qq_enabled'), '1', '设置表保留');
+  assert.equal(ctx.db.getWorldCache('wrld_1'), null, '世界名缓存已清除');
+  assert.equal(fs.existsSync(avatarFile), false, '头像缓存文件已清除');
+});
+
+test('logout without clear options keeps all data', async (t) => {
+  const ctx = setup();
+  t.after(() => close(ctx));
+  await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: true });
+  const dbId = ctx.db.getUserByVrcId('usr_me').id;
+  ctx.db.upsertFriend(dbId, 'usr_f1', { displayName: 'F1', state: 'online' });
+  ctx.db.setSetting('qq_enabled', '1');
+  ctx.db.upsertWorldCache('wrld_1', '世界一');
+  await post(ctx, '/api/logout', {});
+  assert.equal(ctx.db.listFriends(dbId).length, 1, '默认不清好友');
+  assert.equal(ctx.db.listUsers().length, 1, '默认不清用户');
+  assert.equal(ctx.db.getSetting('qq_enabled'), '1', '默认不清设置');
+  assert.ok(ctx.db.getWorldCache('wrld_1'), '默认不清缓存');
 });
 
 test('login with rememberMe=false clears previously saved cookies', async (t) => {

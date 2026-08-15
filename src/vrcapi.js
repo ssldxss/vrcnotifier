@@ -82,6 +82,7 @@ function createVrcApi({ baseUrl = 'https://api.vrchat.cloud/api/1', userAgent = 
       let msg = `HTTP ${res.status}`;
       if (data && data.error) msg = data.error.message || msg;
       else if (data && data.message) msg = data.message;
+      log.warn(`[vrcapi] 错误响应: ${method} ${endpoint} (${res.status}): ${msg}`);
       throw new ApiError(res.status, String(msg), data);
     }
     return data;

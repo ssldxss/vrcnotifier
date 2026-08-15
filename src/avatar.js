@@ -137,7 +137,19 @@ function createAvatarCache({ dir, logger = null, fetchImpl = fetch, userAgent = 
     return removed;
   }
 
-  return { thumbKeyFromUrl, cached, touch, serve, sweep, dir };
+  // 清空全部缓存文件(登出"清除缓存"用)
+  function clear() {
+    ensureDir();
+    let removed = 0;
+    for (const name of fs.readdirSync(dir)) {
+      if (name.startsWith('.')) continue;
+      try { fs.unlinkSync(path.join(dir, name)); removed++; } catch (e) { /* 跳过无法删除的文件 */ }
+    }
+    if (removed > 0) log.info(`[avatar] 已清空缓存 ${removed} 个`);
+    return removed;
+  }
+
+  return { thumbKeyFromUrl, cached, touch, serve, sweep, clear, dir };
 }
 
 module.exports = { createAvatarCache, toThumbUrl, detectImageType };

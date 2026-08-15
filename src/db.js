@@ -144,6 +144,12 @@ function createDb(location = ':memory:', opts = {}) {
     saveCookies: db.prepare("UPDATE users SET cookie_data = ?, remember_me = 1, saved_username = ?, updated_at = datetime('now') WHERE id = ?"),
     clearOtherCookies: db.prepare("UPDATE users SET cookie_data = NULL, remember_me = 0, saved_username = NULL, updated_at = datetime('now') WHERE remember_me = 1 AND id != ?"),
     clearCookies: db.prepare("UPDATE users SET cookie_data = NULL, remember_me = 0, saved_username = NULL, updated_at = datetime('now') WHERE id = ?"),
+    clearAllFriends: db.prepare('DELETE FROM friends'),
+    clearAllConfigs: db.prepare('DELETE FROM monitor_config'),
+    clearAllDedupe: db.prepare('DELETE FROM notif_dedupe'),
+    clearAllBindings: db.prepare('DELETE FROM qq_bindings'),
+    clearAllUsers: db.prepare('DELETE FROM users'),
+    clearWorldCache: db.prepare('DELETE FROM world_cache'),
     upsertFriend: db.prepare(`INSERT INTO friends (user_id, friend_vrchat_id, display_name, avatar_url, avatar_thumb_url, state, status, world_id, world_name, status_description, platform, last_seen)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(user_id, friend_vrchat_id) DO UPDATE SET
@@ -319,6 +325,19 @@ function createDb(location = ':memory:', opts = {}) {
     },
     getConfig: (dbId, friendVrcId) => stmt.getConfig.get(dbId, friendVrcId) || null,
     listConfigs: (dbId) => stmt.listConfigs.all(dbId),
+    // 登出全清: 除 settings 与世界名缓存外的全部数据(好友/监控配置/通知去重/QQ绑定/用户)
+    clearFriends() {
+      const friends = stmt.clearAllFriends.run();
+      const configs = stmt.clearAllConfigs.run();
+      const dedupe = stmt.clearAllDedupe.run();
+      const bindings = stmt.clearAllBindings.run();
+      const users = stmt.clearAllUsers.run();
+      return {
+        friends: friends.changes, configs: configs.changes,
+        dedupe: dedupe.changes, bindings: bindings.changes, users: users.changes
+      };
+    },
+    clearWorldCache() { return stmt.clearWorldCache.run().changes; },
     // settings
     getSetting(key) { const r = stmt.getSetting.get(key); return r ? r.value : null; },
     setSetting(key, value) { stmt.setSetting.run(key, value); },
