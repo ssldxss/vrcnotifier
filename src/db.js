@@ -116,6 +116,8 @@ function createDb(location = ':memory:', opts = {}) {
   try { db.exec('ALTER TABLE users ADD COLUMN world_id TEXT'); } catch (e) { /* 已存在 */ }
   try { db.exec('ALTER TABLE users ADD COLUMN world_name TEXT'); } catch (e) { /* 已存在 */ }
   try { db.exec('ALTER TABLE users ADD COLUMN last_seen INTEGER'); } catch (e) { /* 已存在 */ }
+  // 自动重登用密码(记住我时保存, 与 VRCX 保存凭据同款)
+  try { db.exec('ALTER TABLE users ADD COLUMN password TEXT'); } catch (e) { /* 已存在 */ }
   const stmt = {
     upsertUser: db.prepare(`INSERT INTO users (vrchat_user_id, username, display_name, avatar_url, avatar_thumb_url, status, status_description, platform, state)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active')
@@ -143,7 +145,8 @@ function createDb(location = ':memory:', opts = {}) {
     getSavedLogin: db.prepare("SELECT * FROM users WHERE saved_username IS NOT NULL AND remember_me = 1 ORDER BY updated_at DESC LIMIT 1"),
     saveCookies: db.prepare("UPDATE users SET cookie_data = ?, remember_me = 1, saved_username = ?, updated_at = datetime('now') WHERE id = ?"),
     clearOtherCookies: db.prepare("UPDATE users SET cookie_data = NULL, remember_me = 0, saved_username = NULL, updated_at = datetime('now') WHERE remember_me = 1 AND id != ?"),
-    clearCookies: db.prepare("UPDATE users SET cookie_data = NULL, remember_me = 0, saved_username = NULL, updated_at = datetime('now') WHERE id = ?"),
+    clearCookies: db.prepare("UPDATE users SET cookie_data = NULL, remember_me = 0, saved_username = NULL, password = NULL, updated_at = datetime('now') WHERE id = ?"),
+    savePassword: db.prepare("UPDATE users SET password = ?, updated_at = datetime('now') WHERE id = ?"),
     clearAllFriends: db.prepare('DELETE FROM friends'),
     clearAllConfigs: db.prepare('DELETE FROM monitor_config'),
     clearAllDedupe: db.prepare('DELETE FROM notif_dedupe'),
@@ -285,6 +288,8 @@ function createDb(location = ':memory:', opts = {}) {
       stmt.saveCookies.run(cookieData, username ?? null, dbId);
     },
     clearCookies(dbId) { stmt.clearCookies.run(dbId); },
+    // 自动重登用: 记住我时保存密码, 与 cookie 一起在登出时清除
+    savePassword(dbId, password) { stmt.savePassword.run(password ?? null, dbId); },
     // QQ \u673a\u5668\u4eba\u7ed1\u5b9a (\u6bcf\u7528\u6237\u6bcf app \u4e00\u4efd)
     upsertQqBinding(dbId, { appId, openid, nickname, at }) {
       stmt.upsertQqBinding.run(dbId, appId, openid, nickname ?? null, at ?? Date.now());

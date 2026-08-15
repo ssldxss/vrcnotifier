@@ -73,13 +73,13 @@ function setup(opts = {}) {
     })
   });
   const logStream = opts.logStream || createLogStream();
-  const { app, autoLogin, getConnectionStatus } = createApp({
+  const { app, autoLogin, getConnectionStatus, handleAuthCommand } = createApp({
     db, notifier, pipeline, monitor, sessionStore,
     vrcapiFactory: (jar) => (jar ? { ...vrcapi, jar } : vrcapi),
     avatarCache,
     healthMonitor,
     vrcStatus,
-    config: { accessToken: opts.accessToken || null, confirmDelayMs: 30000, dedupeWindowMs: 30000, snapshotIntervalMs: 3600000, watchdogMs: 600000, autoLoginRetryBaseMs: opts.autoLoginRetryBaseMs ?? 5000, autoLoginRetryMaxMs: opts.autoLoginRetryMaxMs ?? 3600000, autoLoginRetryJitterMs: opts.autoLoginRetryJitterMs ?? 1000 },
+    config: { accessToken: opts.accessToken || null, confirmDelayMs: 30000, dedupeWindowMs: 30000, snapshotIntervalMs: 3600000, watchdogMs: 600000, autoLoginRetryBaseMs: opts.autoLoginRetryBaseMs ?? 5000, autoLoginRetryMaxMs: opts.autoLoginRetryMaxMs ?? 3600000, autoLoginRetryJitterMs: opts.autoLoginRetryJitterMs ?? 1000, reloginMaxPerHour: opts.reloginMaxPerHour ?? 5, reloginFailNotifyMs: opts.reloginFailNotifyMs ?? 300000, reloginRetryBaseMs: opts.reloginRetryBaseMs ?? 5000, reloginRetryMaxMs: opts.reloginRetryMaxMs ?? 3600000, reloginRetryJitterMs: opts.reloginRetryJitterMs ?? 0 },
     logger: opts.logger || silent,
     now: opts.now || (() => 1000000),
     publicDir: null,
@@ -87,7 +87,7 @@ function setup(opts = {}) {
   });
   const server = app.listen(0);
   const base = 'http://127.0.0.1:' + server.address().port;
-  return { db, bus, vrcapi, pipeline, notifier, monitor, sessionStore, app, autoLogin, getConnectionStatus, server, base, notifications, avatarCache, avatarCalls, accessToken: opts.accessToken || null, logStream };
+  return { db, bus, vrcapi, pipeline, notifier, monitor, sessionStore, app, autoLogin, getConnectionStatus, handleAuthCommand, server, base, notifications, avatarCache, avatarCalls, accessToken: opts.accessToken || null, logStream };
 }
 
 async function close(t) { await new Promise((r) => t.server.close(r)); }
@@ -302,6 +302,99 @@ test('logout without clear options keeps all data', async (t) => {
   assert.equal(ctx.db.listUsers().length, 1, '默认不清用户');
   assert.equal(ctx.db.getSetting('qq_enabled'), '1', '默认不清设置');
   assert.ok(ctx.db.getWorldCache('wrld_1'), '默认不清缓存');
+});
+
+// ---------- 自动重登 / 2FA ----------
+
+test('rememberMe login saves password, logout clears it', async (t) => {
+  const ctx = setup();
+  t.after(() => close(ctx));
+  await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: true });
+  assert.equal(ctx.db.getUserByVrcId('usr_me').password, 'pw', '记住我时保存密码');
+  await post(ctx, '/api/logout', {});
+  assert.equal(ctx.db.getUserByVrcId('usr_me').password, null, '登出清除密码');
+});
+
+test('auto-relogin quick recovery sends no notification (5min window)', async (t) => {
+  const ctx = setup({ reloginFailNotifyMs: 1000, reloginRetryBaseMs: 50, reloginRetryJitterMs: 0 });
+  t.after(() => close(ctx));
+  await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: true });
+  let calls = 0;
+  ctx.vrcapi.login = async () => {
+    calls++;
+    if (calls === 1) { const e = new Error('网络错误'); e.status = -1; throw e; }
+    return { id: 'usr_me', displayName: '我', currentAvatarImageUrl: null };
+  };
+  ctx.bus.emit('relogin-needed', { userId: 'usr_me', reason: 'IP 变化' });
+  await sleep(200);
+  assert.ok(calls >= 2, '退避后重试成功');
+  assert.equal(ctx.notifications.filter((n) => String(n.change.notificationBody).includes('自动重新登录') || String(n.change.notificationBody).includes('重登失败')).length, 0, '5 分钟内恢复不发任何通知');
+});
+
+test('auto-relogin failure beyond 5min sends exactly one failure notice', async (t) => {
+  const ctx = setup({ reloginFailNotifyMs: 60, reloginRetryBaseMs: 40, reloginRetryJitterMs: 0 });
+  t.after(() => close(ctx));
+  await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: true });
+  ctx.vrcapi.login = async () => { const e = new Error('网络错误'); e.status = -1; throw e; };
+  ctx.bus.emit('relogin-needed', { userId: 'usr_me', reason: 'IP 变化' });
+  await sleep(220);
+  const fails = ctx.notifications.filter((n) => String(n.change.notificationBody).includes('自动重新登录失败'));
+  assert.equal(fails.length, 1, '失败超过阈值只通知一次');
+  assert.equal(ctx.pipeline.disconnects.length, 0, '仍在退避重试, 未停用会话');
+});
+
+test('auto-relogin with wrong password gives up and deactivates', async (t) => {
+  const ctx = setup({ reloginRetryBaseMs: 40, reloginRetryJitterMs: 0 });
+  t.after(() => close(ctx));
+  await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: true });
+  ctx.vrcapi.login = async () => { const e = new Error('Invalid Username/Email or Password'); e.status = 401; throw e; };
+  ctx.bus.emit('relogin-needed', { userId: 'usr_me', reason: 'IP 变化' });
+  await sleep(60);
+  assert.ok(ctx.pipeline.disconnects.length >= 1, '密码错误: 停用会话');
+  assert.equal(ctx.notifications.filter((n) => String(n.change.notificationBody).includes('已自动重新登录')).length, 0);
+});
+
+test('auto-relogin with 2FA waits for QQ code, resend command re-logins', async (t) => {
+  const ctx = setup({ loginResult: { requiresTwoFactorAuth: ['emailOtp'] } });
+  t.after(() => close(ctx));
+  const dbId = ctx.db.upsertUser('usr_me', { username: 'me' });
+  ctx.db.savePassword(dbId, 'pw');
+  ctx.vrcapi.verifyCalls = ctx.vrcapi.verifyCalls || [];
+  // 无等待会话时验证码消息回落(null, 走在线列表)
+  assert.equal(await ctx.handleAuthCommand(dbId, '654321'), null);
+  ctx.bus.emit('relogin-needed', { userId: 'usr_me', reason: 'IP 变化' });
+  await sleep(50);
+  assert.ok(ctx.notifications.some((n) => String(n.change.notificationBody).includes('两步验证')), '2FA 提示已推送');
+  // 重发验证码: 重新走登录(不消耗频控)
+  const resend = await ctx.handleAuthCommand(dbId, '重发验证码');
+  assert.ok(resend.text.includes('已重新发送验证邮件'));
+  await sleep(50);
+  assert.equal(ctx.vrcapi.verifyCalls.length, 0, '重发走登录, 不直接验证');
+  // 重发后的登录仍返回 2FA, 继续等码
+  assert.ok(ctx.notifications.filter((n) => String(n.change.notificationBody).includes('两步验证')).length >= 2, '重发后再次提示');
+  const reply = await ctx.handleAuthCommand(dbId, '验证码 123456');
+  assert.equal(reply.text, '✅ 验证成功, 已重新登录');
+  assert.deepEqual(ctx.vrcapi.verifyCalls, [{ kind: 'emailOtp', code: '123456' }]);
+});
+
+test('Unauthorized 401 asks 2FA with existing session, QQ code resumes', async (t) => {
+  const ctx = setup();
+  t.after(() => close(ctx));
+  const dbId = ctx.db.upsertUser('usr_me', { username: 'me' });
+  ctx.sessionStore.set('usr_me', ctx.vrcapi);
+  ctx.vrcapi.me = async () => {
+    const e = new Error('"Unauthorized"');
+    e.status = 401;
+    e.data = { requiresTwoFactorAuth: ['totp'] };
+    throw e;
+  };
+  ctx.bus.emit('unauthorized-2fa', { userId: 'usr_me' });
+  await sleep(50);
+  assert.ok(ctx.notifications.some((n) => String(n.change.notificationBody).includes('两步验证')), 'Unauthorized 触发 2FA 提示');
+  ctx.vrcapi.me = async () => ({ id: 'usr_me', displayName: '我', currentAvatarImageUrl: null });
+  const reply = await ctx.handleAuthCommand(dbId, '2fa 654321');
+  assert.equal(reply.text, '✅ 验证成功, 已重新登录');
+  assert.deepEqual(ctx.vrcapi.verifyCalls, [{ kind: 'totp', code: '654321' }]);
 });
 
 test('login with rememberMe=false clears previously saved cookies', async (t) => {

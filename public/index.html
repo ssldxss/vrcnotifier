@@ -1016,6 +1016,22 @@ h3.chan { font-size: 13px; margin: 16px 0 6px; color: var(--text-2); font-weight
   </div>
 </div>
 
+<!-- 两步验证弹窗(自动重登/会话挂起时, 与 QQ 回复验证码等效) -->
+<div class='modal-overlay hidden' id='twofaReloginModal'>
+  <div class='modal' role='dialog' aria-modal='true' aria-labelledby='twofaReloginTitle'>
+    <h2 id='twofaReloginTitle'>需要两步验证</h2>
+    <p class='muted'>VRChat 要求两步验证, 请输入验证码(也可在 QQ 回复: 验证码 xxxxxx)</p>
+    <div class='modal-body'>
+      <div class='field'><label>验证码</label><input type='text' id='reloginCode' placeholder='6 位数字' inputmode='numeric' autocomplete='off'></div>
+    </div>
+    <p class='muted' id='relogin2faMsg'></p>
+    <div class='modal-actions'>
+      <button id='relogin2faCancel' class='secondary'>取消</button>
+      <button id='relogin2faConfirm'>确定</button>
+    </div>
+  </div>
+</div>
+
 <script>
 
 'use strict';
@@ -1317,6 +1333,29 @@ $('#logoutConfirm').addEventListener('click', async () => {
   } finally {
     location.reload(); // 登出后强制刷新界面, 重置全部前端状态
   }
+});
+
+// 两步验证弹窗(自动重登/会话挂起): 提交验证码, 成功由 SSE relogin-ok 刷新
+$('#relogin2faConfirm').addEventListener('click', async () => {
+  const code = $('#reloginCode').value.trim();
+  if (!/^(\d{6}|\d{4}[- ]\d{4})$/.test(code)) {
+    $('#relogin2faMsg').textContent = '请输入 6 位或 4-4 位验证码';
+    return;
+  }
+  const btn = $('#relogin2faConfirm');
+  btn.disabled = true;
+  $('#relogin2faMsg').textContent = '验证中...';
+  const r = await api('POST', '/api/relogin/2fa', { code });
+  if (r.data.ok) {
+    $('#relogin2faMsg').textContent = '验证成功, 正在刷新...';
+    setTimeout(() => location.reload(), 400);
+  } else {
+    btn.disabled = false;
+    $('#relogin2faMsg').textContent = r.data.error || '验证失败, 请重试';
+  }
+});
+$('#relogin2faCancel').addEventListener('click', () => {
+  $('#twofaReloginModal').classList.add('hidden');
 });
 
 function enterMain() {
@@ -1909,6 +1948,13 @@ function connectEvents() {
     if (d) renderQqStatus({ configured: true, connected: !!d.connected });
   });
   evt.addEventListener('session-expired', () => { currentUser = null; showView('login'); });
+  evt.addEventListener('relogin-ok', () => { location.reload(); }); // 自动重登成功: 刷新回到主界面
+  evt.addEventListener('2fa-needed', () => {
+    $('#reloginCode').value = '';
+    $('#relogin2faMsg').textContent = '';
+    $('#relogin2faConfirm').disabled = false;
+    $('#twofaReloginModal').classList.remove('hidden');
+  });
   evt.addEventListener('ws-failure', () => { /* 后端日志已记录 */ });
 }
 

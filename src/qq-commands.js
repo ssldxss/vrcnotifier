@@ -51,10 +51,19 @@ function buildOnlineList(friends) {
   return { text, markdown };
 }
 
-function createQqCommands({ db, logger = null, getStatus = null }) {
+function createQqCommands({ db, logger = null, getStatus = null, onCode = null }) {
   const log = logger || { info: () => {}, warn: () => {}, error: () => {} };
   return async function handleCommand(ctx) {
-    const { dbId } = ctx;
+    const { dbId, content } = ctx;
+    // 优先: 两步验证码 / 重发验证码(等待验证会话时由 onCode 消费, 返回 null 则回落在线列表)
+    if (onCode) {
+      try {
+        const codeReply = await onCode(dbId, content);
+        if (codeReply) return codeReply;
+      } catch (e) {
+        log.warn(`[qq] 验证码处理异常: ${e.message}`);
+      }
+    }
     // 只有在线列表一个功能: 首次提示由绑定消息承担, 任意输入直接输出表格
     const configs = new Map(db.listConfigs(dbId).map((c) => [c.friend_vrchat_id, c]));
     const friends = db.listFriends(dbId).map((f) => ({

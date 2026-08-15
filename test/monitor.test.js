@@ -1,4 +1,4 @@
-﻿const test = require('node:test');
+const test = require('node:test');
 const assert = require('node:assert');
 const { EventEmitter } = require('node:events');
 const { createDb } = require('../src/db');
@@ -10,6 +10,8 @@ function setup(opts = {}) {
   const events = [];
   bus.on('notification', (e) => events.push({ kind: 'notification', ...e }));
   bus.on('session-expired', (e) => events.push({ kind: 'session-expired', ...e }));
+  bus.on('relogin-needed', (e) => events.push({ kind: 'relogin-needed', ...e }));
+  bus.on('unauthorized-2fa', (e) => events.push({ kind: 'unauthorized-2fa', ...e }));
   bus.on('snapshot', (e) => events.push({ kind: 'snapshot', ...e }));
   bus.on('self-state', (e) => events.push({ kind: 'self-state', ...e }));
   const notifications = [];
@@ -410,9 +412,31 @@ test('自定义状态变化受状态开关(notify_status_change)控制', async (
   assert.equal(t.notifications.length, 0, '状态开关关闭时自定义状态变化不通知');
 });
 
-test('session 401 during snapshot emits session-expired and deactivates', async () => {
+test('snapshot 401 Missing Credentials requests auto-relogin and keeps session', async () => {
   const t = setup();
   t.vrcapi.me = async () => { const e = new Error('"Missing Credentials"'); e.status = 401; throw e; };
+  const user = addUser(t.db);
+  addConfig(t.db, user.id, 'usr_f1');
+  await t.monitor.activateUser(user, t.vrcapi);
+  assert.equal(t.events.some((e) => e.kind === 'relogin-needed'), true, '触发自动重登请求');
+  assert.equal(t.events.some((e) => e.kind === 'session-expired'), false, '不直接停用会话');
+  assert.equal(t.pipeline.disconnects.length, 0, '会话保留, 不断开');
+});
+
+test('snapshot 401 Unauthorized requests 2FA and keeps session', async () => {
+  const t = setup();
+  t.vrcapi.me = async () => { const e = new Error('"Unauthorized"'); e.status = 401; throw e; };
+  const user = addUser(t.db);
+  addConfig(t.db, user.id, 'usr_f1');
+  await t.monitor.activateUser(user, t.vrcapi);
+  assert.equal(t.events.some((e) => e.kind === 'unauthorized-2fa'), true, '触发 2FA 请求');
+  assert.equal(t.events.some((e) => e.kind === 'session-expired'), false);
+  assert.equal(t.pipeline.disconnects.length, 0);
+});
+
+test('snapshot 401 other error emits session-expired and deactivates', async () => {
+  const t = setup();
+  t.vrcapi.me = async () => { const e = new Error('HTTP 401'); e.status = 401; throw e; };
   const user = addUser(t.db);
   addConfig(t.db, user.id, 'usr_f1');
   await t.monitor.activateUser(user, t.vrcapi);

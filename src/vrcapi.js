@@ -104,9 +104,13 @@ function createVrcApi({ baseUrl = 'https://api.vrchat.cloud/api/1', userAgent = 
     }
   }
 
-  /** 2FA 验证(不带 Authorization) */
+  /** 2FA 验证(不带 Authorization); emailOtp 8 位码按 VRCX 同款格式化成 xxxx-xxxx, 6 位码原样 */
   function verify2fa(kind, code) {
-    return request(`/auth/twofactorauth/${kind}/verify`, { method: 'POST', body: { code }, noRetry: true });
+    let c = String(code || '').trim();
+    if (String(kind).toLowerCase() === 'emailotp' && /^\d{8}$/.test(c)) {
+      c = `${c.slice(0, 4)}-${c.slice(4)}`;
+    }
+    return request(`/auth/twofactorauth/${String(kind).toLowerCase()}/verify`, { method: 'POST', body: { code: c }, noRetry: true });
   }
 
   /** 当前用户 */
@@ -149,4 +153,14 @@ function createVrcApi({ baseUrl = 'https://api.vrchat.cloud/api/1', userAgent = 
   return { request, login, verify2fa, me, user, authToken, friends, world, jar, setCookiesChanged: (fn) => { cookiesChanged = fn; } };
 }
 
-module.exports = { createVrcApi, ApiError };
+// VRChat 的 401 细分:
+// - "Missing Credentials": cookie 作废(换 IP/异地), 需要带密码重新登录
+// - "Unauthorized": 会话被临时挂起, 需要重新过一遍两步验证(现有 cookies)
+function isMissingCredentials(e) {
+  return !!(e && e.status === 401 && String(e.message || '').includes('Missing Credentials'));
+}
+function isUnauthorized(e) {
+  return !!(e && e.status === 401 && String(e.message || '').includes('Unauthorized'));
+}
+
+module.exports = { createVrcApi, ApiError, isMissingCredentials, isUnauthorized };

@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const { EventEmitter } = require('node:events');
 const { createDb } = require('./db');
 const { createLogger, setLogStream } = require('./util');
-const { createVrcApi } = require('./vrcapi');
+const { createVrcApi, isMissingCredentials, isUnauthorized } = require('./vrcapi');
 const { createNotifier } = require('./notify');
 const { createPipelineManager } = require('./pipeline');
 const { createMonitor } = require('./monitor');
@@ -129,9 +129,11 @@ function buildApplication(opts = {}) {
   }));
   // 连接状态由 createApp 提供(依赖 pipeline + 自动登录状态), 先占位后注入
   const connectionStatus = { fn: null };
+  const authCommandHooks = { fn: null };
   const qqCommands = createQqCommands({
     db, logger,
-    getStatus: (dbId) => (connectionStatus.fn ? connectionStatus.fn(dbId) : null)
+    getStatus: (dbId) => (connectionStatus.fn ? connectionStatus.fn(dbId) : null),
+    onCode: (dbId, content) => (authCommandHooks.fn ? authCommandHooks.fn(dbId, content) : null)
   });
   const qq = opts.qq || createQqManager({
     db, logger,
@@ -160,6 +162,9 @@ function buildApplication(opts = {}) {
         const r = await vrcapi.authToken();
         return r && r.token ? { status: 'ok', token: r.token } : { status: 'error', reason: 'no token' };
       } catch (e) {
+        // 401 分流: cookie 作废(换 IP) → 自动重登; 会话挂起 → 只重过 2FA
+        if (isMissingCredentials(e)) bus.emit('relogin-needed', { userId, reason: 'cookie 失效(可能 IP 变化)' });
+        else if (isUnauthorized(e)) bus.emit('unauthorized-2fa', { userId });
         return { status: 'error', reason: e.message };
       }
     },
@@ -200,7 +205,7 @@ function buildApplication(opts = {}) {
   // 启动周期对账 + watchdog 定时器(单用户, 无会话时为空转)
   monitor.startTimers();
 
-  const { app, autoLogin, getConnectionStatus } = createApp({
+  const { app, autoLogin, getConnectionStatus, handleAuthCommand } = createApp({
     db, notifier, pipeline, monitor, sessionStore, vrcapiFactory, qq,
     avatarCache,
     config: {
@@ -220,6 +225,7 @@ function buildApplication(opts = {}) {
     vrcStatus
   });
   connectionStatus.fn = getConnectionStatus;
+  authCommandHooks.fn = handleAuthCommand;
 
   return {
     app, autoLogin, monitor, pipeline, sessionStore, db, bus,

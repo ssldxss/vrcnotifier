@@ -104,3 +104,24 @@ test('createQqCommands: 连接异常时头部提示"当前未连接, 数据截�
   assert.ok(reply2.text.startsWith('当前未连接, 数据截止至 '));
   assert.equal(reply2.markdown, undefined);
 });
+
+test('createQqCommands: onCode 优先处理验证码, 返回 null 时回落到在线列表', async () => {
+  const db = createDb(':memory:');
+  const id = db.upsertUser('usr_me', { username: 'me', displayName: '我', avatarUrl: null });
+  db.upsertFriend(id, 'usr_a', { displayName: 'Alice', state: 'online', status: 'active', worldName: 'WorldX' });
+  const silent = { info: () => {}, warn: () => {}, error: () => {} };
+  const calls = [];
+  const handler = createQqCommands({
+    db, logger: silent,
+    onCode: async (dbId, content) => {
+      calls.push({ dbId, content });
+      return /^\d{6}$/.test(String(content).trim()) ? { text: '✅ 验证成功' } : null;
+    }
+  });
+  const codeReply = await handler({ dbId: id, content: '123456' });
+  assert.equal(codeReply.text, '✅ 验证成功', '验证码消息由 onCode 消费');
+  assert.ok(!codeReply.text.includes('Alice'));
+  const listReply = await handler({ dbId: id, content: '好友列表' });
+  assert.ok(listReply.text.includes('Alice'), '非验证码消息回落到在线列表');
+  assert.deepEqual(calls, [{ dbId: id, content: '123456' }, { dbId: id, content: '好友列表' }]);
+});

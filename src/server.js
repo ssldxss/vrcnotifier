@@ -8,6 +8,7 @@ const { CookieJar } = require('./cookiejar');
 const { parseLocation } = require('./location');
 const { deriveStateFromSnapshot } = require('./state');
 const { detectImageType, toThumbUrl } = require('./avatar');
+const { isMissingCredentials, isUnauthorized } = require('./vrcapi');
 const { formatLocalTime, getLogStream } = require('./util');
 
 const MASK = '••••••••';
@@ -41,6 +42,12 @@ function createApp({
   const autoLoginRetryBaseMs = config.autoLoginRetryBaseMs ?? 5000;
   const autoLoginRetryMaxMs = config.autoLoginRetryMaxMs ?? 3600000;
   const autoLoginRetryJitterMs = config.autoLoginRetryJitterMs ?? 1000;
+  // 自动重登参数(换 IP/cookie 失效时用保存的密码重登)
+  const reloginMaxPerHour = config.reloginMaxPerHour ?? 5;
+  const reloginFailNotifyMs = config.reloginFailNotifyMs ?? 5 * 60 * 1000;
+  const reloginRetryBaseMs = config.reloginRetryBaseMs ?? autoLoginRetryBaseMs;
+  const reloginRetryMaxMs = config.reloginRetryMaxMs ?? autoLoginRetryMaxMs;
+  const reloginRetryJitterMs = config.reloginRetryJitterMs ?? autoLoginRetryJitterMs;
 
   // 好友行附带头像 key(前端零解析)
   function friendRow(f) {
@@ -107,7 +114,7 @@ function createApp({
     }
   }
 
-  async function finalizeLogin(vrcapi, currentUser, { rememberMe, username }) {
+  async function finalizeLogin(vrcapi, currentUser, { rememberMe, username, password }) {
     sessionExpiredNotified = false;
     autoLogin401Streak = 0;
     autoLogin401Notified = false;
@@ -135,6 +142,7 @@ function createApp({
     const cookieCtx = { cancelled: false, timer: null };
     if (rememberMe) {
       db.saveCookies(dbId, vrcapi.jar.serialize(), username);
+      if (password) db.savePassword(dbId, password); // 自动重登用(VRCX 同款保存凭据)
       if (typeof vrcapi.setCookiesChanged === 'function') {
         vrcapi.setCookiesChanged(() => {
           if (cookieCtx.cancelled) return;
@@ -185,6 +193,12 @@ function createApp({
       log.warn(`[server] 自动登录失败(${e.message})${retryable ? ', 按退避重试' : ''}`);
       if (retryable && !autoLoginFailingSince) autoLoginFailingSince = now();
       if (e && e.status === 401) {
+        // 有保存的密码: 直接走自动重登(VRCX 同款, 携带旧 cookies 免 2FA), 不再退避空转
+        if (saved.password) {
+          log.info(`[server] 自动登录 401 且已保存密码, 转自动重登: ${saved.vrchat_user_id}`);
+          await runRelogin(saved.vrchat_user_id, 'IP 变化', jar, { countAttempt: true });
+          return;
+        }
         // 第一次 401 即检查 cookie 是否过期: 已过期 -> 推送"登录过期"并清除登录信息, 停止重试
         if (autoLogin401Streak === 0 && cookieJarExpired(jar, now())) {
           await notifySessionExpired(saved, 'expired');
@@ -266,6 +280,235 @@ function createApp({
     }
     return { connected: true, since: null };
   }
+
+  // ---------- 自动重新登录 / 2FA(与 VRCX 同款 API 路径) ----------
+  // 每用户状态: attempts=1 小时内尝试次数, pending=等待验证码的会话,
+  // failedSince/failNotified/failTimer=5 分钟失败通知窗口, retryTimer/retryAttempt=指数退避
+  const relogin = new Map();
+  const RELOGIN_PENDING_TTL_MS = 15 * 60 * 1000;
+
+  function reloginState(userId) {
+    let st = relogin.get(userId);
+    if (!st) {
+      st = { inFlight: false, attempts: [], pending: null, failedSince: 0, failNotified: false, failTimer: null, retryTimer: null, retryAttempt: 0 };
+      relogin.set(userId, st);
+    }
+    return st;
+  }
+
+  function reloginAttempts(userId, atMs) {
+    const st = relogin.get(userId);
+    if (!st) return 0;
+    return st.attempts.filter((t) => atMs - t < 3600000).length;
+  }
+
+  function clearReloginTimers(st) {
+    if (st.failTimer) { clearTimeout(st.failTimer); st.failTimer = null; }
+    if (st.retryTimer) { clearTimeout(st.retryTimer); st.retryTimer = null; }
+  }
+
+  async function notifyRelogin(user, body, title = 'vrcnotifier') {
+    const change = {
+      changeType: '系统通知',
+      friendName: 'vrcnotifier',
+      oldStatus: '未知', newStatus: '未知',
+      oldWorld: '-', newWorld: '-',
+      oldStatusDescription: '无', newStatusDescription: body,
+      oldPlatform: 'unknown', newPlatform: 'unknown',
+      notificationTitle: title,
+      notificationBody: body,
+      eventType: 'vrc_system',
+      timestamp: formatLocalTime(now())
+    };
+    try {
+      await notifier.sendAll({ id: user.id, ...db.getGlobalSettings() }, change);
+    } catch (err) {
+      log.warn(`[server] 自动重登通知失败: ${err.message}`);
+    }
+  }
+
+  function giveUpRelogin(userId) {
+    const st = relogin.get(userId);
+    if (st) clearReloginTimers(st);
+    relogin.delete(userId);
+    try { monitor.deactivateUser(userId); } catch (e) { log.warn(`[server] 停用失败: ${e.message}`); }
+    log.warn(`[server] 自动重登放弃: ${userId}, 停用会话并通知`);
+    bus.emit('session-expired', { userId });
+  }
+
+  // 失败通知: 连续失败超过 reloginFailNotifyMs 才推一次; 等待 2FA 不算失败
+  function scheduleFailNotify(userId, st, user) {
+    if (st.failNotified || st.failTimer) return;
+    st.failTimer = setTimeout(() => {
+      st.failTimer = null;
+      const cur = relogin.get(userId);
+      if (!cur || cur.failedSince === 0 || cur.pending) return; // 已恢复或等待 2FA: 不通知
+      cur.failNotified = true;
+      notifyRelogin(user, '⚠️ 自动重新登录失败, 仍在退避重试, 请留意网络/邮箱', '⚠️ 自动重登失败').catch(() => {});
+    }, reloginFailNotifyMs);
+    if (st.failTimer.unref) st.failTimer.unref();
+  }
+
+  // 指数退避重试(与 WS/自动登录一致: base*2^n 封顶 max + jitter)
+  function scheduleReloginRetry(userId, st, reason, savedJar) {
+    if (st.retryTimer) return;
+    const delay = Math.min(reloginRetryBaseMs * Math.pow(2, st.retryAttempt), reloginRetryMaxMs) + Math.floor(Math.random() * reloginRetryJitterMs);
+    st.retryAttempt += 1;
+    log.info(`[server] 自动重登 ${delay}ms 后重试(第 ${st.retryAttempt} 次): ${userId}`);
+    st.retryTimer = setTimeout(() => {
+      st.retryTimer = null;
+      if (!relogin.has(userId)) return;
+      runRelogin(userId, reason, savedJar, { countAttempt: true }).catch((e) => log.error(`[server] 重登重试异常: ${e.message}`));
+    }, delay);
+    if (st.retryTimer.unref) st.retryTimer.unref();
+  }
+
+  // 重登成功后的通知策略: 5 分钟内恢复不发任何通知; 超过 5 分钟补发成功通知
+  function finishReloginSuccess(userId, st) {
+    const wasFailing = st.failedSince !== 0;
+    const duration = wasFailing ? now() - st.failedSince : 0;
+    clearReloginTimers(st);
+    st.failedSince = 0;
+    st.failNotified = false;
+    st.retryAttempt = 0;
+    st.pending = null;
+    return wasFailing && duration >= reloginFailNotifyMs;
+  }
+
+  // 单次重登: 携带旧 cookies + 密码登录(VRCX 同款, 换 IP 免 2FA)
+  async function runRelogin(userId, reason, savedJar, { countAttempt = true } = {}) {
+    const user = db.getUserByVrcId(userId);
+    if (!user || !user.password) { giveUpRelogin(userId); return; }
+    const st = reloginState(userId);
+    if (st.inFlight) return;
+    if (st.pending && now() - st.pending.createdAt > RELOGIN_PENDING_TTL_MS) st.pending = null; // 过期验证会话清理
+    if (countAttempt && reloginAttempts(userId, now()) >= reloginMaxPerHour) {
+      log.warn(`[server] 自动重登过于频繁(1 小时 ${reloginMaxPerHour} 次): ${userId}`);
+      giveUpRelogin(userId);
+      return;
+    }
+    st.inFlight = true;
+    if (countAttempt) st.attempts.push(now());
+    let jar = savedJar;
+    if (!jar && user.cookie_data) {
+      try { jar = CookieJar.deserialize(user.cookie_data); } catch (e) { log.warn(`[server] 旧 cookie 反序列化失败, 使用空 jar: ${e.message}`); }
+    }
+    const vrcapi = vrcapiFactory(jar);
+    const username = user.saved_username || user.username || '';
+    try {
+      const result = await vrcapi.login(username, user.password);
+      if (result && Array.isArray(result.requiresTwoFactorAuth)) {
+        const kind = result.requiresTwoFactorAuth.includes('emailOtp') ? 'emailOtp' : result.requiresTwoFactorAuth[0];
+        st.pending = { vrcapi, username, password: user.password, kind, createdAt: now() };
+        log.info(`[server] 自动重登需要 2FA(${kind}): ${userId}`);
+        notifyRelogin(user, `⚠️ VRChat 重新登录需要两步验证(${kind === 'emailOtp' ? '邮箱验证码' : 'TOTP'})\n请回复: 验证码 6位数字(重发: 回复「重发验证码」)`, '⚠️ 需要两步验证').catch(() => {});
+        broadcast('2fa-needed', { userId });
+        return;
+      }
+      if (!result || !result.id) throw new Error('relogin response missing user');
+      await finalizeLogin(vrcapi, result, { rememberMe: true, username, password: user.password });
+      log.info(`[server] 自动重新登录成功: ${userId} (${reason})`);
+      const notifySuccess = finishReloginSuccess(userId, st);
+      broadcast('relogin-ok', { userId });
+      if (notifySuccess) await notifyRelogin(user, `🔄 检测到会话失效(${reason}), 已自动重新登录`, '🔄 已自动重新登录');
+    } catch (e) {
+      log.warn(`[server] 自动重新登录失败(${userId}): ${e.message}`);
+      if (e && e.status === 401) {
+        giveUpRelogin(userId); // 密码错误等凭证问题: 立即放弃, 不退避
+        return;
+      }
+      // 网络/429/5xx: 记录失败起点, 5 分钟后才通知, 指数退避重试
+      if (!st.failedSince) st.failedSince = now();
+      scheduleFailNotify(userId, st, user);
+      scheduleReloginRetry(userId, st, reason, savedJar);
+    } finally {
+      st.inFlight = false;
+    }
+  }
+
+  // 运行中 Unauthorized: 会话被临时挂起, 只需重过 2FA(现有 cookies, 不重新登录)
+  async function startUnauthorized2fa(userId) {
+    const vrcapi = sessionStore.get(userId);
+    if (!vrcapi) return;
+    const user = db.getUserByVrcId(userId);
+    const st = reloginState(userId);
+    if (st.pending) return; // 已有待验证会话
+    let kinds = null;
+    try {
+      const me = await vrcapi.me({ noRetry: true });
+      if (me && Array.isArray(me.requiresTwoFactorAuth)) kinds = me.requiresTwoFactorAuth;
+    } catch (e) {
+      // 401 响应体里可能直接带 requiresTwoFactorAuth(VRCX 正是靠它弹 2FA)
+      if (e && e.status === 401 && e.data && Array.isArray(e.data.requiresTwoFactorAuth)) kinds = e.data.requiresTwoFactorAuth;
+      else { log.warn(`[server] Unauthorized 2FA 探测失败(${userId}): ${e.message}`); return; }
+    }
+    if (!kinds || !kinds.length) return;
+    const kind = kinds.includes('emailOtp') ? 'emailOtp' : kinds[0];
+    st.pending = { vrcapi, username: user ? (user.saved_username || user.username || '') : '', password: null, kind, createdAt: now() };
+    log.info(`[server] 会话被挂起, 需要 2FA(${kind}): ${userId}`);
+    if (user) notifyRelogin(user, `⚠️ VRChat 需要两步验证(${kind === 'emailOtp' ? '邮箱验证码' : 'TOTP'})\n请回复: 验证码 6位数字`, '⚠️ 需要两步验证').catch(() => {});
+    broadcast('2fa-needed', { userId });
+  }
+
+  // 验证码核心(QQ 与前端共用): 验证成功 → 落库续会话 → 前端刷新
+  async function verifyPendingCode(userId, code) {
+    const st = relogin.get(userId);
+    const pending = st && st.pending;
+    if (!pending) return { ok: false, error: '没有待验证的登录会话' };
+    try {
+      await pending.vrcapi.verify2fa(pending.kind, String(code).trim());
+      const me = await pending.vrcapi.me();
+      if (!me || !me.id) throw new Error('2fa verify missing user');
+      st.pending = null;
+      await finalizeLogin(pending.vrcapi, me, { rememberMe: true, username: pending.username, password: pending.password });
+      finishReloginSuccess(userId, st);
+      log.info(`[server] 2FA 验证成功: ${userId}`);
+      broadcast('relogin-ok', { userId });
+      return { ok: true };
+    } catch (e) {
+      log.warn(`[server] 2FA 验证失败(${userId}): ${e.message}`);
+      return { ok: false, error: ((e && e.status === 400) || (e && e.status === 401)) ? '验证码错误或已过期' : '网络错误, 请稍后再试' };
+    }
+  }
+
+  // 重发验证码: 清 cookies(保留密码)重新登录, 触发 VRChat 重发邮件; 不消耗频控次数
+  async function resendRelogin2fa(userId) {
+    const st = relogin.get(userId);
+    if (!st || !st.pending) return { ok: false, error: '当前没有等待验证的登录会话' };
+    const user = db.getUserByVrcId(userId);
+    if (!user || !user.password) return { ok: false, error: '缺少保存的凭据' };
+    st.pending = null;
+    db.clearCookies(user.id);
+    db.savePassword(user.id, user.password); // 清 cookies 但保留密码
+    log.info(`[server] 重发验证码: 重新登录 ${userId}`);
+    runRelogin(userId, '重发验证码', null, { countAttempt: false }).catch((e) => log.error(`[server] 重发验证码异常: ${e.message}`));
+    return { ok: true };
+  }
+
+  // QQ 命令钩子: 验证码 / 重发验证码; 未消费返回 null(回落在线列表)
+  async function handleAuthCommand(dbId, content) {
+    const text = String(content || '').trim();
+    const user = db.getUserByDbId(dbId);
+    if (!user) return null;
+    const userId = user.vrchat_user_id;
+    if (/^重发验证码$/.test(text)) {
+      const r = await resendRelogin2fa(userId);
+      return { text: r.ok ? '📧 已重新发送验证邮件, 请查收后回复验证码' : ('❌ ' + r.error) };
+    }
+    const m = text.match(/^(?:验证码|2fa|otp)?\s*(\d{6}|\d{4}[- ]\d{4})$/i);
+    if (!m) return null;
+    const st = relogin.get(userId);
+    if (!st || !st.pending) return null; // 没有待验证会话: 当普通消息
+    const r = await verifyPendingCode(userId, m[1]);
+    return { text: r.ok ? '✅ 验证成功, 已重新登录' : ('❌ 验证失败: ' + r.error) };
+  }
+
+  bus.on('relogin-needed', ({ userId, reason }) => {
+    runRelogin(userId, reason || 'cookie 失效', null, { countAttempt: true }).catch((e) => log.error(`[server] 自动重登异常: ${e.message}`));
+  });
+  bus.on('unauthorized-2fa', ({ userId }) => {
+    startUnauthorized2fa(userId).catch((e) => log.error(`[server] Unauthorized 2FA 异常: ${e.message}`));
+  });
 
   // 事件 → SSE
   bus.on('snapshot', ({ userId, count, at }) => {
@@ -354,12 +597,12 @@ function createApp({
       const result = await vrcapi.login(String(username), String(password));
       if (result && Array.isArray(result.requiresTwoFactorAuth)) {
         const tempSessionId = randomBytes(8).toString('hex');
-        pending2fa.set(tempSessionId, { vrcapi, username: String(username), rememberMe: !!rememberMe, createdAt: now() });
+        pending2fa.set(tempSessionId, { vrcapi, username: String(username), password: String(password), rememberMe: !!rememberMe, createdAt: now() });
         log.info(`[server] 登录需要 2FA: username=${username}, kinds=${result.requiresTwoFactorAuth.join(',')}`);
         return res.json({ ok: true, requiresTwoFactorAuth: result.requiresTwoFactorAuth, tempSessionId });
       }
       if (!result || !result.id) throw new Error('login response missing user');
-      const user = await finalizeLogin(vrcapi, result, { rememberMe: !!rememberMe, username: String(username) });
+      const user = await finalizeLogin(vrcapi, result, { rememberMe: !!rememberMe, username: String(username), password: String(password) });
       log.info(`[server] 登录成功: ${user.display_name || user.vrchat_user_id} (rememberMe=${!!rememberMe})`);
       return res.json({ ok: true, user: selfUserForClient(user) });
     } catch (e) {
@@ -384,7 +627,7 @@ function createApp({
       const currentUser = await pending.vrcapi.me();
       if (!currentUser || !currentUser.id) throw new Error('2fa verify missing user');
       pending2fa.delete(tempSessionId);
-      const user = await finalizeLogin(pending.vrcapi, currentUser, { rememberMe: pending.rememberMe, username: pending.username });
+      const user = await finalizeLogin(pending.vrcapi, currentUser, { rememberMe: pending.rememberMe, username: pending.username, password: pending.password });
       log.info(`[server] 2FA 验证成功: ${user.display_name || user.vrchat_user_id}`);
       return res.json({ ok: true, user: selfUserForClient(user) });
     } catch (e) {
@@ -399,6 +642,20 @@ function createApp({
       log.error(`[server] 2FA 验证失败: ${e.message}`);
       return res.status(500).json({ error: '验证失败, 请重试' });
     }
+  });
+
+  // 前端 2FA 弹窗提交(自动重登/Unauthorized 挂起时): 单用户取当前待验证会话
+  app.post('/api/relogin/2fa', async (req, res) => {
+    const code = String((req.body && req.body.code) || '').trim();
+    if (!code) return res.status(400).json({ error: '请输入验证码' });
+    let targetId = null;
+    for (const [id, st] of relogin) {
+      if (st.pending) { targetId = id; break; }
+    }
+    if (!targetId) return res.status(400).json({ error: '没有待验证的登录会话' });
+    const r = await verifyPendingCode(targetId, code);
+    if (r.ok) return res.json({ ok: true });
+    return res.status(400).json({ error: r.error });
   });
 
   app.post('/api/logout', async (req, res) => {
@@ -662,7 +919,7 @@ function createApp({
     res.status(500).json({ error: '服务器内部错误' });
   });
 
-  return { app, autoLogin: tryAutoLogin, getConnectionStatus };
+  return { app, autoLogin: tryAutoLogin, getConnectionStatus, handleAuthCommand };
 }
 
 module.exports = { createApp };

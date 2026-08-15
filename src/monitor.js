@@ -1,10 +1,11 @@
-﻿'use strict';
+'use strict';
 // 监控编排层: WS 事件分发 + REST 快照对账 + 状态机落地 + 通知去重 + watchdog。
 
 const { EventEmitter } = require('node:events');
 const { deriveStateFromSnapshot, applyChange } = require('./state');
 const { parseLocation } = require('./location');
 const { formatLocalTime, createLogger } = require('./util');
+const { isMissingCredentials, isUnauthorized } = require('./vrcapi');
 const { STARTUP_TEXT } = require('./qq-commands');
 
 function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger = null, now = Date.now }) {
@@ -638,9 +639,19 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
         ]);
       } catch (e) {
         if (e.status === 401) {
-          log.warn(`[monitor] 会话失效(${e.message}), 通知并停用 ${userId}`);
-          events.emit('session-expired', { userId, reason: e.message });
-          deactivateUser(userId);
+          if (isMissingCredentials(e)) {
+            // cookie 作废(换 IP): 请求自动重登, 保留会话
+            log.warn(`[monitor] 对账 401 Missing Credentials, 请求自动重登: ${userId}`);
+            events.emit('relogin-needed', { userId, reason: '对账 401' });
+          } else if (isUnauthorized(e)) {
+            // 会话被挂起: 只重过 2FA
+            log.warn(`[monitor] 对账 401 Unauthorized, 请求 2FA: ${userId}`);
+            events.emit('unauthorized-2fa', { userId });
+          } else {
+            log.warn(`[monitor] 会话失效(${e.message}), 通知并停用 ${userId}`);
+            events.emit('session-expired', { userId, reason: e.message });
+            deactivateUser(userId);
+          }
         } else {
           log.error(`[monitor] 快照失败 userId=${userId}: ${e.message}`);
         }
