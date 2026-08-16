@@ -86,6 +86,26 @@ test('文件日志: readBackFiltered 跳过不匹配行凑满 limit, 到文件�
   }
 });
 
+test('文件日志: readAfter 向前补缺口(跳过不匹配行, 从旧到新)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vrcn-log-'));
+  try {
+    const file = path.join(dir, 'vrcnotifier.log');
+    const fl = createFileLog({ file, maxBytes: 10000 });
+    fl.open();
+    fl.append('[t] [info] [ws] line1', 1);
+    fl.append('[t] [warn] [qq] line2', 2);
+    fl.append('[t] [info] [ws] line3', 3);
+    fl.append('[t] [error] [monitor] line4', 4);
+    const warnUp = (l) => /\[(warn|error)\]/.test(l);
+    assert.deepEqual(fl.readAfter(1, 10, warnUp).map((r) => r.seq), [2, 4]);
+    assert.deepEqual(fl.readAfter(4, 10, warnUp).map((r) => r.seq), []);
+    assert.deepEqual(fl.readAfter(1, 10, null).map((r) => r.seq), [2, 3, 4]);
+    fl.close();
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('logger 同时写入内存流与文件(文件保留明文, seq 对齐)', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vrcn-log-'));
   try {

@@ -11,7 +11,8 @@ function createHealthMonitor({
   now = Date.now,
   intervalMs = 5000,
   sampleCount = 3,
-  sampleTimeoutMs = 3000
+  sampleTimeoutMs = 3000,
+  onSample = null
 } = {}) {
   const log = logger || { info: () => {}, warn: () => {}, error: () => {} };
   let latest = { status: 'starting', latencyMs: null, serverName: null, updatedAt: now() };
@@ -63,6 +64,10 @@ function createHealthMonitor({
       latest = { status: 'error', latencyMs: null, serverName: null, updatedAt: now() };
     } finally {
       inFlight = false;
+    }
+    // 每轮采样完成后推送给订阅者(SSE 推送, 前端不再轮询)
+    if (onSample) {
+      try { onSample({ ...latest }); } catch (e) { /* 订阅者异常不影响探测 */ }
     }
   }
 

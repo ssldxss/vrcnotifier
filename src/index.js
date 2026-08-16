@@ -195,7 +195,8 @@ function buildApplication(opts = {}) {
     logger,
     intervalMs: opts.healthIntervalMs ?? 5000,
     sampleCount: opts.healthSampleCount ?? 3,
-    sampleTimeoutMs: opts.healthSampleTimeoutMs ?? 3000
+    sampleTimeoutMs: opts.healthSampleTimeoutMs ?? 3000,
+    onSample: (h) => bus.emit('health', h) // 每轮采样完成 → SSE 推给前端(替代 5s 轮询)
   });
   healthMonitor.start();
   const vrcStatus = opts.vrcStatus || createVrcStatus({

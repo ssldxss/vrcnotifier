@@ -507,19 +507,69 @@ function createApp({
     startUnauthorized2fa(userId).catch((e) => log.error(`[server] Unauthorized 2FA 异常: ${e.message}`));
   });
 
+  // 状态负载: /api/status 与 SSE 'status' 事件共用(状态变更即推, 前端不再轮询)
+  function statusPayload() {
+    const active = monitor.activeUsers();
+    const ws = current ? pipeline.status(current.userId) : null;
+    const u = current ? selfUserForClient(db.getUserByDbId(current.dbId)) : null;
+    return {
+      ok: true,
+      loggedIn: !!current,
+      user: u,
+      activeUsers: active.map((a) => a.user.vrchat_user_id),
+      wsConnected: !!(ws && ws.connected),
+      wsLastMessageAt: ws ? ws.lastMessageAt : null,
+      qq: qq && current ? qq.status(current.dbId) : null,
+      lastSnapshotAt,
+      pending2faCount: pending2fa.size,
+      config: {
+        confirmDelayMs: config.confirmDelayMs ?? 30000,
+        snapshotIntervalMs: config.snapshotIntervalMs ?? 3600000,
+        watchdogMs: config.watchdogMs ?? 3600000,
+        dedupeWindowMs: config.dedupeWindowMs ?? 30000
+      }
+    };
+  }
+
   // 事件 → SSE
   bus.on('snapshot', ({ userId, count, at }) => {
     lastSnapshotAt = at || now();
     broadcast('snapshot', { userId, count, at: lastSnapshotAt });
+    broadcast('status', statusPayload());
   });
   bus.on('notification', (e) => broadcast('notification', e));
   bus.on('session-expired', ({ userId }) => {
     handleSessionExpired(userId);
     broadcast('session-expired', { userId });
+    broadcast('status', statusPayload());
   });
   bus.on('ws-failure', (e) => broadcast('ws-failure', e));
-  bus.on('self-state', ({ userId }) => broadcast('self-state', { userId }));
-  bus.on('qq-status', (e) => broadcast('qq-status', e));
+  bus.on('ws-open', () => broadcast('status', statusPayload()));
+  bus.on('ws-close', () => broadcast('status', statusPayload()));
+  bus.on('self-state', ({ userId }) => {
+    broadcast('self-state', { userId });
+    broadcast('status', statusPayload());
+  });
+  bus.on('qq-status', (e) => {
+    broadcast('qq-status', e);
+    broadcast('status', statusPayload());
+  });
+  // 健康探测结果(healthMonitor 每轮采样完成) → SSE 推送
+  bus.on('health', (h) => broadcast('health', h));
+
+  // WS 图表数据: 每秒推送最近几秒的消息数(前端 rAF 按时间锚定自行匀速左移)
+  // 每 tick 补推最近 3 秒: 事件循环繁忙漏掉一个 tick 也不会丢秒, 前端按 sec 幂等去重
+  if (typeof pipeline.messageSeries === 'function') {
+    const wsStatsPusher = setInterval(() => {
+      if (!sseClients.size) return;
+      const s = pipeline.messageSeries();
+      const endSec = Math.floor(Date.now() / 1000) - 1;
+      for (let k = 2; k >= 0; k--) {
+        broadcast('ws-stats', { sec: endSec - k, n: (s.series[s.series.length - 1 - k] || 0) });
+      }
+    }, 1000);
+    if (wsStatsPusher.unref) wsStatsPusher.unref();
+  }
 
   app.use(express.json({ limit: '1mb' }));
 
@@ -812,26 +862,7 @@ function createApp({
   });
 
   app.get('/api/status', (req, res) => {
-    const active = monitor.activeUsers();
-    const ws = current ? pipeline.status(current.userId) : null;
-    const u = current ? selfUserForClient(db.getUserByDbId(current.dbId)) : null;
-    return res.json({
-      ok: true,
-      loggedIn: !!current,
-      user: u,
-      activeUsers: active.map((a) => a.user.vrchat_user_id),
-      wsConnected: !!(ws && ws.connected),
-      wsLastMessageAt: ws ? ws.lastMessageAt : null,
-      qq: qq && current ? qq.status(current.dbId) : null,
-      lastSnapshotAt,
-      pending2faCount: pending2fa.size,
-      config: {
-        confirmDelayMs: config.confirmDelayMs ?? 30000,
-        snapshotIntervalMs: config.snapshotIntervalMs ?? 3600000,
-        watchdogMs: config.watchdogMs ?? 3600000,
-        dedupeWindowMs: config.dedupeWindowMs ?? 30000
-      }
-    });
+    return res.json(statusPayload());
   });
 
   // VRChat API 健康探测(持续进行, 无 cookie): 返回最近一轮的 3 样本平均延迟
@@ -898,10 +929,12 @@ function createApp({
     const tailN = Math.min(Math.max(parseInt(req.query.tail, 10) || 100, 1), 1000);
     const afterSeq = parseInt(req.query.after, 10);
     if (Number.isFinite(afterSeq)) {
-      // SSE 断线补缺口: 环形缓冲内过滤(缺口近期行, 不匹配的行直接跳过)
-      const logs = logStreamRef.after(afterSeq, 1000)
-        .filter((e) => matches(e.line))
-        .map((e) => ({ seq: e.seq, line: maskOut(e.line) }));
+      // SSE 断线补缺口: 优先从文件读(单一数据源, 不受内存环形缓冲容量限制); 无文件日志时回退环形缓冲
+      const logs = fileLogRef
+        ? fileLogRef.readAfter(afterSeq, 1000, matches).map((e) => ({ seq: e.seq, line: maskOut(e.line) }))
+        : logStreamRef.after(afterSeq, 1000)
+            .filter((e) => matches(e.line))
+            .map((e) => ({ seq: e.seq, line: maskOut(e.line) }));
       return res.json({ ok: true, logs, seq: logStreamRef.lastSeq() });
     }
     // 尾部: 优先从文件读(完整历史, 不受内存 500 条环形缓冲限制); 无文件日志时回退环形缓冲

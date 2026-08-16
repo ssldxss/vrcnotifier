@@ -64,6 +64,12 @@ function createFileLog({ file, maxBytes = 10 * 1024 * 1024 } = {}) {
     return readBackFiltered(beforeSeq, limit, null);
   }
 
+  function readLine(meta) {
+    const b = Buffer.alloc(meta.len);
+    fs.readSync(fd, b, 0, meta.len, meta.start);
+    return b.toString('utf8').replace(/\n$/, '');
+  }
+
   /**
    * 向后扫描直到凑满 limit 条满足 match 的行(跳过不匹配行, 供前端筛选使用);
    * match 为 null 时不筛选; 已被轮转覆盖/到文件开头的返回空。
@@ -75,9 +81,7 @@ function createFileLog({ file, maxBytes = 10 * 1024 * 1024 } = {}) {
     while (out.length < limit && firstSeq !== null && s >= firstSeq) {
       const meta = index.get(s);
       if (meta) {
-        const b = Buffer.alloc(meta.len);
-        fs.readSync(fd, b, 0, meta.len, meta.start);
-        const line = b.toString('utf8').replace(/\n$/, '');
+        const line = readLine(meta);
         if (!match || match(line)) out.push({ seq: s, line });
       }
       s--;
@@ -86,11 +90,30 @@ function createFileLog({ file, maxBytes = 10 * 1024 * 1024 } = {}) {
     return out;
   }
 
+  /**
+   * 向前扫描 afterSeq 之后的 limit 条满足 match 的行(从旧到新, 供 SSE 断线补缺口);
+   * 缺口中已被轮转覆盖的行自然返回空。文件即单一数据源, 不受内存环形缓冲容量限制。
+   */
+  function readAfter(afterSeq, limit = 1000, match = null) {
+    if (fd === null) return [];
+    const out = [];
+    let s = afterSeq + 1;
+    while (out.length < limit && s <= lastSeq) {
+      const meta = index.get(s);
+      if (meta) {
+        const line = readLine(meta);
+        if (!match || match(line)) out.push({ seq: s, line });
+      }
+      s++;
+    }
+    return out;
+  }
+
   function close() {
     if (fd !== null) { try { fs.closeSync(fd); } catch (e) { /* ignore */ } fd = null; }
   }
 
-  return { open, append, willOverflow, rotate, readBefore, readBackFiltered, close, maxBytes, size: () => size, lastSeq: () => lastSeq };
+  return { open, append, willOverflow, rotate, readBefore, readBackFiltered, readAfter, close, maxBytes, size: () => size, lastSeq: () => lastSeq };
 }
 
 module.exports = { createFileLog };

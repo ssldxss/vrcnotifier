@@ -18,6 +18,35 @@ qqbot真的很好用啊
 ## 运行环境
 Node.js ≥22.13.0(推荐 24.x, 依赖 node:sqlite 与 node:test)
 
+## Docker 部署(最终上线方式)
+单容器: 后端 API + 前端页面同源托管(`SERVE_STATIC=1`), 数据存 volume, 开箱即用。
+
+```bash
+docker compose up -d --build   # 构建并启动
+docker compose logs -f         # 首次启动会打印访问令牌(未固定 ACCESS_TOKEN 时)
+```
+
+- 打开 `http://localhost:3000`: 前端自动探测同源后端, 无需填地址; 远程访问时在门禁页把后端地址改成 `http://服务器IP:3000`
+- 建议在 `docker-compose.yml` 里固定 `ACCESS_TOKEN`(长随机串), 否则每次重建数据库都会重新生成
+- 数据: named volume `vrcnotifier-data`(数据库 `vrcnotifier.db` / 头像缓存 `avatars/` / 日志 `logs/vrcnotifier.log`); 想用宿主机目录备份就改用 `./data:/app/data`(entrypoint 会自动修属主)
+- 容器以非 root(node)运行, 内置健康检查(`/api/config`), `restart: unless-stopped`
+- 日志文件单文件 10MB 覆盖轮转, 每次启动以运行标识分隔
+
+## WSL2 测试(Docker Desktop)
+1. 启动 Docker Desktop, 确认启用 WSL 集成(`wsl -l -v` 查看发行版)
+2. 进入 WSL: `wsl`
+3. 进入仓库(Windows 盘路径跨文件系统构建较慢, 建议先 `cp -r` 到 WSL 家目录):
+   ```bash
+   cp -r /mnt/d/vscode/vrcnotifier ~/vrcnotifier && cd ~/vrcnotifier
+   ```
+4. 构建并启动: `docker compose up -d --build`
+5. 看启动日志与访问令牌: `docker compose logs -f`
+6. 浏览器打开 `http://localhost:3000`(Docker Desktop 自动转发 WSL 端口)
+7. 收尾: `docker compose down`(保留数据); 连数据一起删: `docker compose down -v`
+
+## 环境变量
+`PORT` `ACCESS_TOKEN` `VRC_API_URL` `VRC_WS_URL` `USER_AGENT` `SNAPSHOT_INTERVAL_MS` `DEDUPE_WINDOW_MS` `WATCHDOG_MS` `WATCHDOG_CHECK_MS` `WS_PING_INTERVAL_MS` `WS_PONG_TIMEOUT_MS` `RECONNECT_MAX_MS` `QQ_WS_URL` `QQ_API_BASE` `VRC_STATUS_URL` `SERVE_STATIC`
+
 灵感来自shanyaojinjn/VRC-Notifier  
 使用websocket代替api轮询&nbsp;&nbsp;&nbsp;解析notifier-v2消息&nbsp;&nbsp;&nbsp;没任何数据加密&nbsp;&nbsp;&nbsp;其他没什么区别(功能上)  
 本来想直接改shanyaojinjn/VRC-Notifier,改不动已经废了(ssldxss/VRC-Notifier的websocket分支)  

@@ -945,6 +945,8 @@ h3.chan { font-size: 13px; margin: 16px 0 6px; color: var(--text-2); font-weight
   <button id='themeBtn' class='theme-btn' title='主题: 跟随系统' aria-label='切换主题'></button>
   <button id='logoutBtn' class='secondary hidden'>登出</button>
 </header>
+<!-- WS 图表配色探针: 提供解析后的主题色(accent / accent-2), 供 canvas 渐变使用 -->
+<span id='wsChartColors' aria-hidden='true' style='position:fixed; left:-9999px; top:0; width:0; height:0; color:var(--accent-2); background-color:var(--accent);'></span>
 
 <div class='container' id='gateView'>
   <div class='card' style='--i:1'>
@@ -1175,9 +1177,27 @@ const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
 const LS_BASE = 'vrcn_base';
 const LS_TOKEN = 'vrcn_token';
+let discoveredBase = null; // 未手动配置后端地址时自动探测的结果(同源优先 → 本机默认)
 
 function baseUrl() {
-  return (localStorage.getItem(LS_BASE) || 'http://127.0.0.1:3000').replace(/\/+$/, '');
+  return (localStorage.getItem(LS_BASE) || discoveredBase || 'http://127.0.0.1:3000').replace(/\/+$/, '');
+}
+
+// 首次打开(未保存过后端地址)时自动探测后端: 同源(Docker 单容器/同域反代) → 本机 3000(独立前端开发)。
+// /api/config 无需 token, 探测成功即以此为默认地址, 门禁页无需手动填写。
+async function discoverBase() {
+  const candidates = [];
+  if (window.location.protocol === 'http:' || window.location.protocol === 'https:') {
+    candidates.push(window.location.origin);
+  }
+  if (!candidates.includes('http://127.0.0.1:3000')) candidates.push('http://127.0.0.1:3000');
+  for (const c of candidates) {
+    try {
+      const r = await fetch(c + '/api/config', { signal: AbortSignal.timeout(2000) });
+      if (r.ok) { discoveredBase = c; break; }
+    } catch (e) { /* 下一个候选 */ }
+  }
+  if (currentView === 'gate') fillGateForm(); // 探测完成后刷新门禁卡预填
 }
 function accessToken() { return localStorage.getItem(LS_TOKEN) || ''; }
 function avatarUrl(key) { return baseUrl() + '/api/avatar/' + encodeURIComponent(key) + '?token=' + encodeURIComponent(accessToken()); }
@@ -1239,6 +1259,14 @@ function escapeHtml(v) {
     .replace(/>/g, '&gt;');
 }
 
+// 停止所有轮询与 SSE(401 令牌错误时调用, 防止用旧令牌无限重试刷日志)
+function stopPolling() {
+  if (statusTimer) { clearInterval(statusTimer); statusTimer = null; }
+  if (healthTimer) { clearInterval(healthTimer); healthTimer = null; }
+  if (wsStatsTimer) { clearInterval(wsStatsTimer); wsStatsTimer = null; }
+  if (window.__evt) { try { window.__evt.close(); } catch (e) { /* ignore */ } window.__evt = null; }
+}
+
 async function api(method, path, body, opts = {}) {
   const url = baseUrl() + path;
   const headers = {};
@@ -1248,12 +1276,18 @@ async function api(method, path, body, opts = {}) {
   let data = {};
   try { data = await res.json(); } catch (e) { data = {}; }
   if (res.status === 401 && !opts.noAuth && headers['Authorization'] && path !== '/api/login' && path !== '/api/login/2fa') {
-    showView('gate');
-    $('#gateMsg').textContent = '\u8bbf\u95ee\u88ab\u62d2\u7edd, \u8bf7\u68c0\u67e5\u4ee4\u724c';
+    const errMsg = String((data && data.error) || '');
+    if (errMsg.includes('未登录')) {
+      showView('login'); // 会话未登录: 回登录页, 不停轮询/SSE
+    } else {
+      stopPolling(); // 令牌错误: 先停所有轮询与 SSE, 再切门禁页
+      showView('gate');
+      $('#gateMsg').textContent = '\u8bbf\u95ee\u88ab\u62d2\u7edd, \u8bf7\u68c0\u67e5\u4ee4\u724c';
+    }
   }
   return { status: res.status, data };
 }
-let lastLogSeq = 0;
+let lastLogSeq = null;        // 最新已展示的 seq(仅由真正插入 DOM 顶部的行维护; 补缺口起点)
 let oldestSeqShown = null;   // 当前 DOM 中最早一行的 seq(向上翻页起点)
 let hasOlder = true;         // 服务端是否还有更旧的历史
 let loadingOlder = false;    // 防止重复翻页
@@ -1307,9 +1341,11 @@ function setRowVisible(row) {
   row.classList.toggle('hidden', !show);
 }
 
-// 新日志: 插到顶部(seq 用于令牌行替换与翻页定位)
+// 新日志: 插到顶部(seq 用于令牌行替换、翻页定位与去重)
 function addLogLine(line, cls, seq) {
   const box = $('#log');
+  // 防重: SSE 直播行与 after 补缺口响应可能包含同一条(重连竞态), 已有该 seq 则跳过
+  if (seq !== undefined && box.querySelector('div[data-seq="' + seq + '"]')) return;
   const div = document.createElement('div');
   renderLogRow(div, line);
   if (seq !== undefined) div.dataset.seq = seq;
@@ -1323,6 +1359,8 @@ function addLogLine(line, cls, seq) {
   }
   updateOldestSeq();
   setRowVisible(div);
+  // 最新已展示 seq 只由真正插入的行维护(补缺口以此为起点, 不多不少)
+  if (seq !== undefined && (lastLogSeq == null || seq > lastLogSeq)) lastLogSeq = seq;
   if (wasAtTop) box.scrollTop = 0;              // 停顶部时保持跟随最新
   else box.scrollTop += box.scrollHeight - beforeH; // 正在阅读旧日志时保持视口不跳动
 }
@@ -1330,6 +1368,7 @@ function addLogLine(line, cls, seq) {
 // 旧日志: 追加到底部(向上翻页加载), 不触发顶部跟随逻辑
 function addOldLogLine(line, seq) {
   const box = $('#log');
+  if (seq !== undefined && box.querySelector('div[data-seq="' + seq + '"]')) return; // 兜底去重
   const div = document.createElement('div');
   renderLogRow(div, line);
   if (seq !== undefined) div.dataset.seq = seq;
@@ -1389,15 +1428,23 @@ function loadBackendLogs(opts = {}) {
         const box = $('#log');
         box.textContent = '';
         oldestSeqShown = null;
-        hasOlder = true; // 重载后重新允许翻页
+        lastLogSeq = null;   // 最新已展示 seq 重置, 由随后插入的行重新建立
+        hasOlder = true;     // 重载后重新允许翻页
       }
       if (opts.before) {
-        for (const entry of r.data.logs) addOldLogLine(entry.line, entry.seq);
+        // 服务端返回从旧到新; 倒序追加: 更旧的行垫底, 块内保持时间递减(新的在上面)
+        for (let i = r.data.logs.length - 1; i >= 0; i--) {
+          const entry = r.data.logs[i];
+          addOldLogLine(entry.line, entry.seq);
+        }
         hasOlder = r.data.logs.length >= 100; // 服务端凑不满一页 = 文件已扫完
       } else {
         for (const entry of r.data.logs) addLogLine(entry.line, null, entry.seq);
       }
-      if (r.data.seq) lastLogSeq = r.data.seq;
+      if (!opts.after && !opts.before && lastLogSeq != null) {
+        // 重载期间可能有新行已写入文件(不在本次快照里): 补拉一次, 去重守卫保证不多不少
+        loadBackendLogs({ after: lastLogSeq });
+      }
     })
     .catch(() => {});
 }
@@ -1423,10 +1470,10 @@ function showView(name) {
   $('#mainView').classList.toggle('hidden', name !== 'main');
   if (name === 'gate') fillGateForm();
   try { sessionStorage.setItem('vrcn_lastView', name); } catch (e) {} // 刷新时恢复, 避免门禁页闪烁
-  // 登录页右侧的服务器状态卡与主界面一致, 进入登录/主界面时开始轮询(主界面由 startStatus 重启)
+  // 登录/主界面: 首次拉取健康与状态(此后由 SSE 推送更新, 不再轮询), 并确保 SSE 已连接
   if (name === 'login' || name === 'main') {
     loadHealth();
-    if (!healthTimer) healthTimer = setInterval(loadHealth, 5000);
+    connectEvents();
   }
 }
 
@@ -1632,7 +1679,7 @@ function enterMain() {
   renderSelf();
   $('#logoutBtn').classList.remove('hidden');
   loadAll();
-  startStatus();
+  loadBackendLogs({ tail: 100 }); // 初始日志尾部(SSE 已在登录页/此处建立, 去重+补齐机制防丢行)
   connectEvents();
 }
 
@@ -1640,7 +1687,6 @@ function loadAll() {
   loadFriends();
   loadSettings();
   loadStatus();
-  loadHealth();
   loadWsStats();
 }
 
@@ -1904,9 +1950,9 @@ function renderQqStatus(info) {
   el.title = info.connected ? 'QQ 机器人已连接' : 'QQ 机器人未连接';
 }
 
-async function loadStatus() {
-  const r = await api('GET', '/api/status');
-  const d = r.data || {};
+// 渲染状态负载(SSE 'status' 事件直接调用; loadStatus 为进入主界面的 bootstrap)
+function renderStatus(d) {
+  if (!d) return;
   const ws = $('#stWs');
   if (!d.loggedIn) { ws.textContent = '-'; ws.className = 'badge'; }
   else if (d.wsConnected) { ws.textContent = '已连接'; ws.className = 'badge ok'; }
@@ -1915,6 +1961,11 @@ async function loadStatus() {
   if (d.user) { myInfo = d.user; renderSelf(); }
   if (!d.qq || !d.qq.configured) renderQqStatus({ configured: false });
   else renderQqStatus({ configured: true, connected: d.qq.connected });
+}
+
+async function loadStatus() {
+  const r = await api('GET', '/api/status');
+  renderStatus(r.data || {});
 }
 
 // VRC 服务器状态由后端判断(惰性请求 + 30s 缓存), 前端只负责展示三态(主界面与登录页共用)
@@ -1978,21 +2029,24 @@ async function loadHealth() {
 // WS 图表: canvas 绘制(单图层栅格, 无合成层残留伪影), 时间锚定匀速左移; 柱高与次数严格成正比(线性)
 let wsChartBars = [];      // { t, n } t = 秒级时间戳
 let wsChartMax = 1;        // 当前窗口最大值(高度基准)
+let wsStatsBuckets = new Map(); // sec -> n(最近 60s 秒桶, 用于「平均次数」总数增减)
+let wsStatsTotal = 0;
 let wsChartRaf = 0;
 let wsChartCv = null;      // canvas 元素
-let wsChartAccentCache = { color: '', at: 0 };
+let wsChartGradCache = { c1: '', c2: '', at: 0 };
 let wsChartThemeCache = { bg: '', line: '', at: 0 };
 
-function wsChartAccentColor() {
+// 柱子渐变配色: 从隐藏探针读取解析后的主题色(accent-2 柱顶 / accent 柱底), 与品牌渐变一致
+function wsChartGradientColors() {
   const now = Date.now();
-  if (!wsChartAccentCache.color || now - wsChartAccentCache.at > 500) {
-    // 自定义属性 --accent 的 light-dark() 在 computed value 里不解析, 直接读会得到无效颜色(柱子变黑);
-    // 从已渲染的 #stMonitored(ov-num, color: var(--accent))读取解析后的主题色
-    const probe = $('#stMonitored');
-    wsChartAccentCache.color = (probe && getComputedStyle(probe).color) || '#3b6fe0';
-    wsChartAccentCache.at = now;
+  if (!wsChartGradCache.c1 || now - wsChartGradCache.at > 500) {
+    const probe = $('#wsChartColors');
+    const cs = probe && getComputedStyle(probe);
+    wsChartGradCache.c1 = (cs && cs.color) || '#8b5cf6';            // 柱顶: --accent-2
+    wsChartGradCache.c2 = (cs && cs.backgroundColor) || '#3b6fe0';  // 柱底: --accent
+    wsChartGradCache.at = now;
   }
-  return wsChartAccentCache.color;
+  return wsChartGradCache;
 }
 
 // 图表自身的背景/描边色(取自 #log 的 input-bg / line 解析值), 全部画进 canvas, 外层无任何 CSS 装饰
@@ -2037,22 +2091,34 @@ function wsChartDraw() {
   ctx.fill();
   const nowSec = Date.now() / 1000;
   const sx = w / 300, sy = h / 28;
-  // 清理滚出左端的柱子
+  // 清理滚出左端的柱子(峰值柱滚出后重算高度基准)
+  let pruned = false;
   for (let i = wsChartBars.length - 1; i >= 0; i--) {
     const b = wsChartBars[i];
-    if (300 - (nowSec - b.t) * 5 + 5 <= 0) wsChartBars.splice(i, 1);
+    if (300 - (nowSec - b.t) * 5 + 5 <= 0) { wsChartBars.splice(i, 1); pruned = true; }
   }
-  ctx.globalAlpha = .8;
-  ctx.fillStyle = wsChartAccentColor();
+  if (pruned) {
+    let m = 0;
+    for (const b of wsChartBars) if (b.n > m) m = b.n;
+    wsChartMax = m || 1;
+  }
+  ctx.globalAlpha = .95;
+  const grad = wsChartGradientColors();
   const inset = Math.max(2, Math.round(2 * dpr));
   for (const b of wsChartBars) {
+    if (!b.n) continue; // 0 条消息不显示柱子
     const x0 = (300 - (nowSec - b.t) * 5) * sx;
     if (x0 + 5 * sx <= 0) continue;
     const hh = 26 * (b.n / wsChartMax); // 相对高度严格和次数成正比
     const yBot = Math.round(28 * sy) - inset; // 底边留出描边 + 空隙
     const yTop = Math.min(Math.round((28 - hh) * sy), yBot - 1);
+    const bw = 4 * sx;
+    const bh = Math.max(1, yBot - yTop);
+    // 长方体蓝色柱子(主题蓝 accent), 四角圆滑处理
+    ctx.fillStyle = grad.c2;
     // 横向亚像素绘制: 每帧连续位移(此前取整导致 ~6 帧跳 1px 的卡顿感)
-    ctx.fillRect(x0, yTop, 4 * sx, Math.max(1, yBot - yTop));
+    wsChartRoundRect(ctx, x0, yTop, bw, bh, Math.min(1.6 * sx, bw / 2, bh / 2));
+    ctx.fill();
   }
   ctx.globalAlpha = 1;
   ctx.strokeStyle = theme.line;
@@ -2225,45 +2291,92 @@ function setWsTotal(total) {
   old.addEventListener('animationend', done, { once: true });
 }
 
+// SSE 每秒推送: 追加/更新秒桶; 运动仍由 rAF 按时间锚定匀速左移, 与推送节奏无关
+function wsChartPush(sec, n) {
+  const nowSec = Date.now() / 1000;
+  if (sec < nowSec - 60 || sec > nowSec + 1) return;
+  const prev = wsStatsBuckets.get(sec) || 0;
+  if (prev !== n) {
+    wsStatsTotal += n - prev;
+    wsStatsBuckets.set(sec, n);
+    setWsTotal(wsStatsTotal);
+  }
+  let pruned = false;
+  for (const s of [...wsStatsBuckets.keys()]) {
+    if (s < nowSec - 60) { wsStatsTotal -= wsStatsBuckets.get(s) || 0; wsStatsBuckets.delete(s); pruned = true; }
+  }
+  if (pruned) setWsTotal(wsStatsTotal); // 过期秒桶退出窗口: 数字实时回落
+  const i = wsChartBars.findIndex((b) => b.t === sec);
+  if (n > 0) {
+    if (i >= 0) wsChartBars[i].n = n;
+    else wsChartBars.push({ t: sec, n });
+    if (n > wsChartMax) wsChartMax = n;
+  } else if (i >= 0) {
+    wsChartBars.splice(i, 1); // 0 条消息不显示柱子
+  }
+  if (!wsChartRaf) wsChartRaf = requestAnimationFrame(wsChartDraw);
+}
+
 async function loadWsStats() {
   const r = await api('GET', '/api/ws-stats');
   if (!r.data || !Array.isArray(r.data.series)) return;
-  const total = r.data.total || 0;
-  setWsTotal(total);
+  // 权威序列 bootstrap(进入主界面/SSE 重连时): 重建本地秒桶与总量,
+  // 覆盖断线期间漏掉的秒; 与推送重复的秒数据一致, 不产生重影
+  wsStatsTotal = r.data.total || 0;
+  wsStatsBuckets.clear();
+  const endSec = Math.floor(Date.now() / 1000);
+  for (let i = 0; i < r.data.series.length; i++) {
+    const n = r.data.series[i];
+    if (n) wsStatsBuckets.set(endSec - (r.data.series.length - 1 - i), n);
+  }
+  setWsTotal(wsStatsTotal);
   renderWsChart(r.data.series.slice(-60));
 }
 
-function startStatus() {
-  if (statusTimer) clearInterval(statusTimer);
-  statusTimer = setInterval(loadStatus, 5000);
-  if (healthTimer) clearInterval(healthTimer);
-  healthTimer = setInterval(loadHealth, 5000);
-  if (wsStatsTimer) clearInterval(wsStatsTimer);
-  wsStatsTimer = setInterval(loadWsStats, 1000);
-}
-
+// SSE 连接(登录页与主界面共用, 只建一次): 日志/状态/健康/WS图表全部实时推送, 前端不再轮询
 function connectEvents() {
-  if (window.__evt) window.__evt.close();
-  loadBackendLogs({ tail: 100 }); // 初始拉取后端日志尾部(更旧的随滚动加载)
+  if (window.__evt) return;
   const evt = new EventSource(baseUrl() + '/api/events?token=' + encodeURIComponent(accessToken()));
   window.__evt = evt;
-  // 后端日志实时推送
+  // 后端日志实时推送(最新已展示 seq 由 addLogLine 内部维护, 去重守卫防重复)
   evt.addEventListener('log', (e) => {
     const d = JSON.parse(e.data);
     if (d && d.line) addLogLine(d.line, null, d.seq);
-    if (d && d.seq) lastLogSeq = d.seq;
   });
   // 服务端替换已显示的日志行(访问令牌打码): 按 seq 同步
   evt.addEventListener('log-update', (e) => {
     const d = JSON.parse(e.data);
     if (d && d.line) replaceLogLine(d.seq, d.line);
   });
-  // SSE 断线自动重连: 用 after 补齐错过的日志
-  evt.onopen = () => { if (lastLogSeq > 0) loadBackendLogs({ after: lastLogSeq }); };
-  // 事件仅驱动 UI 刷新, 日志展示统一走后端日志流
+  // 状态推送: 快照/WS 连接/QQ 状态等变化时后端直接推完整状态负载
+  evt.addEventListener('status', (e) => {
+    try { renderStatus(JSON.parse(e.data)); } catch (err) { /* 忽略异常帧 */ }
+  });
+  // 健康探测: 后端每轮采样完成推送
+  evt.addEventListener('health', (e) => {
+    try {
+      const d = JSON.parse(e.data);
+      applyLatency($('#stHealthLatency'), d);
+      applyLatency($('#lgHealthLatency'), d);
+    } catch (err) { /* 忽略异常帧 */ }
+  });
+  // WS 图表: 每秒推送刚结束那一秒的消息数, 前端 rAF 按时间锚定自行驱动匀速左移
+  evt.addEventListener('ws-stats', (e) => {
+    try {
+      const d = JSON.parse(e.data);
+      if (d && typeof d.sec === 'number') wsChartPush(d.sec, d.n || 0);
+    } catch (err) { /* 忽略异常帧 */ }
+  });
+  // SSE 断线自动重连: 以「真正展示的最顶行」为起点补缺口(服务端从文件读, 不丢行);
+  // 同时 bootstrap 一次 WS 图表权威序列(覆盖断线期间漏掉的秒)
+  evt.onopen = () => {
+    if (lastLogSeq != null) loadBackendLogs({ after: lastLogSeq });
+    loadWsStats();
+  };
+  // 事件驱动 UI 刷新(状态渲染已由 'status' 推送, 这里只刷新数据列表)
   evt.addEventListener('notification', () => { loadFriends(); });
-  evt.addEventListener('snapshot', () => { loadFriends(); loadStatus(); });
-  evt.addEventListener('self-state', () => { loadStatus(); });
+  evt.addEventListener('snapshot', () => { loadFriends(); });
+  evt.addEventListener('self-state', () => { /* 'status' 推送已覆盖 */ });
   evt.addEventListener('qq-status', (e) => {
     let d = null;
     try { d = JSON.parse(e.data); } catch (err) { /* 忽略异常帧 */ }
@@ -2331,6 +2444,22 @@ if (qqStatusItem) {
   qqStatusItem.style.cursor = 'pointer';
   qqStatusItem.title = '点击打开设置页';
   qqStatusItem.addEventListener('click', () => switchTab('tab-settings', { instant: true }));
+}
+// 好友状态卡: 点击切回好友监控页面
+const friendsStatusItem = $('#stMonitored') ? $('#stMonitored').closest('.overview-item') : null;
+if (friendsStatusItem) {
+  friendsStatusItem.style.cursor = 'pointer';
+  friendsStatusItem.title = '点击回到好友监控页面';
+  friendsStatusItem.addEventListener('click', () => switchTab('tab-friends', { instant: true }));
+}
+// 服务器状态卡: 点击打开 VRChat 官方状态页
+const healthStatusItem = $('#stHealth') ? $('#stHealth').closest('.overview-item') : null;
+if (healthStatusItem) {
+  healthStatusItem.style.cursor = 'pointer';
+  healthStatusItem.title = '点击打开 VRChat 官方状态页 (status.vrchat.com)';
+  healthStatusItem.addEventListener('click', () => {
+    window.open('https://status.vrchat.com', '_blank', 'noopener');
+  });
 }
 
 // ---------- 主题: 自动(跟随系统)/浅色/深色 ----------
@@ -2454,9 +2583,13 @@ try {
   const savedTab = sessionStorage.getItem('vrcn_lastTab');
   if (savedTab === 'tab-friends' || savedTab === 'tab-settings') switchTab(savedTab);
 } catch (e) {}
-loadConfig();
+// 自动探测后端(同源优先 → 本机默认), 完成后拉配置; 探测结果用于未手动配置时的默认地址
+(async () => {
+  await discoverBase();
+  loadConfig();
+})();
 startConnWatch();
-fillGateForm(); // 页面加载即展示门禁卡并预填: 卡片始终可见, 检测结果写入卡片内提示
+fillGateForm(); // 先用默认地址预填门禁卡; discoverBase 完成后会再次刷新
 </script>
 </body>
 </html>

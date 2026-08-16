@@ -80,6 +80,31 @@ test('health: all samples fail reports error with null latency', async () => {
   assert.equal(s.latencyMs, null);
 });
 
+test('health: onSample called after each round with latest status', async () => {
+  const seen = [];
+  const h = createHealthMonitor({
+    apiBaseUrl: 'https://api.vrchat.cloud/api/1',
+    fetchImpl: fakeFetch([{ latencyMs: 10, body: { ok: true } }]),
+    sampleCount: 1, sampleTimeoutMs: 1000, logger: silent,
+    onSample: (s) => seen.push(s)
+  });
+  await h._debug.tick();
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].status, 'ok');
+  assert.equal(typeof seen[0].latencyMs, 'number');
+  // 全部失败的一轮同样推送(前端据此显示 延迟:-)
+  const h2 = createHealthMonitor({
+    apiBaseUrl: 'https://api.vrchat.cloud/api/1',
+    fetchImpl: fakeFetch([{ status: 500, latencyMs: 5 }]),
+    sampleCount: 1, sampleTimeoutMs: 300, logger: silent,
+    onSample: (s) => seen.push(s)
+  });
+  await h2._debug.tick();
+  assert.equal(seen.length, 2);
+  assert.equal(seen[1].status, 'error');
+  assert.equal(seen[1].latencyMs, null);
+});
+
 test('health: starts in starting state and stop is idempotent', async () => {
   const h = createHealthMonitor({ apiBaseUrl: 'https://api.vrchat.cloud/api/1', fetchImpl: fakeFetch([{}]), logger: silent });
   assert.equal(h.status().status, 'starting');
