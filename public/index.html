@@ -4,6 +4,9 @@
 <meta charset='utf-8'>
 <meta name='viewport' content='width=device-width, initial-scale=1'>
 <title>vrcnotifier</title>
+<link rel='preconnect' href='https://fonts.googleapis.com'>
+<link rel='preconnect' href='https://fonts.gstatic.com' crossorigin>
+<link href='https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,100..900&display=swap' rel='stylesheet'>
 <script>try{var t=localStorage.getItem('vrcn_theme')||'dark';if(t!=='auto')document.documentElement.setAttribute('data-theme',t);}catch(e){document.documentElement.setAttribute('data-theme','dark');}</script>
 <style>
 /* ================================================================
@@ -77,7 +80,7 @@
    --blur: 18px;
    --t-fast: .16s ease;
    --t-med: .28s cubic-bezier(.22,.8,.3,1);
-   --font: system-ui, -apple-system, 'Segoe UI', Roboto, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+   --font: 'Inter Variable', 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
    --font-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', 'Cascadia Code', 'JetBrains Mono', Consolas, 'Courier New', monospace;
 }
 
@@ -591,7 +594,12 @@ button.danger { background: linear-gradient(135deg, var(--bad), #b4232c); box-sh
 .friend:hover .avatar-wrap.st-offline .avatar { filter: none; }
 .friend:hover .avatar-wrap::after { transform: scale(1.1); }
 .friend .name { flex: 1; min-width: 0; font-weight: 500; transition: color var(--t-med); }
-.friend:hover .name { color: var(--accent); }
+/* 信任等级名字颜色: 严格使用 VRChat 官方 5 色, 悬停不变 */
+.friend .name.tl-trusted { color: #8143e6; }
+.friend .name.tl-known { color: #ff7c42; }
+.friend .name.tl-user { color: #2acf5b; }
+.friend .name.tl-new { color: #1678ff; }
+.friend .name.tl-visitor { color: #bababa; }
 .friend .state { font-size: 12px; color: var(--text-3); margin-top: 1px; transition: color var(--t-med); }
 .friend:hover .state { color: var(--text-2); }
 .friend .checks { display: flex; gap: 10px; font-size: 12px; white-space: nowrap; }
@@ -1241,9 +1249,6 @@ let appConfig = { tokenRequired: false };
 let currentUser = null;
 let tempSessionId = null;
 let twofaKind = 'emailOtp';
-let statusTimer = null;
-let healthTimer = null;
-let wsStatsTimer = null;
 let friendsCache = [];
 let searchQuery = ''; // 好友搜索关键词
 let myInfo = null; // 当前用户信息(页面标题栏展示, 与好友行共用渲染)
@@ -1259,11 +1264,8 @@ function escapeHtml(v) {
     .replace(/>/g, '&gt;');
 }
 
-// 停止所有轮询与 SSE(401 令牌错误时调用, 防止用旧令牌无限重试刷日志)
+// 停止 SSE(401 令牌错误时调用, 防止用旧令牌无限重试刷日志; 状态/健康/图表已全部走 SSE, 无其他轮询)
 function stopPolling() {
-  if (statusTimer) { clearInterval(statusTimer); statusTimer = null; }
-  if (healthTimer) { clearInterval(healthTimer); healthTimer = null; }
-  if (wsStatsTimer) { clearInterval(wsStatsTimer); wsStatsTimer = null; }
   if (window.__evt) { try { window.__evt.close(); } catch (e) { /* ignore */ } window.__evt = null; }
 }
 
@@ -1272,7 +1274,7 @@ async function api(method, path, body, opts = {}) {
   const headers = {};
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   if (!opts.noAuth && accessToken()) headers['Authorization'] = 'Bearer ' + accessToken();
-  const res = await fetch(url, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal: opts.signal });
+  const res = await fetch(url, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal: opts.signal, cache: 'no-store' });
   let data = {};
   try { data = await res.json(); } catch (e) { data = {}; }
   if (res.status === 401 && !opts.noAuth && headers['Authorization'] && path !== '/api/login' && path !== '/api/login/2fa') {
@@ -1342,7 +1344,7 @@ function setRowVisible(row) {
 }
 
 // 新日志: 插到顶部(seq 用于令牌行替换、翻页定位与去重)
-function addLogLine(line, cls, seq) {
+function addLogLine(line, seq) {
   const box = $('#log');
   // 防重: SSE 直播行与 after 补缺口响应可能包含同一条(重连竞态), 已有该 seq 则跳过
   if (seq !== undefined && box.querySelector('div[data-seq="' + seq + '"]')) return;
@@ -1439,7 +1441,7 @@ function loadBackendLogs(opts = {}) {
         }
         hasOlder = r.data.logs.length >= 100; // 服务端凑不满一页 = 文件已扫完
       } else {
-        for (const entry of r.data.logs) addLogLine(entry.line, null, entry.seq);
+        for (const entry of r.data.logs) addLogLine(entry.line, entry.seq);
       }
       if (!opts.after && !opts.before && lastLogSeq != null) {
         // 重载期间可能有新行已写入文件(不在本次快照里): 补拉一次, 去重守卫保证不多不少
@@ -1700,6 +1702,9 @@ async function loadFriends() {
   }
 }
 
+// 信任等级 → 名字颜色类(严格使用 VRChat 官方 5 色)
+const TRUST_CLASS = { 'Trusted User': 'tl-trusted', 'Known User': 'tl-known', 'User': 'tl-user', 'New User': 'tl-new', 'Visitor': 'tl-visitor' };
+
 // 头像+VRCX 圆点+状态行: 好友行与页面标题栏"我"共用
 function personParts(p) {
   const initial = escapeHtml((p.display_name || '?').charAt(0).toUpperCase());
@@ -1713,6 +1718,7 @@ function personParts(p) {
   return {
     avatarWrap: "<div class='avatar-wrap " + wrapCls + "'>" + avatarHtml + '</div>',
     name: escapeHtml(p.display_name || p.friend_vrchat_id || p.vrchat_user_id || '?'),
+    nameCls: p.trust_level ? ' ' + (TRUST_CLASS[p.trust_level] || '') : '',
     stateHtml: stateTxt ? "<div class='state'>" + stateTxt + '</div>' : ''
   };
 }
@@ -1721,7 +1727,7 @@ function renderSelf() {
   const box = $('#selfInfo');
   if (!myInfo) { box.innerHTML = ''; return; }
   const p = personParts(myInfo);
-  box.innerHTML = p.avatarWrap + "<div class='name'>" + p.name + p.stateHtml + '</div>';
+  box.innerHTML = p.avatarWrap + "<div class='name" + p.nameCls + "'>" + p.name + p.stateHtml + '</div>';
 }
 
 // 好友分组折叠状态: 保存在浏览器 localStorage, 刷新/快照重渲染后恢复; 首次默认全开
@@ -1765,7 +1771,7 @@ function renderFriends() {
     row.innerHTML =
       p.avatarWrap +
       '<label class=switch title=特别关注><input type=checkbox class=favorite' + (c.favorite ? ' checked' : '') + '><span class=slider></span></label>' +
-      '<div class=name>' + p.name + p.stateHtml + '</div>' +
+      '<div class="name' + p.nameCls + '">' + p.name + p.stateHtml + '</div>' +
       '<div class=checks>' +
       '<label><input type=checkbox data-k=notify_online' + (isOn(c.notify_online) ? ' checked' : '') + '>上线</label>' +
       '<label><input type=checkbox data-k=notify_offline' + (isOn(c.notify_offline) ? ' checked' : '') + '>下线</label>' +
@@ -2350,7 +2356,7 @@ function connectEvents() {
   // 后端日志实时推送(最新已展示 seq 由 addLogLine 内部维护, 去重守卫防重复)
   evt.addEventListener('log', (e) => {
     const d = JSON.parse(e.data);
-    if (d && d.line) addLogLine(d.line, null, d.seq);
+    if (d && d.line) addLogLine(d.line, d.seq);
   });
   // 服务端替换已显示的日志行(访问令牌打码): 按 seq 同步
   evt.addEventListener('log-update', (e) => {

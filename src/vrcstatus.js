@@ -88,7 +88,7 @@ function createVrcStatus({
     return inflight;
   }
 
-  return { status, _debug: { fetchJson, fetchStatus } };
+  return { status };
 }
 
 module.exports = { createVrcStatus };

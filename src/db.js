@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS friends (
   world_id TEXT, world_name TEXT,
   status_description TEXT,
   platform TEXT,
+  trust_level TEXT,
   pending_state TEXT, pending_at INTEGER,
   last_seen INTEGER,
   created_at TEXT DEFAULT (datetime('now')),
@@ -118,6 +119,8 @@ function createDb(location = ':memory:', opts = {}) {
   try { db.exec('ALTER TABLE users ADD COLUMN last_seen INTEGER'); } catch (e) { /* 已存在 */ }
   // 自动重登用密码(记住我时保存, 与 VRCX 保存凭据同款)
   try { db.exec('ALTER TABLE users ADD COLUMN password TEXT'); } catch (e) { /* 已存在 */ }
+  // 旧库补充: friends 补 trust_level 列(信任等级, 已存在则忽略)
+  try { db.exec('ALTER TABLE friends ADD COLUMN trust_level TEXT'); } catch (e) { /* 已存在 */ }
   const stmt = {
     upsertUser: db.prepare(`INSERT INTO users (vrchat_user_id, username, display_name, avatar_url, avatar_thumb_url, status, status_description, platform, state)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active')
@@ -153,8 +156,8 @@ function createDb(location = ':memory:', opts = {}) {
     clearAllBindings: db.prepare('DELETE FROM qq_bindings'),
     clearAllUsers: db.prepare('DELETE FROM users'),
     clearWorldCache: db.prepare('DELETE FROM world_cache'),
-    upsertFriend: db.prepare(`INSERT INTO friends (user_id, friend_vrchat_id, display_name, avatar_url, avatar_thumb_url, state, status, world_id, world_name, status_description, platform, last_seen)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    upsertFriend: db.prepare(`INSERT INTO friends (user_id, friend_vrchat_id, display_name, avatar_url, avatar_thumb_url, state, status, world_id, world_name, status_description, platform, trust_level, last_seen)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(user_id, friend_vrchat_id) DO UPDATE SET
         display_name = COALESCE(excluded.display_name, friends.display_name),
         avatar_url = COALESCE(excluded.avatar_url, friends.avatar_url),
@@ -165,6 +168,7 @@ function createDb(location = ':memory:', opts = {}) {
         world_name = excluded.world_name,
         status_description = excluded.status_description,
         platform = excluded.platform,
+        trust_level = COALESCE(excluded.trust_level, friends.trust_level),
         last_seen = excluded.last_seen,
         updated_at = datetime('now')`),
     getFriend: db.prepare('SELECT * FROM friends WHERE user_id = ? AND friend_vrchat_id = ?'),
@@ -174,6 +178,7 @@ function createDb(location = ':memory:', opts = {}) {
         display_name = COALESCE(?, display_name),
         avatar_url = COALESCE(?, avatar_url),
         avatar_thumb_url = COALESCE(?, avatar_thumb_url),
+        trust_level = COALESCE(?, trust_level),
         updated_at = datetime('now')
         WHERE id = ?`),
     updateFriendState: db.prepare(`UPDATE friends SET
@@ -307,6 +312,7 @@ function createDb(location = ':memory:', opts = {}) {
         fields.state ?? (existing ? existing.state : 'offline'),
         fields.status ?? null, fields.worldId ?? null, fields.worldName ?? null,
         fields.statusDescription ?? null, fields.platform ?? null,
+        fields.trustLevel ?? null,
         fields.lastSeen ?? Date.now()
       );
       return { isNew: !existing, row: stmt.getFriend.get(dbId, friendVrcId) };
@@ -314,8 +320,8 @@ function createDb(location = ':memory:', opts = {}) {
     getFriend: (dbId, friendVrcId) => stmt.getFriend.get(dbId, friendVrcId) || null,
     listFriends: (dbId) => stmt.listFriends.all(dbId),
     deleteFriend(dbId, friendVrcId) { stmt.deleteFriend.run(dbId, friendVrcId); },
-    updateFriendProfile(rowId, { displayName, avatarUrl, avatarThumbUrl }) {
-      stmt.updateFriendProfile.run(displayName ?? null, avatarUrl ?? null, avatarThumbUrl ?? null, rowId);
+    updateFriendProfile(rowId, { displayName, avatarUrl, avatarThumbUrl, trustLevel }) {
+      stmt.updateFriendProfile.run(displayName ?? null, avatarUrl ?? null, avatarThumbUrl ?? null, trustLevel ?? null, rowId);
     },
     updateFriendState(id, fields) {
       stmt.updateFriendState.run(

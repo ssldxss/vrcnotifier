@@ -25,6 +25,16 @@ function maskKey(token) {
   return token.length > 8 ? token.slice(0, 4) + '****' + token.slice(-4) : '****';
 }
 
+/** VRChat 信任等级: 好友 tags 按优先级映射(官方等级, 入库/展示统一用返回值) */
+function trustLevelFromTags(tags) {
+  const list = Array.isArray(tags) ? tags : [];
+  if (list.includes('system_trust_veteran')) return 'Trusted User';
+  if (list.includes('system_trust_trusted')) return 'Known User';
+  if (list.includes('system_trust_known')) return 'User';
+  if (list.includes('system_trust_basic')) return 'New User';
+  return 'Visitor';
+}
+
 // 分类规范化: 把正文开头的旧式内嵌标签(如 [启动]/[通知])提取为统一分类。
 const CATEGORY_ALIASES = {
   '启动': 'startup', '退出': 'startup', 'startup': 'startup', '轮转': 'startup',
@@ -73,4 +83,4 @@ function createLogger(defaultCategory = 'app', out = console.log) {
   };
 }
 
-module.exports = { formatLocalTime, createLogger, setLogStream, getLogStream, setFileLog, getFileLog, maskKey };
+module.exports = { formatLocalTime, createLogger, setLogStream, getLogStream, setFileLog, getFileLog, maskKey, trustLevelFromTags };

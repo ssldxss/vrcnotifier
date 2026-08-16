@@ -4,7 +4,7 @@
 const { EventEmitter } = require('node:events');
 const { deriveStateFromSnapshot, applyChange } = require('./state');
 const { parseLocation } = require('./location');
-const { formatLocalTime, createLogger } = require('./util');
+const { formatLocalTime, createLogger, trustLevelFromTags } = require('./util');
 const { isMissingCredentials, isUnauthorized } = require('./vrcapi');
 const { STARTUP_TEXT } = require('./qq-commands');
 
@@ -432,13 +432,14 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
         worldId: input.worldId || null, worldName: input.worldName || null,
         statusDescription: input.statusDescription || null, platform: input.platform || null,
         displayName: input.displayName || null, avatarUrl: input.avatarUrl || null, avatarThumbUrl: thumbUrl,
+        trustLevel: input.trustLevel || null,
         lastSeen: now()
       });
       return;
     }
     // 仅更新资料字段, 状态由状态机接管
-    if (input.displayName !== undefined || input.avatarUrl !== undefined || input.avatarThumbUrl !== undefined) {
-      db.updateFriendProfile(existed.id, { displayName: input.displayName, avatarUrl: input.avatarUrl, avatarThumbUrl: thumbUrl });
+    if (input.displayName !== undefined || input.avatarUrl !== undefined || input.avatarThumbUrl !== undefined || input.trustLevel !== undefined) {
+      db.updateFriendProfile(existed.id, { displayName: input.displayName, avatarUrl: input.avatarUrl, avatarThumbUrl: thumbUrl, trustLevel: input.trustLevel });
     }
     const cur = db.getFriend(user.id, friendVrcId);
     const result = applyChange(cur, {
@@ -764,7 +765,8 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
           statusDescription: state === 'offline' ? undefined : (f.statusDescription || null),
           worldId, worldName, platform: f.platform || null,
           displayName: f.displayName, avatarUrl: f.currentAvatarImageUrl || null,
-          avatarThumbUrl: f.profilePicOverrideThumbnail || f.currentAvatarThumbnailImageUrl || null
+          avatarThumbUrl: f.profilePicOverrideThumbnail || f.currentAvatarThumbnailImageUrl || null,
+          trustLevel: trustLevelFromTags(f.tags)
         }, applyOpts);
       }
 
