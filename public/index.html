@@ -313,7 +313,7 @@ header .spacer { flex: 1; }
    color: var(--accent-contrast);
    box-shadow: 0 2px 10px var(--accent-soft);
 }
-#tab-friends:not(.hidden), #tab-log:not(.hidden), #tab-settings:not(.hidden) { animation: viewIn .28s ease both; }
+#tab-friends:not(.hidden), #tab-settings:not(.hidden) { animation: viewIn .28s ease both; }
 @keyframes viewIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
 /* ---------- 表单控件 ---------- */
@@ -942,7 +942,7 @@ h3.chan { font-size: 13px; margin: 16px 0 6px; color: var(--text-2); font-weight
 </div>
 
 <div class='container hidden' id='mainView'>
-  <!-- 常驻概览条: 所有 tab 可见 -->
+  <!-- 常驻概览条: 两个页面都可见 -->
   <div class='overview'>
     <div class='overview-item'><span class='ov-label'>好友</span><span id='stMonitored' class='ov-value ov-num'>-</span></div>
     <div class='overview-item'><span class='ov-label'>QQ 机器人</span><span id='stQq' class='badge'>-</span></div>
@@ -967,9 +967,8 @@ h3.chan { font-size: 13px; margin: 16px 0 6px; color: var(--text-2); font-weight
   </div>
 
   <div class='tabs'>
-    <button class='tab active' data-target='tab-friends'>好友</button>
-    <button class='tab' data-target='tab-settings'>QQ 机器人</button>
-    <button class='tab' data-target='tab-log'>日志</button>
+    <button class='tab active' data-target='tab-friends'>好友监控</button>
+    <button class='tab' data-target='tab-settings'>设置</button>
   </div>
 
   <section id='tab-friends'>
@@ -985,7 +984,7 @@ h3.chan { font-size: 13px; margin: 16px 0 6px; color: var(--text-2); font-weight
     </div>
   </section>
 
-  <section id='tab-settings'>
+  <section id='tab-settings' class='hidden'>
     <div class='card'>
       <h2>QQ 机器人</h2>
       <div class='grid2'>
@@ -1000,9 +999,6 @@ h3.chan { font-size: 13px; margin: 16px 0 6px; color: var(--text-2); font-weight
         <span class='muted' id='settingsMsg'></span>
       </div>
     </div>
-  </section>
-
-  <section id='tab-log'>
     <div class='card'>
       <h2>后端日志</h2>
       <p class='muted hint'>后端日志实时推送, 包含监控事件 / 通知发送 / 连接状态。</p>
@@ -2036,43 +2032,28 @@ function connectEvents() {
   evt.addEventListener('ws-failure', () => { /* 后端日志已记录 */ });
 }
 
-// ---------- 左侧导航: 单页滚动定位 + 滚动高亮 ----------
-const SECTION_IDS = ['tab-friends', 'tab-settings', 'tab-log'];
-let navLockUntil = 0; // 平滑滚动期间锁定高亮, 点击立即反馈
-$$('.tab').forEach((btn) => {
-  btn.addEventListener('click', () => {
-    $$('.tab').forEach((b) => b.classList.toggle('active', b === btn)); // 立即反馈
-    navLockUntil = Date.now() + 700;
-    const target = document.getElementById(btn.dataset.target);
-    if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+// ---------- 页面切换: 好友监控 / 设置(设置页含 QQ 机器人 + 后端日志) ----------
+const PAGE_IDS = ['tab-friends', 'tab-settings'];
+function switchTab(name) {
+  if (!PAGE_IDS.includes(name)) name = PAGE_IDS[0];
+  $$('.tab').forEach((b) => b.classList.toggle('active', b.dataset.target === name));
+  PAGE_IDS.forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.classList.toggle('hidden', id !== name);
   });
+  window.scrollTo(0, 0); // 切换后回到页面顶部
+  try { sessionStorage.setItem('vrcn_lastTab', name); } catch (e) {} // 刷新恢复所在页
+}
+$$('.tab').forEach((btn) => {
+  btn.addEventListener('click', () => switchTab(btn.dataset.target));
 });
-// QQ 机器人状态卡: 点击快速滑到 QQ 机器人设置
+// QQ 机器人状态卡: 点击切换到设置页
 const qqStatusItem = $('#stQq') ? $('#stQq').closest('.overview-item') : null;
 if (qqStatusItem) {
   qqStatusItem.style.cursor = 'pointer';
-  qqStatusItem.title = '点击跳转到 QQ 机器人设置';
-  qqStatusItem.addEventListener('click', () => {
-    $$('.tab').forEach((b) => b.classList.toggle('active', b.dataset.target === 'tab-settings'));
-    navLockUntil = Date.now() + 700;
-    const target = document.getElementById('tab-settings');
-    if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  });
+  qqStatusItem.title = '点击打开设置页';
+  qqStatusItem.addEventListener('click', () => switchTab('tab-settings'));
 }
-// 滚动跟随: 高亮当前所在区块(滚到底时最后一个区块也可高亮)
-function syncNav() {
-  if (Date.now() < navLockUntil) return;
-  const offset = 90; // 吸顶 header 余量
-  let current = SECTION_IDS[0];
-  for (const id of SECTION_IDS) {
-    const el = document.getElementById(id);
-    if (el && el.getBoundingClientRect().top <= offset) current = id;
-  }
-  const atBottom = window.innerHeight + window.scrollY >= document.body.scrollHeight - 2;
-  if (atBottom) current = SECTION_IDS[SECTION_IDS.length - 1];
-  $$('.tab').forEach((b) => b.classList.toggle('active', b.dataset.target === current));
-}
-window.addEventListener('scroll', syncNav, { passive: true });
 
 // ---------- 主题: 自动(跟随系统)/浅色/深色 ----------
 const THEME_KEY = 'vrcn_theme';
@@ -2101,6 +2082,11 @@ applyTheme(localStorage.getItem(THEME_KEY) || 'dark');
 try {
   const savedView = sessionStorage.getItem('vrcn_lastView');
   if (savedView === 'main' || savedView === 'login') showView(savedView);
+} catch (e) {}
+// 恢复上次所在页面(好友监控/设置), 首帧前完成
+try {
+  const savedTab = sessionStorage.getItem('vrcn_lastTab');
+  if (savedTab === 'tab-friends' || savedTab === 'tab-settings') switchTab(savedTab);
 } catch (e) {}
 loadConfig();
 startConnWatch();
