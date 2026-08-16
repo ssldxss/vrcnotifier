@@ -91,15 +91,21 @@ html { scrollbar-gutter: stable; }
 body {
   margin: 0;
   min-height: 100vh;
-  background:
-    radial-gradient(1100px 700px at 88% -12%, var(--glow-1), transparent 60%),
-    radial-gradient(900px 640px at -8% 28%, var(--glow-2), transparent 55%),
-    var(--bg);
-  background-attachment: fixed;
+  background: var(--bg); /* 渐变光晕移至固定层 #bgGlow, 避免滚动时整页背景逐帧重绘 */
   color: var(--text-1);
   font: 14px/1.6 var(--font);
   -webkit-font-smoothing: antialiased;
   transition: color .3s ease;
+}
+/* 固定背景光晕层: 一次合成, 滚动零重绘 */
+#bgGlow {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(1100px 700px at 88% -12%, var(--glow-1), transparent 60%),
+    radial-gradient(900px 640px at -8% 28%, var(--glow-2), transparent 55%);
 }
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
@@ -455,6 +461,8 @@ button.danger { background: linear-gradient(135deg, var(--bad), #b4232c); box-sh
 }
 .group-body.collapsed { grid-template-rows: 0fr; }
 .group-inner { overflow: hidden; min-height: 0; }
+/* FLIP 动画期间放开裁剪, 行飞越分组边界时不被吞掉; 折叠组保持裁剪以免内容漏出 */
+#friendsList.flipping .group-body:not(.collapsed) .group-inner { overflow: visible; }
 /* 页面标题栏"我": 头像+圆点语义与好友行一致, 尺寸适配标题栏 */
 .self-info { display: flex; align-items: center; gap: 9px; min-width: 0; max-width: 48vw; }
 .self-info .avatar-wrap { position: relative; width: 32px; height: 32px; flex: 0 0 auto; }
@@ -612,7 +620,13 @@ button.danger { background: linear-gradient(135deg, var(--bad), #b4232c); box-sh
 .friend .name.tl-user { color: #2acf5b; }
 .friend .name.tl-new { color: #1678ff; }
 .friend .name.tl-visitor { color: #bababa; }
-.friend .state { font-size: 12px; color: var(--text-3); margin-top: 1px; transition: color var(--t-med); }
+.friend .state { font-size: 12px; color: var(--text-3); margin-top: 1px; transition: color var(--t-med); position: relative; overflow: hidden; }
+/* 状态行翻动: 旧文案向上滚出、新文案从下方滚入(与「平均 x 次/分钟」同款观感) */
+.friend .state .st-roll { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.friend .state .st-roll.st-old { position: absolute; inset: 0; animation: stateRollOut .3s cubic-bezier(.22,.8,.3,1) both; }
+.friend .state .st-roll.st-new { animation: stateRollIn .3s cubic-bezier(.22,.8,.3,1) both; }
+@keyframes stateRollIn { from { opacity: 0; transform: translateY(110%); } to { opacity: 1; transform: none; } }
+@keyframes stateRollOut { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateY(-110%); } }
 .friend:hover .state { color: var(--text-2); }
 .friend .checks { display: flex; gap: 10px; font-size: 12px; white-space: nowrap; }
 .friend label { display: flex; align-items: center; gap: 5px; cursor: pointer; color: var(--text-2); }
@@ -642,6 +656,34 @@ button.danger { background: linear-gradient(135deg, var(--bad), #b4232c); box-sh
 }
 .friend .checks input[type='checkbox']:checked { background: var(--accent); border-color: var(--accent); }
 .friend .checks input[type='checkbox']:checked::before { transform: scale(1); }
+
+/* 登出弹窗勾选框: 与好友行自绘勾选框同款 */
+.modal .modal-body label.row { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.modal .modal-body input[type='checkbox'] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 15px; height: 15px;
+  margin: 0;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 4px;
+  background: var(--input-bg);
+  cursor: pointer;
+  display: inline-grid;
+  place-content: center;
+  flex: 0 0 auto;
+  transition: background var(--t-fast), border-color var(--t-fast), transform var(--t-fast);
+}
+.modal .modal-body input[type='checkbox']:hover { transform: scale(1.1); }
+.modal .modal-body input[type='checkbox']::before {
+  content: '';
+  width: 9px; height: 9px;
+  clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
+  background: var(--accent-contrast);
+  transform: scale(0);
+  transition: transform .12s ease;
+}
+.modal .modal-body input[type='checkbox']:checked { background: var(--accent); border-color: var(--accent); }
+.modal .modal-body input[type='checkbox']:checked::before { transform: scale(1); }
 
 /* ---------- 日志 ---------- */
 #log {
@@ -958,6 +1000,7 @@ h3.chan { font-size: 13px; margin: 16px 0 6px; color: var(--text-2); font-weight
 </style>
 </head>
 <body>
+<div id='bgGlow' aria-hidden='true'></div>
 <header>
   <h1><a href='https://github.com/ssldxss/vrcnotifier' target='_blank' rel='noopener' title='vrcnotifier on GitHub'>vrcnotifier</a></h1>
   <div class='self-info' id='selfInfo'></div>
@@ -1078,18 +1121,25 @@ h3.chan { font-size: 13px; margin: 16px 0 6px; color: var(--text-2); font-weight
 
   <section id='tab-settings' class='hidden'>
     <div class='card' style='--i:7'>
-      <h2>QQ 机器人</h2>
-      <div class='grid2'>
-        <div class='field'><label>启用</label><select id='sQqEnabled'><option value='0'>关闭</option><option value='1'>开启</option></select></div>
-        <div class='field'><label>AppID</label><input type='text' id='sQqAppId' placeholder='QQ开放平台管理端 AppID'></div>
-        <div class='field'><label>AppSecret</label><input type='password' id='sQqAppSecret' placeholder='未配置'></div>
+      <h2>QQ 机器人
+        <label class='switch' title='启用 / 关闭 QQ 机器人' style='margin-left:auto'>
+          <input type='checkbox' id='sQqEnabled'>
+          <span class='slider'></span>
+        </label>
+      </h2>
+      <div id='qqFields'>
+        <div class='grid2'>
+          <div class='field'><label>AppID</label><input type='text' id='sQqAppId' placeholder='QQ开放平台管理端 AppID'></div>
+          <div class='field'><label>AppSecret</label><input type='password' id='sQqAppSecret' placeholder='未配置'></div>
+        </div>
+        <p class='muted hint'>在 <a href='https://q.qq.com/qqbot/openclaw/login.html' target='_blank' rel='noopener'>QQ 开放平台</a> 创建机器人, 填入 AppID/AppSecret 并保存后, 在 QQ 中给机器人发任意一条消息完成绑定。</p>
+        <div class='row actions'>
+          <button id='saveSettings'>保存设置</button>
+          <button id='testQq' class='secondary'>发送测试推送</button>
+          <span class='muted' id='settingsMsg'></span>
+        </div>
       </div>
-      <p class='muted hint'>在 <a href='https://q.qq.com/qqbot/openclaw/login.html' target='_blank' rel='noopener'>QQ 开放平台</a> 创建机器人, 填入 AppID/AppSecret 并保存后, 在 QQ 中给机器人发任意一条消息完成绑定。</p>
-      <div class='row actions'>
-        <button id='saveSettings'>保存设置</button>
-        <button id='testQq' class='secondary'>发送测试推送</button>
-        <span class='muted' id='settingsMsg'></span>
-      </div>
+      <p class='muted hint hidden' id='qqDisabledHint'>QQ 机器人已关闭, 开启后才会发送好友动态推送。</p>
     </div>
     <div class='card' style='--i:8'>
       <h2>后端日志
@@ -1132,10 +1182,10 @@ h3.chan { font-size: 13px; margin: 16px 0 6px; color: var(--text-2); font-weight
     <p class='muted'>将清除登录数据</p>
     <div class='modal-body'>
       <label class='row' style='justify-content:flex-start'>
-        <input type='checkbox' id='logoutClearFriends' style='width:auto'> 清除好友列表和用户信息(用于切换vrc账号)
+        <input type='checkbox' id='logoutClearFriends'> 清除好友列表和用户信息(用于切换vrc账号)
       </label>
       <label class='row' style='justify-content:flex-start'>
-        <input type='checkbox' id='logoutClearCache' style='width:auto'> 清除缓存(头像和世界名缓存)
+        <input type='checkbox' id='logoutClearCache'> 清除缓存(头像和世界名缓存)
       </label>
     </div>
     <div class='modal-actions'>
@@ -1845,6 +1895,7 @@ function renderFriends() {
 
 // ---------- 特别关注切换 FLIP 动画: 行 + 分组标题 + 组体整体平滑移动, 不刷新页面 ----------
 let flipRafId = 0;
+let flipItems = []; // 进行中的动画元素: 被新动画打断时清理残留 transform/opacity
 function flipKey(el) {
   if (el.classList.contains('friend')) return 'r:' + el.dataset.id;
   if (el.classList.contains('group-title')) return 'gt:' + el.dataset.group;
@@ -1868,8 +1919,11 @@ function captureRowRects() {
   });
   return rects;
 }
-function playRowFlip(oldRects, movedId) {
-  if (flipRafId) cancelAnimationFrame(flipRafId);
+function playRowFlip(oldRects, movedId, rowOpts = null) {
+  if (flipRafId) {
+    cancelAnimationFrame(flipRafId);
+    for (const m of flipItems) { m.el.style.transform = ''; if (m.fade) m.el.style.opacity = ''; }
+  }
   const items = [];
   const bodyDeltas = new Map(); // 组体位移: 行位移减去它, 避免组体+行双重移动
   $('#friendsList').querySelectorAll('.group-title, .group-body').forEach((el) => {
@@ -1885,38 +1939,143 @@ function playRowFlip(oldRects, movedId) {
   $('#friendsList').querySelectorAll('.friend').forEach((r) => {
     const prev = oldRects.get(flipKey(r));
     if (!prev) return;
+    const ro = rowOpts ? rowOpts.get(r.dataset.id) : null;
+    if (ro && ro.skip) return; // 不参与飞行(特别关注好友等)
     const cur = r.getBoundingClientRect();
     const body = r.closest('.group-body');
     const bd = body ? (bodyDeltas.get(body.dataset.group) || { dx: 0, dy: 0 }) : { dx: 0, dy: 0 };
-    const isMoved = r.dataset.id === movedId;
-    // 被移动行: 与方向无关, 统一「从上方飞落」到位(固定落差 + 轻微淡入)
-    const dx = isMoved ? 0 : prev.left - cur.left - bd.dx;
-    const dy = isMoved ? -56 : prev.top - cur.top - bd.dy;
+    // 从原位完整飞到新位置(旧位置 - 新位置 - 所属组体位移, 避免双重移动)
+    const dx = prev.left - cur.left - bd.dx;
+    const dy = prev.top - cur.top - bd.dy;
     if (Math.abs(dx) < .5 && Math.abs(dy) < .5) return;
-    items.push({ el: r, dx, dy, fade: !!isMoved });
+    items.push({ el: r, dx, dy, fade: ro ? ro.fade : null });
   });
   if (!items.length) return;
+  flipItems = items;
   const moved = movedId != null ? $('#friendsList').querySelector('.friend[data-id="' + movedId + '"]') : null;
   if (moved) moved.classList.add('fav-spot'); // 被移动行高光脉冲
-  const DUR = 460;
-  const ease = (t) => 1 - Math.pow(1 - t, 3); // easeOutCubic: 快起慢停
+  // 动画期间放开组内裁剪: 行飞越分组边界时才不会被 overflow:hidden 吞掉(折叠组保持裁剪)
+  $('#friendsList').classList.add('flipping');
+  // 飞行速度剖面: 起步瞬间加速度最小、随即增大, 0.2s 内达到峰值速度 7px/ms,
+  // 之后匀速巡航, 末尾 0.2s 对称减速; 距离越远飞得越久
+  const PEAK = 7;                    // px/ms 峰值速度
+  const ACCEL = 200;                 // 加速段时长 ms(0.2s 内达到最大速度)
+  const ACC_DIST = PEAK * ACCEL / 3; // 加速段覆盖距离(200px)
+  const MIN_DUR = 160;
+  const MAX_DUR = 2400;
+  for (const m of items) {
+    const d = Math.hypot(m.dx, m.dy);
+    m.d = d;
+    if (d >= 2 * ACC_DIST) {
+      m.T = Math.min(MAX_DUR, 2 * ACCEL + (d - 2 * ACC_DIST) / PEAK);
+      m.A = ACCEL;
+    } else {
+      m.T = Math.max(MIN_DUR, 2 * ACCEL * (d / (2 * ACC_DIST)));
+      m.A = m.T / 2; // 短位移: 纯对称加速-减速, 无匀速段
+    }
+  }
   const t0 = performance.now();
   const frame = (now) => {
-    const p = Math.min(1, (now - t0) / DUR);
-    const k = ease(p);
+    const t = now - t0;
+    let done = true;
     for (const m of items) {
-      m.el.style.transform = 'translate3d(' + (m.dx * (1 - k)).toFixed(2) + 'px, ' + (m.dy * (1 - k)).toFixed(2) + 'px, 0)';
-      if (m.fade) m.el.style.opacity = String(0.35 + 0.65 * Math.min(1, p * 2.2));
+      const p = Math.min(1, t / m.T);
+      const tc = Math.min(t, m.T); // 截断: 到点即停在目标位置, 继续积分会导致过冲错位
+      // 位置比例: 加速段 t³(加速度从 0 渐增)→ 匀速 → 对称减速
+      let f;
+      if (m.d >= 2 * ACC_DIST) {
+        if (tc <= m.A) f = (PEAK * tc * tc * tc / (3 * m.A * m.A)) / m.d;
+        else if (tc <= m.T - m.A) f = (ACC_DIST + PEAK * (tc - m.A)) / m.d;
+        else { const tau = m.T - tc; f = 1 - (PEAK * tau * tau * tau / (3 * m.A * m.A)) / m.d; }
+      } else {
+        if (tc <= m.A) f = 0.5 * Math.pow(tc / m.A, 3);
+        else f = 1 - 0.5 * Math.pow((m.T - tc) / m.A, 3);
+      }
+      m.el.style.transform = 'translate3d(' + (m.dx * (1 - f)).toFixed(2) + 'px, ' + (m.dy * (1 - f)).toFixed(2) + 'px, 0)';
+      if (m.fade) m.el.style.opacity = (m.fade === 'in' ? (0.12 + 0.88 * f) : (1 - f)).toFixed(2);
+      if (p < 1) done = false;
     }
-    if (p < 1) {
+    if (!done) {
       flipRafId = requestAnimationFrame(frame);
     } else {
       flipRafId = 0;
+      flipItems = [];
       for (const m of items) { m.el.style.transform = ''; if (m.fade) m.el.style.opacity = ''; }
       if (moved) moved.classList.remove('fav-spot');
+      $('#friendsList').classList.remove('flipping');
     }
   };
   flipRafId = requestAnimationFrame(frame);
+}
+
+// ---------- 上下线实时更新(纯前端 diff 动画): 换组的行飞行动画, 未换组的行状态文案翻动 ----------
+let notifyMotionTimer = null;
+function scheduleNotifyRefresh() {
+  if (notifyMotionTimer) clearTimeout(notifyMotionTimer);
+  notifyMotionTimer = setTimeout(() => {
+    notifyMotionTimer = null;
+    refreshFriendsWithMotion();
+  }, 200); // 合并突发通知, 避免动画互相打断
+}
+function captureRowsState() {
+  const rects = new Map();
+  const rows = new Map();
+  $('#friendsList').querySelectorAll('.friend, .group-title, .group-body').forEach((el) => {
+    const k = flipKey(el);
+    if (k) rects.set(k, el.getBoundingClientRect());
+  });
+  $('#friendsList').querySelectorAll('.friend').forEach((r) => {
+    const body = r.closest('.group-body');
+    const st = r.querySelector('.state');
+    rows.set(r.dataset.id, {
+      group: body ? body.dataset.group : null,
+      collapsed: !!(body && body.classList.contains('collapsed')),
+      stateTxt: st ? st.textContent : ''
+    });
+  });
+  return { rects, rows };
+}
+// 状态文案翻动: 旧文案向上滚出、新文案从下方滚入(与「平均 x 次/分钟」同款观感)
+function rollStateText(row, newTxt, oldTxt) {
+  const st = row.querySelector('.state');
+  if (!st || oldTxt === newTxt) return;
+  st.innerHTML = "<span class='st-roll st-new'>" + escapeHtml(newTxt) + "</span><span class='st-roll st-old'>" + escapeHtml(oldTxt) + '</span>';
+  const newEl = st.querySelector('.st-new');
+  if (newEl) newEl.addEventListener('animationend', () => { st.textContent = newTxt; }, { once: true });
+}
+function refreshFriendsWithMotion() {
+  const old = captureRowsState();
+  loadFriends()
+    .then(() => {
+      const rowOpts = new Map();
+      const flown = new Set();
+      $('#friendsList').querySelectorAll('.friend').forEach((r) => {
+        const info = old.rows.get(r.dataset.id);
+        if (!info) return;
+        const body = r.closest('.group-body');
+        const newGroup = body ? body.dataset.group : null;
+        const newCollapsed = !!(body && body.classList.contains('collapsed'));
+        if (info.group === newGroup) return; // 未换组: 交给文案翻动
+        if (info.collapsed && newCollapsed) return; // 始末两组都折叠: 不显示动画
+        if (info.group === 'fav' || newGroup === 'fav') { rowOpts.set(r.dataset.id, { skip: true }); flown.add(r.dataset.id); return; } // 特别关注不参与飞行, 直接更新
+        let fade = null;
+        if (info.collapsed && !newCollapsed) fade = 'in';       // 从折叠标题飞出: 淡入
+        else if (!info.collapsed && newCollapsed) fade = 'out'; // 飞入折叠标题: 淡出
+        rowOpts.set(r.dataset.id, { fade });
+        flown.add(r.dataset.id);
+      });
+      playRowFlip(old.rects, null, rowOpts);
+      // 未换组的行: 世界/社交状态文案变化 → 上下翻动
+      $('#friendsList').querySelectorAll('.friend').forEach((r) => {
+        if (flown.has(r.dataset.id)) return;
+        const info = old.rows.get(r.dataset.id);
+        if (!info) return;
+        const st = r.querySelector('.state');
+        const newTxt = st ? st.textContent : '';
+        if (info.stateTxt !== newTxt) rollStateText(r, newTxt, info.stateTxt);
+      });
+    })
+    .catch(() => {});
 }
 
 $('#friendsList').addEventListener('change', async (e) => {
@@ -2020,19 +2179,26 @@ $('#friendSearch').addEventListener('input', (e) => {
 });
 
 // ---------- 设置 ----------
+// QQ 开关: 关闭时隐藏 AppID/AppSecret/说明/按钮, 只留开关与提示
+function syncQqFields() {
+  const on = $('#sQqEnabled').checked;
+  $('#qqFields').classList.toggle('hidden', !on);
+  $('#qqDisabledHint').classList.toggle('hidden', on);
+}
+$('#sQqEnabled').addEventListener('change', syncQqFields);
+
 async function loadSettings() {
   const r = await api('GET', '/api/settings');
   const s = r.data.settings || {};
-  const qe = $('#sQqEnabled');
-  qe.value = s.qq_enabled ? '1' : '0';
-  if (qe.syncDd) qe.syncDd();
+  $('#sQqEnabled').checked = !!s.qq_enabled;
   $('#sQqAppId').value = s.qq_app_id || '';
   $('#sQqAppSecret').placeholder = s.qq_app_secret ? '已配置(留空保持不变)' : '未配置';
+  syncQqFields();
 }
 
 $('#saveSettings').addEventListener('click', async () => {
   const body = {
-    qq_enabled: $('#sQqEnabled').value === '1' ? 1 : 0,
+    qq_enabled: $('#sQqEnabled').checked ? 1 : 0,
     qq_app_id: $('#sQqAppId').value.trim() || null
   };
   const qqSecret = $('#sQqAppSecret').value;
@@ -2434,6 +2600,19 @@ function wsChartPush(sec, n) {
   if (!wsChartRaf) wsChartRaf = requestAnimationFrame(wsChartDraw);
 }
 
+// 图表仅在视口内逐帧绘制: 滚动到下方(概览条离开屏幕)时暂停 rAF, 页面滚轮更丝滑
+if ('IntersectionObserver' in window && $('#wsChart')) {
+  new IntersectionObserver((entries) => {
+    const vis = entries.some((e) => e.isIntersecting);
+    if (vis) {
+      if (!wsChartRaf) wsChartRaf = requestAnimationFrame(wsChartDraw);
+    } else if (wsChartRaf) {
+      cancelAnimationFrame(wsChartRaf);
+      wsChartRaf = 0;
+    }
+  }).observe($('#wsChart'));
+}
+
 async function loadWsStats() {
   const r = await api('GET', '/api/ws-stats');
   if (!r.data || !Array.isArray(r.data.series)) return;
@@ -2491,7 +2670,7 @@ function connectEvents() {
     loadWsStats();
   };
   // 事件驱动 UI 刷新(状态渲染已由 'status' 推送, 这里只刷新数据列表)
-  evt.addEventListener('notification', () => { loadFriends(); });
+  evt.addEventListener('notification', () => { scheduleNotifyRefresh(); });
   evt.addEventListener('snapshot', () => { loadFriends(); });
   evt.addEventListener('self-state', () => { /* 'status' 推送已覆盖 */ });
   evt.addEventListener('qq-status', (e) => {
@@ -2684,10 +2863,9 @@ function makeDropdown(sel) {
   return wrap;
 }
 
-// 初始化所有下拉(替代原生 select): 门禁/断开弹窗协议、QQ 启用、日志等级与分类筛选
+// 初始化所有下拉(替代原生 select): 门禁/断开弹窗协议、日志等级与分类筛选(QQ 启用已是开关)
 makeDropdown($('#gateScheme'));
 makeDropdown($('#connScheme'));
-makeDropdown($('#sQqEnabled'));
 makeDropdown($('#logLevelSel'));
 makeDropdown($('#logCatSel'));
 logLevelSel = $('#logLevelSel');
