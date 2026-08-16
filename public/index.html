@@ -126,6 +126,23 @@ header h1 {
   background-clip: text;
   -webkit-text-fill-color: transparent;
 }
+header h1 a { text-decoration: none; }
+/* 页脚品牌标识(点击跳转 GitHub) */
+.site-mark {
+  margin-top: 8em; /* 空约 5 行 */
+  margin-bottom: 8px;
+  text-align: center;
+  font-size: 15px;
+}
+.site-mark a {
+  text-decoration: none;
+  font-weight: 600;
+  letter-spacing: -.2px;
+  background: linear-gradient(120deg, var(--accent), var(--accent-2));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
 .conn-form { display: flex; align-items: center; gap: 8px; }
 .conn-form input { width: auto; margin: 0; }
 header .spacer { flex: 1; }
@@ -607,7 +624,9 @@ button.danger { background: linear-gradient(135deg, var(--bad), #b4232c); box-sh
 
 /* ---------- 日志 ---------- */
 #log {
-  max-height: 240px;
+  height: calc(250vh - 1550px); /* 日志高度 = 最初的 2.5 倍 */
+  min-height: 600px;
+  max-height: 1800px;
   overflow: auto;
   font: 12px/1.6 var(--font-mono);
   background: var(--input-bg);
@@ -830,8 +849,9 @@ h3.chan { font-size: 13px; margin: 16px 0 6px; color: var(--text-2); font-weight
   .ws-panel-row { width: 100%; }
   .friend { flex-wrap: wrap; }
   .friend .checks { width: 100%; flex-wrap: wrap; gap: 8px 14px; padding-left: 52px; }
-  .tabs { width: 100%; }
-  .tab { flex: 1; }
+  .tabs { position: static; transform: none; width: 100%; flex-direction: row; margin-bottom: 16px; }
+  .tab { flex: 1; writing-mode: horizontal-tb; padding: 8px 14px; }
+  #mainView.container { margin-left: 0; margin-right: 0; max-width: 980px; }
   button { min-height: 40px; }
   #loginView .login-split { flex-direction: column; }
   #loginView .login-main { flex: 0 0 auto; }
@@ -849,7 +869,7 @@ h3.chan { font-size: 13px; margin: 16px 0 6px; color: var(--text-2); font-weight
 </head>
 <body>
 <header>
-  <h1>vrcnotifier</h1>
+  <h1><a href='https://github.com/ssldxss/vrcnotifier' target='_blank' rel='noopener' title='vrcnotifier on GitHub'>vrcnotifier</a></h1>
   <div class='self-info' id='selfInfo'></div>
   <span class='spacer'></span>
   <button id='themeBtn' class='theme-btn' title='主题: 跟随系统' aria-label='切换主题'></button>
@@ -947,9 +967,9 @@ h3.chan { font-size: 13px; margin: 16px 0 6px; color: var(--text-2); font-weight
   </div>
 
   <div class='tabs'>
-    <button class='tab active' data-tab='friends'>好友</button>
-    <button class='tab' data-tab='log'>动态</button>
-    <button class='tab' data-tab='settings'>设置</button>
+    <button class='tab active' data-target='tab-friends'>好友</button>
+    <button class='tab' data-target='tab-settings'>QQ 机器人</button>
+    <button class='tab' data-target='tab-log'>日志</button>
   </div>
 
   <section id='tab-friends'>
@@ -965,17 +985,9 @@ h3.chan { font-size: 13px; margin: 16px 0 6px; color: var(--text-2); font-weight
     </div>
   </section>
 
-  <section id='tab-log' class='hidden'>
+  <section id='tab-settings'>
     <div class='card'>
-      <h2>实时动态</h2>
-      <p class='muted hint'>后端日志实时推送, 包含监控事件 / 通知发送 / 连接状态。</p>
-      <div id='log'><div class='muted'>等待日志...</div></div>
-    </div>
-  </section>
-
-  <section id='tab-settings' class='hidden'>
-    <div class='card'>
-      <h2>QQ 机器人 (推荐)</h2>
+      <h2>QQ 机器人</h2>
       <div class='grid2'>
         <div class='field'><label>启用</label><select id='sQqEnabled'><option value='0'>关闭</option><option value='1'>开启</option></select></div>
         <div class='field'><label>AppID</label><input type='text' id='sQqAppId' placeholder='QQ开放平台管理端 AppID'></div>
@@ -989,6 +1001,19 @@ h3.chan { font-size: 13px; margin: 16px 0 6px; color: var(--text-2); font-weight
       </div>
     </div>
   </section>
+
+  <section id='tab-log'>
+    <div class='card'>
+      <h2>后端日志</h2>
+      <p class='muted hint'>后端日志实时推送, 包含监控事件 / 通知发送 / 连接状态。</p>
+      <div id='log'><div class='muted'>等待日志...</div></div>
+    </div>
+  </section>
+
+  <footer class='site-mark'>
+    <a href='https://github.com/ssldxss/vrcnotifier' target='_blank' rel='noopener' title='vrcnotifier on GitHub'>vrcnotifier</a>
+    <span class='muted'> · GitHub</span>
+  </footer>
 </div>
 
 <!-- 登出确认弹窗 -->
@@ -1148,9 +1173,12 @@ function addLogLine(line, cls) {
     else if (/\[error\]/.test(line)) cls = 'err';
   }
   if (cls) div.className = cls;
-  box.appendChild(div);
-  while (box.children.length > 500) box.firstChild.remove();
-  box.scrollTop = box.scrollHeight;
+  const wasAtTop = box.scrollTop <= 2;          // 是否正停留在顶部跟随最新
+  const beforeH = box.scrollHeight;
+  box.insertBefore(div, box.firstChild);        // 新的日志在上面
+  while (box.children.length > 500) box.lastChild.remove(); // 裁剪最旧的(底部)
+  if (wasAtTop) box.scrollTop = 0;              // 停顶部时保持跟随最新
+  else box.scrollTop += box.scrollHeight - beforeH; // 正在阅读旧日志时保持视口不跳动
 }
 
 // 前端本地操作反馈(后端日志中也包含对应记录)
@@ -1181,6 +1209,7 @@ function showView(name) {
   $('#loginView').classList.toggle('hidden', name !== 'login');
   $('#mainView').classList.toggle('hidden', name !== 'main');
   if (name === 'gate') fillGateForm();
+  try { sessionStorage.setItem('vrcn_lastView', name); } catch (e) {} // 刷新时恢复, 避免门禁页闪烁
   // 登录页右侧的服务器状态卡与主界面一致, 进入登录/主界面时开始轮询(主界面由 startStatus 重启)
   if (name === 'login' || name === 'main') {
     loadHealth();
@@ -2007,16 +2036,43 @@ function connectEvents() {
   evt.addEventListener('ws-failure', () => { /* 后端日志已记录 */ });
 }
 
-// ---------- Tab 切换 ----------
+// ---------- 左侧导航: 单页滚动定位 + 滚动高亮 ----------
+const SECTION_IDS = ['tab-friends', 'tab-settings', 'tab-log'];
+let navLockUntil = 0; // 平滑滚动期间锁定高亮, 点击立即反馈
 $$('.tab').forEach((btn) => {
   btn.addEventListener('click', () => {
-    $$('.tab').forEach((b) => b.classList.toggle('active', b === btn));
-    ['friends', 'log', 'settings'].forEach((name) => {
-      $('#tab-' + name).classList.toggle('hidden', name !== btn.dataset.tab);
-    });
-    if (btn.dataset.tab === 'friends') loadFriends();
+    $$('.tab').forEach((b) => b.classList.toggle('active', b === btn)); // 立即反馈
+    navLockUntil = Date.now() + 700;
+    const target = document.getElementById(btn.dataset.target);
+    if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
 });
+// QQ 机器人状态卡: 点击快速滑到 QQ 机器人设置
+const qqStatusItem = $('#stQq') ? $('#stQq').closest('.overview-item') : null;
+if (qqStatusItem) {
+  qqStatusItem.style.cursor = 'pointer';
+  qqStatusItem.title = '点击跳转到 QQ 机器人设置';
+  qqStatusItem.addEventListener('click', () => {
+    $$('.tab').forEach((b) => b.classList.toggle('active', b.dataset.target === 'tab-settings'));
+    navLockUntil = Date.now() + 700;
+    const target = document.getElementById('tab-settings');
+    if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+}
+// 滚动跟随: 高亮当前所在区块(滚到底时最后一个区块也可高亮)
+function syncNav() {
+  if (Date.now() < navLockUntil) return;
+  const offset = 90; // 吸顶 header 余量
+  let current = SECTION_IDS[0];
+  for (const id of SECTION_IDS) {
+    const el = document.getElementById(id);
+    if (el && el.getBoundingClientRect().top <= offset) current = id;
+  }
+  const atBottom = window.innerHeight + window.scrollY >= document.body.scrollHeight - 2;
+  if (atBottom) current = SECTION_IDS[SECTION_IDS.length - 1];
+  $$('.tab').forEach((b) => b.classList.toggle('active', b.dataset.target === current));
+}
+window.addEventListener('scroll', syncNav, { passive: true });
 
 // ---------- 主题: 自动(跟随系统)/浅色/深色 ----------
 const THEME_KEY = 'vrcn_theme';
@@ -2040,6 +2096,12 @@ $('#themeBtn').addEventListener('click', () => {
 });
 applyTheme(localStorage.getItem(THEME_KEY) || 'dark');
 
+// 启动时同步恢复上次视图(首帧前完成, 避免刷新瞬间闪出「连接后端」门禁页);
+// 会话验证仍在后台进行, 无效时再由 checkSession 切到登录/门禁页。
+try {
+  const savedView = sessionStorage.getItem('vrcn_lastView');
+  if (savedView === 'main' || savedView === 'login') showView(savedView);
+} catch (e) {}
 loadConfig();
 startConnWatch();
 fillGateForm(); // 页面加载即展示门禁卡并预填: 卡片始终可见, 检测结果写入卡片内提示
