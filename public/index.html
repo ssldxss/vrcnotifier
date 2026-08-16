@@ -1882,17 +1882,26 @@ document.addEventListener('mousemove', (e) => {
   if (!spotRaf) spotRaf = requestAnimationFrame(tickSpotlight);
 });
 
-$('#forceSnapshot').addEventListener('click', async () => {
+// 手动触发对账刷新(工具栏「刷新」按钮与概览「上次刷新」卡共用); 结果提示 3s 后自动隐藏
+let opMsgTimer = null;
+function opMsgFlash(text) {
+  const el = $('#opMsg');
+  el.textContent = text;
+  if (opMsgTimer) clearTimeout(opMsgTimer);
+  opMsgTimer = setTimeout(() => { el.textContent = ''; opMsgTimer = null; }, 3000);
+}
+async function triggerSnapshot() {
   $('#opMsg').textContent = '刷新中...';
   const r = await api('POST', '/api/monitor/snapshot', {});
   if (r.data.ok) {
-    $('#opMsg').textContent = '刷新完成';
+    opMsgFlash('刷新完成');
     loadFriends();
     loadStatus();
   } else {
-    $('#opMsg').textContent = r.data.error || '刷新失败';
+    opMsgFlash(r.data.error || '刷新失败');
   }
-});
+}
+$('#forceSnapshot').addEventListener('click', triggerSnapshot);
 
 // 好友搜索(150ms 防抖)
 let friendSearchTimer = null;
@@ -2460,6 +2469,13 @@ if (healthStatusItem) {
   healthStatusItem.addEventListener('click', () => {
     window.open('https://status.vrchat.com', '_blank', 'noopener');
   });
+}
+// 上次刷新卡: 点击手动触发对账刷新
+const snapshotStatusItem = $('#stSnapshot') ? $('#stSnapshot').closest('.overview-item') : null;
+if (snapshotStatusItem) {
+  snapshotStatusItem.style.cursor = 'pointer';
+  snapshotStatusItem.title = '点击立即刷新好友数据';
+  snapshotStatusItem.addEventListener('click', () => triggerSnapshot());
 }
 
 // ---------- 主题: 自动(跟随系统)/浅色/深色 ----------
