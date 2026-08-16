@@ -6,7 +6,7 @@
 <title>vrcnotifier</title>
 <link rel='preconnect' href='https://fonts.googleapis.com'>
 <link rel='preconnect' href='https://fonts.gstatic.com' crossorigin>
-<link href='https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,100..900&display=swap' rel='stylesheet'>
+<link href='https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,100..900&family=Space+Grotesk:wght@500..700&display=swap' rel='stylesheet'>
 <script>try{var t=localStorage.getItem('vrcn_theme')||'dark';if(t!=='auto')document.documentElement.setAttribute('data-theme',t);}catch(e){document.documentElement.setAttribute('data-theme','dark');}</script>
 <style>
 /* ================================================================
@@ -97,6 +97,12 @@ body {
   -webkit-font-smoothing: antialiased;
   transition: color .3s ease;
 }
+/* 全站默认不可选中文本; 仅好友名字/世界名(.name, 含状态行)与日志可复制 */
+body { user-select: none; -webkit-user-select: none; }
+input, textarea { user-select: text; -webkit-user-select: text; }
+.friend .name, .self-info .name { user-select: text; -webkit-user-select: text; }
+#log, #log * { user-select: text; -webkit-user-select: text; }
+
 /* 固定背景光晕层: 一次合成, 滚动零重绘 */
 #bgGlow {
   position: fixed;
@@ -128,15 +134,19 @@ header {
   border-bottom: 1px solid var(--line);
 }
 header h1 {
-  font-size: 17px;
+  font-family: 'Space Grotesk', 'Inter Variable', system-ui, sans-serif; /* 标题专用几何字体 */
+  font-size: 22px;
+  font-weight: 700;
   margin: 0;
-  letter-spacing: -.2px;
+  letter-spacing: -.4px;
   background: linear-gradient(120deg, var(--accent), var(--accent-2));
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
 }
-header h1 a { text-decoration: none; }
+/* 外链(非 <a>): 与服务器状态卡一致的点击行为; 视觉与原来的文字链接一致(悬停不下划线) */
+.ext-link { cursor: pointer; }
+.hint .ext-link { color: var(--accent); }
 /* 页脚品牌标识(点击跳转 GitHub) */
 .site-mark {
   margin-top: 8em; /* 空约 5 行 */
@@ -146,7 +156,7 @@ header h1 a { text-decoration: none; }
   animation: riseIn .4s cubic-bezier(.22,.8,.3,1) backwards;
   animation-delay: calc(var(--i, 9) * 40ms); /* 底部文字最后淡入(好友行多时由 JS 顺延) */
 }
-.site-mark a {
+.site-mark .ext-link {
   text-decoration: none;
   font-weight: 600;
   letter-spacing: -.2px;
@@ -966,6 +976,53 @@ fieldset { border: 1px solid var(--line); border-radius: var(--r-md); margin: 0 
 legend { font-size: 13px; color: var(--text-3); padding: 0 6px; }
 h3.chan { font-size: 13px; margin: 16px 0 6px; color: var(--text-2); font-weight: 600; }
 
+/* ---------- 回到顶部按钮(固定右下角, 最顶层悬浮) ---------- */
+.to-top {
+  position: fixed;
+  right: 22px;
+  bottom: 12.5vh; /* 悬浮在页面八分之一高度处 */
+  z-index: 400; /* 悬浮在最顶层(弹窗 200 之上) */
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  isolation: isolate;
+  overflow: hidden;
+  background: var(--header-bg);
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
+  backdrop-filter: blur(14px) saturate(160%);
+  border: 1px solid var(--card-border);
+  border-radius: 14px; /* 圆角正方形 */
+  color: var(--text-2);
+  cursor: pointer;
+  box-shadow: var(--shadow-1), inset 0 1px 0 var(--card-hl);
+  transition: color var(--t-fast), border-color var(--t-fast), box-shadow var(--t-fast), opacity .5s cubic-bezier(.22,.8,.3,1), transform .5s cubic-bezier(.22,.8,.3,1);
+}
+/* 鼠标跟随径向高光(与好友行/导航/卡片一致) */
+.to-top::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(90px circle at var(--mx, 50%) var(--my, 50%), var(--accent-soft), transparent 70%);
+  opacity: 0;
+  transition: opacity .2s ease-out;
+  z-index: -1;
+  pointer-events: none;
+}
+.to-top:hover::before { opacity: 1; }
+.to-top:hover {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-1), 0 4px 18px var(--accent-soft), inset 0 1px 0 var(--card-hl);
+}
+.to-top:active { transform: translateY(0) scale(.96); }
+/* 淡出态: 用专用类(不能用全局 .hidden, 其 display:none 会跳过透明度过渡) */
+.to-top.off { opacity: 0; pointer-events: none; transform: translateY(18px) scale(.8); }
+.to-top svg { width: 48px; height: 48px; }
+
 /* ---------- 滚动条 ---------- */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 5px; border: 2px solid transparent; background-clip: padding-box; }
@@ -1002,7 +1059,7 @@ h3.chan { font-size: 13px; margin: 16px 0 6px; color: var(--text-2); font-weight
 <body>
 <div id='bgGlow' aria-hidden='true'></div>
 <header>
-  <h1><a href='https://github.com/ssldxss/vrcnotifier' target='_blank' rel='noopener' title='vrcnotifier on GitHub'>vrcnotifier</a></h1>
+  <h1><span class='ext-link' data-href='https://github.com/ssldxss/vrcnotifier' title='vrcnotifier on GitHub'>vrcnotifier</span></h1>
   <div class='self-info' id='selfInfo'></div>
   <span class='spacer'></span>
   <button id='themeBtn' class='theme-btn' title='主题: 跟随系统' aria-label='切换主题'></button>
@@ -1132,7 +1189,7 @@ h3.chan { font-size: 13px; margin: 16px 0 6px; color: var(--text-2); font-weight
           <div class='field'><label>AppID</label><input type='text' id='sQqAppId' placeholder='QQ开放平台管理端 AppID'></div>
           <div class='field'><label>AppSecret</label><input type='password' id='sQqAppSecret' placeholder='未配置'></div>
         </div>
-        <p class='muted hint'>在 <a href='https://q.qq.com/qqbot/openclaw/login.html' target='_blank' rel='noopener'>QQ 开放平台</a> 创建机器人, 填入 AppID/AppSecret 并保存后, 在 QQ 中给机器人发任意一条消息完成绑定。</p>
+        <p class='muted hint'>在 <span class='ext-link' data-href='https://q.qq.com/qqbot/openclaw/login.html'>QQ 开放平台</span> 创建机器人, 填入 AppID/AppSecret 并保存后, 在 QQ 中给机器人发任意一条消息完成绑定。</p>
         <div class='row actions'>
           <button id='saveSettings'>保存设置</button>
           <button id='testQq' class='secondary'>发送测试推送</button>
@@ -1170,10 +1227,15 @@ h3.chan { font-size: 13px; margin: 16px 0 6px; color: var(--text-2); font-weight
   </section>
 
   <footer class='site-mark'>
-    <a href='https://github.com/ssldxss/vrcnotifier' target='_blank' rel='noopener' title='vrcnotifier on GitHub'>vrcnotifier</a>
+    <span class='ext-link' data-href='https://github.com/ssldxss/vrcnotifier' title='vrcnotifier on GitHub'>vrcnotifier</span>
     <span class='muted'> · GitHub</span>
   </footer>
 </div>
+
+<!-- 回到顶部 -->
+<button id='toTopBtn' class='to-top off' aria-label='回到顶部' title='回到顶部'>
+  <svg viewBox='4.5 7.5 15 9' fill='none' stroke='currentColor' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'><path d='m18 15-6-6-6 6'/></svg>
+</button>
 
 <!-- 登出确认弹窗 -->
 <div class='modal-overlay hidden' id='logoutModal'>
@@ -2129,7 +2191,7 @@ function tickSpotlight() {
   }
 }
 document.addEventListener('mousemove', (e) => {
-  const row = e.target.closest ? e.target.closest('.friend, .tab, .overview-item, #gateView .card, #loginView .login-main, .modal') : null;
+  const row = e.target.closest ? e.target.closest('.friend, .tab, .overview-item, #gateView .card, #loginView .login-main, .modal, .to-top') : null;
   if (!row) {
     spotRow = null;
     spotTarget = null;
@@ -2730,6 +2792,7 @@ function switchTab(name, opts = {}) {
     });
   }
   try { sessionStorage.setItem('vrcn_lastTab', name); } catch (e) {} // 刷新恢复所在页
+  updateToTop(); // 切换后页面高度变化, 重新判定回到顶部按钮
 }
 $$('.tab').forEach((btn) => {
   btn.addEventListener('click', () => switchTab(btn.dataset.target, { instant: true }));
@@ -2757,6 +2820,31 @@ if (healthStatusItem) {
     window.open('https://status.vrchat.com', '_blank', 'noopener');
   });
 }
+// 外链(GitHub / QQ 开放平台): 与服务器状态卡一致 —— 无超链接, 点击经 JS window.open 打开新标签页; 视觉样式与原文字链接一致
+$$('.ext-link').forEach((el) => {
+  el.addEventListener('click', () => {
+    const url = el.dataset.href;
+    if (url) window.open(url, '_blank', 'noopener');
+  });
+});
+
+// 回到顶部按钮: 页面切换按钮(.tabs)滚到吸顶标题栏处或更下方时显示; 固定右下角、最顶层悬浮
+function updateToTop() {
+  const btn = $('#toTopBtn');
+  if (!btn) return;
+  const tabs = document.querySelector('.tabs');
+  let show = false;
+  if (tabs && !tabs.closest('.hidden')) {
+    const header = document.querySelector('header');
+    const hh = header ? header.offsetHeight : 60;
+    show = tabs.getBoundingClientRect().top <= hh;
+  }
+  btn.classList.toggle('off', !show);
+}
+window.addEventListener('scroll', updateToTop, { passive: true });
+$('#toTopBtn').addEventListener('click', () => {
+  if (window.__smoothScrollTo) window.__smoothScrollTo(0); // 复用惯性滚动滑回顶部
+});
 // 上次刷新卡: 点击手动触发对账刷新
 const snapshotStatusItem = $('#stSnapshot') ? $('#stSnapshot').closest('.overview-item') : null;
 if (snapshotStatusItem) {
@@ -2874,6 +2962,48 @@ logCatSel = $('#logCatSel');
 $('#logLevelSel').addEventListener('change', () => { loadBackendLogs({ tail: 100 }); });
 $('#logCatSel').addEventListener('change', () => { loadBackendLogs({ tail: 100 }); });
 
+// ---------- 丝滑滚动: 替换默认滚轮为指数趋近的惯性滚动 ----------
+// 起步跟手、尾段柔和; 日志卡/下拉菜单等内部滚动容器仍走原生; 减弱动态效果用户保持原生。
+(function initSmoothScroll() {
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const NATIVE_SEL = '#log, .dd-menu'; // 内部滚动容器: 不拦截
+  let target = window.scrollY;
+  let current = window.scrollY;
+  let rafId = null;
+  const onWheel = (e) => {
+    if (e.ctrlKey) return; // ctrl+滚轮 = 缩放, 交给浏览器
+    const el = e.target && e.target.closest ? e.target.closest(NATIVE_SEL) : null;
+    if (el) return; // 容器内部原生滚动
+    e.preventDefault();
+    let delta = e.deltaY || 0;
+    if (e.deltaMode === 1) delta *= 16;
+    else if (e.deltaMode === 2) delta = window.innerHeight * (delta > 0 ? 0.9 : -0.9);
+    const max = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+    target = Math.max(0, Math.min(max, target + delta * 1.15)); // 惯性加成: 快速拨轮/甩动滑得更远
+    if (rafId === null) rafId = requestAnimationFrame(step);
+  };
+  const step = () => {
+    current += (target - current) * 0.1; // 更柔的趋近: 尾段滑行更长、更丝滑
+    if (Math.abs(target - current) < 0.3) {
+      current = target;
+      rafId = null;
+    } else {
+      rafId = requestAnimationFrame(step);
+    }
+    window.scrollTo(0, current);
+  };
+  window.addEventListener('wheel', onWheel, { passive: false });
+  // 其他滚动源(键盘/滚动条/锚点)直接改 scrollY 时同步目标, 避免相互对抗
+  window.addEventListener('scroll', () => {
+    if (rafId === null) { target = window.scrollY; current = window.scrollY; }
+  }, { passive: true });
+  // 供「回到顶部」按钮等调用: 复用同一惯性滚动
+  window.__smoothScrollTo = (y) => {
+    const max = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+    target = Math.max(0, Math.min(max, Number(y) || 0));
+    if (rafId === null) rafId = requestAnimationFrame(step);
+  };
+})();
 // 启动时同步恢复上次视图(首帧前完成, 避免刷新瞬间闪出「连接后端」门禁页);
 // 会话验证仍在后台进行, 无效时再由 checkSession 切到登录/门禁页。
 try {
