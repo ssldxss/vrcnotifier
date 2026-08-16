@@ -61,6 +61,14 @@ function createFileLog({ file, maxBytes = 10 * 1024 * 1024 } = {}) {
 
   /** 读取 seq 严格小于 beforeSeq 的最近 limit 行(返回从旧到新); 已被轮转覆盖的返回空 */
   function readBefore(beforeSeq, limit = 100) {
+    return readBackFiltered(beforeSeq, limit, null);
+  }
+
+  /**
+   * 向后扫描直到凑满 limit 条满足 match 的行(跳过不匹配行, 供前端筛选使用);
+   * match 为 null 时不筛选; 已被轮转覆盖/到文件开头的返回空。
+   */
+  function readBackFiltered(beforeSeq, limit = 100, match = null) {
     if (fd === null) return [];
     const out = [];
     let s = beforeSeq - 1;
@@ -69,7 +77,8 @@ function createFileLog({ file, maxBytes = 10 * 1024 * 1024 } = {}) {
       if (meta) {
         const b = Buffer.alloc(meta.len);
         fs.readSync(fd, b, 0, meta.len, meta.start);
-        out.push({ seq: s, line: b.toString('utf8').replace(/\n$/, '') });
+        const line = b.toString('utf8').replace(/\n$/, '');
+        if (!match || match(line)) out.push({ seq: s, line });
       }
       s--;
     }
@@ -81,7 +90,7 @@ function createFileLog({ file, maxBytes = 10 * 1024 * 1024 } = {}) {
     if (fd !== null) { try { fs.closeSync(fd); } catch (e) { /* ignore */ } fd = null; }
   }
 
-  return { open, append, willOverflow, rotate, readBefore, close, maxBytes, size: () => size, lastSeq: () => lastSeq };
+  return { open, append, willOverflow, rotate, readBefore, readBackFiltered, close, maxBytes, size: () => size, lastSeq: () => lastSeq };
 }
 
 module.exports = { createFileLog };

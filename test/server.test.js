@@ -950,6 +950,26 @@ test('GET /api/logs returns tail and after-seq entries', async (t) => {
   assert.deepEqual(all.data.logs.map((l) => l.line), ['第一行', '第二行', '第三行']);
 });
 
+test('GET /api/logs filters by level and category server-side', async (t) => {
+  const ctx = setup({ accessToken: 'secret123' });
+  t.after(() => close(ctx));
+  await post(ctx, '/api/login', { username: 'me', password: 'pw' });
+  ctx.logStream.push('[2026-01-01 00:00:01] [info] [ws] 已连接');
+  ctx.logStream.push('[2026-01-01 00:00:02] [warn] [qq] 断开 appId=1');
+  ctx.logStream.push('[2026-01-01 00:00:03] [error] [monitor] 连接故障超过 5 分钟');
+  // 阈值语义: warn 含 error; info 含全部
+  const warn = await get(ctx, '/api/logs?tail=10&level=warn');
+  assert.deepEqual(warn.data.logs.map((l) => l.seq), [2, 3]);
+  const onlyErr = await get(ctx, '/api/logs?tail=10&level=error');
+  assert.deepEqual(onlyErr.data.logs.map((l) => l.seq), [3]);
+  const qqWarn = await get(ctx, '/api/logs?tail=10&level=warn&cat=qq');
+  assert.deepEqual(qqWarn.data.logs.map((l) => l.seq), [2]);
+  const all2 = await get(ctx, '/api/logs?tail=10');
+  assert.deepEqual(all2.data.logs.map((l) => l.seq), [1, 2, 3]);
+  const afterF = await get(ctx, '/api/logs?after=1&level=error');
+  assert.deepEqual(afterF.data.logs.map((l) => l.seq), [3]);
+});
+
 test('SSE stream emits backend log lines live', async (t) => {
   const ctx = setup();
   t.after(() => close(ctx));

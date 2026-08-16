@@ -17,6 +17,16 @@ const SETTING_MAP = {
   qqEnabled: 'qq_enabled', qqAppId: 'qq_app_id', qqAppSecret: 'qq_app_secret'
 };
 
+// 日志筛选(服务端): 级别阈值语义与前端一致(信息含全部, 警告含错误, 错误仅错误)
+const LOG_LEVEL_RANK = { info: 0, warn: 1, error: 2 };
+function logLineMatches(line, levelSel, catSel) {
+  const m = /^\[[^\]]+\] \[(info|warn|error)\] \[([^\]]+)\] /.exec(String(line));
+  const lv = m ? m[1] : 'info';
+  const cat = m ? m[2] : 'other';
+  return (LOG_LEVEL_RANK[lv] ?? 0) >= (LOG_LEVEL_RANK[levelSel] ?? 0)
+    && (catSel === 'all' || cat === catSel);
+}
+
 function createApp({
   db, notifier, pipeline, monitor,
   sessionStore = new Map(), vrcapiFactory, config = {}, logger = null,
@@ -868,23 +878,39 @@ function createApp({
     }
   });
 
-  // 后端日志尾部/增量/向前翻页(SSE 重连补拉用 after=seq; 滚动加载更旧历史用 before=seq&limit=N)
+  // 后端日志尾部/增量/向前翻页(SSE 重连补拉用 after=seq; 滚动加载更旧历史用 before=seq&limit=N);
+  // 服务端筛选 level/cat: 直接在文件里向后凑满一页匹配行, 前端缓存里没有的历史也能翻出来。
   app.get('/api/logs', (req, res) => {
     if (!current) return res.status(401).json({ error: '未登录' });
     if (!logStreamRef) return res.json({ ok: true, logs: [], seq: 0 });
+    const levelSel = String(req.query.level || 'info');
+    const catSel = String(req.query.cat || 'all');
+    const matches = (line) => logLineMatches(line, levelSel, catSel);
     const beforeSeq = parseInt(req.query.before, 10);
     if (Number.isFinite(beforeSeq)) {
-      // 更旧的历史从本地日志文件读取(已被轮转覆盖的部分返回空); 出站统一打码
+      // 更旧的历史从本地日志文件读取(已被轮转覆盖的部分返回空); 跳过不匹配行凑满一页; 出站统一打码
       const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 100, 1), 1000);
       const logs = fileLogRef
-        ? fileLogRef.readBefore(beforeSeq, limit).map((e) => ({ seq: e.seq, line: maskOut(e.line) }))
+        ? fileLogRef.readBackFiltered(beforeSeq, limit, matches).map((e) => ({ seq: e.seq, line: maskOut(e.line) }))
         : [];
       return res.json({ ok: true, logs, seq: logStreamRef.lastSeq() });
     }
     const tailN = Math.min(Math.max(parseInt(req.query.tail, 10) || 100, 1), 1000);
     const afterSeq = parseInt(req.query.after, 10);
-    const entries = Number.isFinite(afterSeq) ? logStreamRef.after(afterSeq, 1000) : logStreamRef.tail(tailN);
-    const logs = entries.map((e) => ({ seq: e.seq, line: maskOut(e.line) }));
+    if (Number.isFinite(afterSeq)) {
+      // SSE 断线补缺口: 环形缓冲内过滤(缺口近期行, 不匹配的行直接跳过)
+      const logs = logStreamRef.after(afterSeq, 1000)
+        .filter((e) => matches(e.line))
+        .map((e) => ({ seq: e.seq, line: maskOut(e.line) }));
+      return res.json({ ok: true, logs, seq: logStreamRef.lastSeq() });
+    }
+    // 尾部: 优先从文件读(完整历史, 不受内存 500 条环形缓冲限制); 无文件日志时回退环形缓冲
+    const logs = fileLogRef
+      ? fileLogRef.readBackFiltered(logStreamRef.lastSeq() + 1, tailN, matches)
+          .map((e) => ({ seq: e.seq, line: maskOut(e.line) }))
+      : logStreamRef.tail(tailN)
+          .filter((e) => matches(e.line))
+          .map((e) => ({ seq: e.seq, line: maskOut(e.line) }));
     return res.json({ ok: true, logs, seq: logStreamRef.lastSeq() });
   });
 

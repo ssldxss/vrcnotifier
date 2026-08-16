@@ -62,6 +62,30 @@ test('文件日志: 追加/向前翻页/写满轮转覆盖(seq 与内存流一�
   }
 });
 
+test('文件日志: readBackFiltered 跳过不匹配行凑满 limit, 到文件头为止', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vrcn-log-'));
+  try {
+    const file = path.join(dir, 'vrcnotifier.log');
+    const fl = createFileLog({ file, maxBytes: 10000 });
+    fl.open();
+    fl.append('[t] [info] [ws] line1', 1);
+    fl.append('[t] [warn] [qq] line2', 2);
+    fl.append('[t] [info] [ws] line3', 3);
+    fl.append('[t] [error] [monitor] line4', 4);
+    fl.append('[t] [warn] [ws] line5', 5);
+    const matchWarnUp = (l) => /\[(warn|error)\]/.test(l);
+    const rows = fl.readBackFiltered(6, 10, matchWarnUp); // 从最新往回: 5(warn), 4(error), 2(warn)
+    assert.deepEqual(rows.map((r) => r.seq), [2, 4, 5]);
+    const two = fl.readBackFiltered(6, 2, matchWarnUp);   // 只凑 2 条: 4, 5
+    assert.deepEqual(two.map((r) => r.seq), [4, 5]);
+    const none = fl.readBackFiltered(6, 10, (l) => l.includes('不存在'));
+    assert.equal(none.length, 0);
+    fl.close();
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('logger 同时写入内存流与文件(文件保留明文, seq 对齐)', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vrcn-log-'));
   try {

@@ -154,7 +154,8 @@ header .spacer { flex: 1; }
 .gate-form .field label { color: var(--text-2); }
 .url-row { display: flex; align-items: stretch; margin: 4px 0 8px; }
 .url-row > * { margin: 0; }
-.url-row select { flex: 0 0 96px; border-radius: var(--r-sm) 0 0 var(--r-sm); border-right: 0; }
+.url-row .dd { flex: 0 0 96px; }
+.url-row .dd-btn { width: 100%; height: 100%; justify-content: center; gap: 6px; border-radius: var(--r-sm) 0 0 var(--r-sm); border-right: 0; }
 .url-row .gate-host { flex: 1; min-width: 0; border-radius: 0; }
 .url-row .gate-port { flex: 0 0 88px; border-radius: 0 var(--r-sm) var(--r-sm) 0; border-left: 0; }
 .gate-actions { margin-top: 2px; }
@@ -207,7 +208,7 @@ header .spacer { flex: 1; }
   transition: border-color var(--t-med), box-shadow var(--t-med);
 }
 .card:hover { border-color: var(--line-strong); }
-.card h2 { font-size: 15px; margin: 0 0 12px; font-weight: 600; }
+.card h2 { font-size: 15px; margin: 0 0 12px; font-weight: 600; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 #gateView .card, #loginView .card { max-width: 480px; }
 /* 登录页: 左侧登录卡 + 右侧服务器状态卡(与主界面 overview-item 一致) */
 #loginView .login-split { display: flex; gap: 16px; align-items: flex-start; }
@@ -635,8 +636,72 @@ button.danger { background: linear-gradient(135deg, var(--bad), #b4232c); box-sh
   padding: 10px 12px;
 }
 #log div { padding: 2px 6px; border-radius: 4px; border-bottom: 1px dashed var(--line); }
-#log .err { color: var(--bad); background: var(--bad-soft); }
-#log .warn { color: var(--warn); }
+/* OpenClash 观感: 级别词着色(绿/黄/红徽章) + 分类彩色徽章 */
+#log .log-row { display: flex; align-items: baseline; gap: 8px; }
+#log .log-row:hover { background: var(--input-bg-hover); }
+#log .log-time { flex: 0 0 auto; font-size: 11px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+#log .log-lv { flex: 0 0 auto; min-width: 34px; text-align: center; font-weight: 700; font-size: 11px; line-height: 1.7; border-radius: 4px; padding: 0 5px; }
+#log .lv-info { color: var(--ok); background: var(--ok-soft); }
+#log .lv-warn { color: var(--warn); background: var(--warn-soft); }
+#log .lv-error { color: var(--bad); background: var(--bad-soft); }
+#log .log-cat { flex: 0 0 auto; font-size: 11px; line-height: 1.7; padding: 0 7px; border-radius: var(--r-pill); border: 1px solid color-mix(in srgb, var(--c, #8b94a5) 34%, transparent); color: var(--c, var(--text-2)); background: color-mix(in srgb, var(--c, #8b94a5) 13%, transparent); }
+#log .log-body { word-break: break-all; white-space: pre-wrap; }
+.cat-startup { --c: #94a3b8; }
+.cat-server { --c: #818cf8; }
+.cat-auth { --c: #c084fc; }
+.cat-monitor { --c: #a78bfa; }
+.cat-ws { --c: #38bdf8; }
+.cat-vrcapi { --c: #2dd4bf; }
+.cat-qq { --c: #60a5fa; }
+.cat-notify { --c: #f472b6; }
+.cat-avatar { --c: #fb923c; }
+.cat-status { --c: #a3e635; }
+.cat-other { --c: #8b94a5; }
+
+/* ---------- 日志筛选工具栏 ---------- */
+.log-tools { display: inline-flex; gap: 8px; margin-left: auto; }
+.log-tools .dd-btn { font-size: 12px; padding: 5px 9px; }
+.log-tools .dd-item { font-size: 12px; }
+
+/* ---------- 自定义下拉(替代原生 select): 玻璃拟态 + 动画 ---------- */
+.dd { position: relative; display: inline-flex; flex: 0 0 auto; }
+.dd-native { position: absolute; inset: 0; opacity: 0; pointer-events: none; }
+.dd-btn {
+  display: inline-flex; align-items: center; justify-content: space-between; gap: 8px;
+  background: var(--input-bg); color: var(--text-1);
+  border: 1px solid var(--line); border-radius: var(--r-sm);
+  padding: 8px 10px; font: inherit; cursor: pointer; box-shadow: none;
+  transition: border-color var(--t-fast), box-shadow var(--t-fast), background var(--t-fast);
+}
+.dd-btn:hover { background: var(--input-bg-hover); }
+.dd.open .dd-btn { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.dd-arrow { width: 13px; height: 13px; flex: 0 0 auto; color: var(--text-3); transition: transform .22s cubic-bezier(.22,.8,.3,1); }
+.dd.open .dd-arrow { transform: rotate(180deg); }
+.dd-menu {
+  position: absolute; top: calc(100% + 6px); left: 0; min-width: 100%; max-height: 280px; overflow: auto;
+  z-index: 130; margin: 0; padding: 4px;
+  background: var(--header-bg);
+  -webkit-backdrop-filter: blur(calc(var(--blur) - 4px)) saturate(150%);
+  backdrop-filter: blur(calc(var(--blur) - 4px)) saturate(150%);
+  border: 1px solid var(--card-border); border-radius: var(--r-md);
+  box-shadow: var(--shadow-1);
+  transform-origin: top left;
+}
+.dd-menu:not(.hidden) { animation: ddIn .18s cubic-bezier(.22,.8,.3,1) both; }
+@keyframes ddIn {
+  from { opacity: 0; transform: translateY(-5px) scale(.97); }
+  to { opacity: 1; transform: none; }
+}
+.dd-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 6px 10px; border-radius: var(--r-sm); cursor: pointer;
+  color: var(--text-2); font-size: 13px; white-space: nowrap;
+  transition: background var(--t-fast), color var(--t-fast), box-shadow var(--t-fast);
+}
+.dd-item:hover, .dd-item.act { background: var(--btn-sec-hover); color: var(--text-1); }
+.dd-item.sel { background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: var(--accent-contrast); box-shadow: 0 2px 8px var(--accent-soft); }
+.dd-item.sel::after { content: '✓'; font-size: 11px; }
+.field .dd, .field .dd-btn { width: 100%; }
 
 /* ---------- 概览条(常驻) ---------- */
 .overview {
@@ -861,7 +926,7 @@ h3.chan { font-size: 13px; margin: 16px 0 6px; color: var(--text-2); font-weight
   #loginView .login-split { flex-direction: column; }
   #loginView .login-main { flex: 0 0 auto; }
   #loginView .login-status { width: 240px; min-width: 0; flex: 0 0 auto; }
-  .url-row select { flex: 0 0 88px; }
+  .url-row .dd { flex: 0 0 88px; }
   .url-row .gate-port { flex: 0 0 76px; }
 }
 
@@ -1005,8 +1070,29 @@ h3.chan { font-size: 13px; margin: 16px 0 6px; color: var(--text-2); font-weight
       </div>
     </div>
     <div class='card' style='--i:8'>
-      <h2>后端日志</h2>
-      <p class='muted hint'>后端日志实时推送, 包含监控事件 / 通知发送 / 连接状态。</p>
+      <h2>后端日志
+        <span class='log-tools'>
+          <select id='logLevelSel' title='等级筛选' aria-label='等级筛选'>
+            <option value='info'>信息(全部)</option>
+            <option value='warn'>警告(含错误)</option>
+            <option value='error'>错误</option>
+          </select>
+          <select id='logCatSel' title='分类筛选' aria-label='分类筛选'>
+            <option value='all'>分类: 全部</option>
+            <option value='startup'>启动</option>
+            <option value='server'>服务端</option>
+            <option value='auth'>登录认证</option>
+            <option value='monitor'>监控</option>
+            <option value='ws'>WebSocket</option>
+            <option value='vrcapi'>API</option>
+            <option value='qq'>QQ机器人</option>
+            <option value='notify'>通知</option>
+            <option value='avatar'>头像</option>
+            <option value='status'>状态</option>
+          </select>
+        </span>
+      </h2>
+      <p class='muted hint'>后端日志实时推送; 新的在上面, 向下滚动加载更早历史, 可按等级与分类筛选。</p>
       <div id='log'><div class='muted'>等待日志...</div></div>
     </div>
   </section>
@@ -1122,7 +1208,9 @@ function saveConnection() {
 // 门禁页表单预填(从已保存的地址解析出协议/主机/端口)
 function fillGateForm() {
   const s = splitBase(baseUrl());
-  $('#gateScheme').value = s.scheme;
+  const gs = $('#gateScheme');
+  gs.value = s.scheme;
+  if (gs.syncDd) gs.syncDd();
   $('#gateHost').value = s.host;
   $('#gatePort').value = s.port;
   $('#gateToken').value = accessToken();
@@ -1171,19 +1259,59 @@ let hasOlder = true;         // 服务端是否还有更旧的历史
 let loadingOlder = false;    // 防止重复翻页
 let loadMoreRow = null;      // 底部「加载更早日志」占位行
 
-function classFor(line) {
-  if (/\[warn\]/.test(line)) return 'warn';
-  if (/\[error\]/.test(line)) return 'err';
-  return '';
+// ---------- 日志行渲染(OpenClash 观感): [时间] [级别] [分类] 正文 → 级别词着色 + 分类徽章 ----------
+const LOG_CATS = ['startup', 'server', 'auth', 'monitor', 'ws', 'vrcapi', 'qq', 'notify', 'avatar', 'status'];
+const LEVEL_RANK = { info: 0, warn: 1, error: 2 };
+let logLevelSel = null; // 'info' | 'warn' | 'error'; 阈值语义: 信息含全部, 警告含错误, 错误仅错误
+let logCatSel = null;   // 'all' 或具体分类
+
+function parseLogLine(line) {
+  const m = /^\[([^\]]+)\] \[(info|warn|error)\] \[([^\]]+)\] (.*)$/.exec(line);
+  if (!m) return null;
+  return { time: m[1], level: m[2], cat: m[3], body: m[4] };
+}
+
+function renderLogRow(div, line) {
+  div.className = 'log-row';
+  const p = parseLogLine(line);
+  if (!p) { // 无法解析的行按原样显示, 按 info/other 参与筛选
+    div.textContent = line;
+    div.dataset.level = 'info';
+    div.dataset.cat = 'other';
+    return;
+  }
+  div.textContent = '';
+  const tm = document.createElement('span');
+  tm.className = 'log-time';
+  tm.textContent = p.time.slice(11); // HH:mm:ss
+  tm.title = p.time;                 // 完整日期时间悬浮显示
+  const lv = document.createElement('span');
+  lv.className = 'log-lv lv-' + p.level;
+  lv.textContent = p.level;
+  const cat = document.createElement('span');
+  cat.className = 'log-cat cat-' + (LOG_CATS.includes(p.cat) ? p.cat : 'other');
+  cat.textContent = p.cat;
+  const body = document.createElement('span');
+  body.className = 'log-body';
+  body.textContent = p.body;
+  div.append(tm, lv, cat, body);
+  div.dataset.level = p.level;
+  div.dataset.cat = LOG_CATS.includes(p.cat) ? p.cat : 'other';
+}
+
+function setRowVisible(row) {
+  const lvSel = logLevelSel ? logLevelSel.value : 'info';
+  const catSel = logCatSel ? logCatSel.value : 'all';
+  const show = (LEVEL_RANK[row.dataset.level] ?? 0) >= (LEVEL_RANK[lvSel] ?? 0)
+    && (catSel === 'all' || row.dataset.cat === catSel);
+  row.classList.toggle('hidden', !show);
 }
 
 // 新日志: 插到顶部(seq 用于令牌行替换与翻页定位)
 function addLogLine(line, cls, seq) {
   const box = $('#log');
   const div = document.createElement('div');
-  div.textContent = line;
-  const c = cls || classFor(line);
-  if (c) div.className = c;
+  renderLogRow(div, line);
   if (seq !== undefined) div.dataset.seq = seq;
   const wasAtTop = box.scrollTop <= 2;          // 是否正停留在顶部跟随最新
   const beforeH = box.scrollHeight;
@@ -1194,6 +1322,7 @@ function addLogLine(line, cls, seq) {
     box.removeChild(last);
   }
   updateOldestSeq();
+  setRowVisible(div);
   if (wasAtTop) box.scrollTop = 0;              // 停顶部时保持跟随最新
   else box.scrollTop += box.scrollHeight - beforeH; // 正在阅读旧日志时保持视口不跳动
 }
@@ -1202,13 +1331,12 @@ function addLogLine(line, cls, seq) {
 function addOldLogLine(line, seq) {
   const box = $('#log');
   const div = document.createElement('div');
-  div.textContent = line;
-  const c = classFor(line);
-  if (c) div.className = c;
+  renderLogRow(div, line);
   if (seq !== undefined) div.dataset.seq = seq;
   if (loadMoreRow) box.insertBefore(div, loadMoreRow);
   else box.appendChild(div);
   updateOldestSeq();
+  setRowVisible(div);
 }
 
 function updateOldestSeq() {
@@ -1220,8 +1348,8 @@ function updateOldestSeq() {
 function replaceLogLine(seq, line) {
   const el = $('#log').querySelector('div[data-seq="' + seq + '"]');
   if (!el) return;
-  el.textContent = line;
-  el.className = classFor(line);
+  renderLogRow(el, line);
+  setRowVisible(el);
 }
 
 function showLoadMore() {
@@ -1235,13 +1363,25 @@ function clearLoadMore() {
   if (loadMoreRow) { loadMoreRow.remove(); loadMoreRow = null; }
 }
 
+// 当前筛选参数(等级/分类), 附加到所有日志请求: 服务端在文件里直接凑满一页匹配行,
+// 避免「前端缓存里没有、后端文件里有」的历史消息翻不出来。
+function logFilterQuery() {
+  const lv = logLevelSel ? logLevelSel.value : 'info';
+  const cat = logCatSel ? logCatSel.value : 'all';
+  let q = '';
+  if (lv !== 'info') q += '&level=' + encodeURIComponent(lv);
+  if (cat !== 'all') q += '&cat=' + encodeURIComponent(cat);
+  return q;
+}
+
 // 后端日志: 拉取历史(tail) / 增量补齐(after, SSE 断线重连) / 向前翻页(before, 滚动加载)
 function loadBackendLogs(opts = {}) {
+  const fq = logFilterQuery();
   const query = opts.after
-    ? 'after=' + opts.after
+    ? 'after=' + opts.after + fq
     : opts.before
-      ? 'before=' + opts.before + '&limit=100'
-      : 'tail=' + (opts.tail || 100);
+      ? 'before=' + opts.before + '&limit=100' + fq
+      : 'tail=' + (opts.tail || 100) + fq;
   return api('GET', '/api/logs?' + query)
     .then((r) => {
       if (!r || !r.data || !Array.isArray(r.data.logs)) return;
@@ -1249,10 +1389,11 @@ function loadBackendLogs(opts = {}) {
         const box = $('#log');
         box.textContent = '';
         oldestSeqShown = null;
+        hasOlder = true; // 重载后重新允许翻页
       }
       if (opts.before) {
         for (const entry of r.data.logs) addOldLogLine(entry.line, entry.seq);
-        hasOlder = r.data.logs.length >= 100;
+        hasOlder = r.data.logs.length >= 100; // 服务端凑不满一页 = 文件已扫完
       } else {
         for (const entry of r.data.logs) addLogLine(entry.line, null, entry.seq);
       }
@@ -1336,7 +1477,9 @@ $('#connectBtn').addEventListener('click', async () => {
 // ---------- 后端连接心跳: 断开立即弹窗(可改地址/令牌), 恢复自动关闭 ----------
 function fillConnModal() {
   const s = splitBase(baseUrl());
-  $('#connScheme').value = s.scheme;
+  const cs = $('#connScheme');
+  cs.value = s.scheme;
+  if (cs.syncDd) cs.syncDd();
   $('#connHost').value = s.host;
   $('#connPort').value = s.port;
   $('#connToken').value = accessToken();
@@ -1717,7 +1860,9 @@ $('#friendSearch').addEventListener('input', (e) => {
 async function loadSettings() {
   const r = await api('GET', '/api/settings');
   const s = r.data.settings || {};
-  $('#sQqEnabled').value = s.qq_enabled ? '1' : '0';
+  const qe = $('#sQqEnabled');
+  qe.value = s.qq_enabled ? '1' : '0';
+  if (qe.syncDd) qe.syncDd();
   $('#sQqAppId').value = s.qq_app_id || '';
   $('#sQqAppSecret').placeholder = s.qq_app_secret ? '已配置(留空保持不变)' : '未配置';
 }
@@ -2209,6 +2354,94 @@ $('#themeBtn').addEventListener('click', () => {
   applyTheme(cur === 'dark' ? 'auto' : (cur === 'auto' ? 'light' : 'dark'));
 });
 applyTheme(localStorage.getItem(THEME_KEY) || 'dark');
+
+// ---------- 自定义下拉: 隐藏原生 select, 玻璃拟态菜单 + 动画 + 键盘导航 ----------
+function makeDropdown(sel) {
+  if (!sel || sel.dataset.dd) return sel ? sel.syncDd : null;
+  sel.dataset.dd = '1';
+  const wrap = document.createElement('div');
+  wrap.className = 'dd';
+  sel.parentNode.insertBefore(wrap, sel);
+  wrap.appendChild(sel);
+  sel.classList.add('dd-native');
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'dd-btn';
+  btn.innerHTML = "<span class='dd-val'></span><svg class='dd-arrow' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m6 9 6 6 6-6'/></svg>";
+  const menu = document.createElement('div');
+  menu.className = 'dd-menu hidden';
+  wrap.append(btn, menu);
+  const items = [];
+  for (const opt of sel.options) {
+    const it = document.createElement('div');
+    it.className = 'dd-item';
+    it.dataset.v = opt.value;
+    it.textContent = opt.textContent;
+    it.addEventListener('click', () => {
+      if (sel.value !== opt.value) {
+        sel.value = opt.value;
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      sync(); // 立即更新按钮文案, 不必等下次展开
+      close();
+    });
+    menu.appendChild(it);
+    items.push(it);
+  }
+  function sync() {
+    btn.querySelector('.dd-val').textContent = sel.selectedOptions[0] ? sel.selectedOptions[0].textContent : String(sel.value || '');
+    items.forEach((it) => it.classList.toggle('sel', it.dataset.v === sel.value));
+  }
+  function close() {
+    menu.classList.add('hidden');
+    wrap.classList.remove('open');
+  }
+  let activeIdx = -1;
+  function markActive() {
+    items.forEach((it, i) => it.classList.toggle('act', i === activeIdx));
+  }
+  btn.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (menu.classList.contains('hidden')) {
+      $$('.dd-menu:not(.hidden)').forEach((m) => m.classList.add('hidden'));
+      $$('.dd.open').forEach((w) => w.classList.remove('open'));
+      sync();
+      activeIdx = items.findIndex((it) => it.classList.contains('sel'));
+      markActive();
+      menu.classList.remove('hidden');
+      wrap.classList.add('open');
+    } else {
+      close();
+    }
+  });
+  // 键盘导航: ↑↓ 移动, Enter/空格选中, Esc 关闭
+  wrap.addEventListener('keydown', (e) => {
+    if (menu.classList.contains('hidden')) return;
+    if (e.key === 'ArrowDown') { e.preventDefault(); activeIdx = (activeIdx + 1) % items.length; markActive(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); activeIdx = (activeIdx - 1 + items.length) % items.length; markActive(); }
+    else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); const it = items[activeIdx]; if (it) it.click(); }
+    else if (e.key === 'Escape') { e.preventDefault(); close(); }
+  });
+  document.addEventListener('click', (e) => {
+    if (!wrap.contains(e.target)) close();
+  });
+  sync();
+  sel.syncDd = sync; // 供外部改值后同步按钮文案
+  return wrap;
+}
+
+// 初始化所有下拉(替代原生 select): 门禁/断开弹窗协议、QQ 启用、日志等级与分类筛选
+makeDropdown($('#gateScheme'));
+makeDropdown($('#connScheme'));
+makeDropdown($('#sQqEnabled'));
+makeDropdown($('#logLevelSel'));
+makeDropdown($('#logCatSel'));
+logLevelSel = $('#logLevelSel');
+logCatSel = $('#logCatSel');
+// 切换筛选 → 服务端按条件重新拉取尾部(文件里匹配的历史行都能翻出来)
+$('#logLevelSel').addEventListener('change', () => { loadBackendLogs({ tail: 100 }); });
+$('#logCatSel').addEventListener('change', () => { loadBackendLogs({ tail: 100 }); });
 
 // 启动时同步恢复上次视图(首帧前完成, 避免刷新瞬间闪出「连接后端」门禁页);
 // 会话验证仍在后台进行, 无效时再由 checkSession 切到登录/门禁页。
