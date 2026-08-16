@@ -100,6 +100,15 @@ function createDb(location = ':memory:', opts = {}) {
   db.exec('PRAGMA journal_mode = WAL');
   db.exec(SCHEMA);
   const maxDedupeRows = opts.maxDedupeRows ?? MAX_DEDUPE_ROWS;
+  const crypt = opts.crypto || null; // 敏感字段加解密(未注入时明文直通, 供测试)
+  // 敏感字段行级解密(AAD = 字段:行ID, 防密文跨行置换); 密钥不符/损坏 → 该字段按未保存处理
+  function decryptUserRow(row) {
+    if (!row || !crypt) return row;
+    for (const f of ['cookie_data', 'password']) {
+      if (row[f] !== null && row[f] !== undefined) row[f] = crypt.decrypt(row[f], f + ':' + row.id);
+    }
+    return row;
+  }
   // 旧库补充: friends 表补 avatar_thumb_url 列(已存在则忽略)
   try { db.exec('ALTER TABLE friends ADD COLUMN avatar_thumb_url TEXT'); } catch (e) { /* 已存在 */ }
   // 旧库补充: world_cache 补失败退避列(已存在则忽略)
@@ -215,13 +224,14 @@ function createDb(location = ':memory:', opts = {}) {
     getQqBinding: db.prepare('SELECT * FROM qq_bindings WHERE user_id = ? AND app_id = ?')
   };
 
-  // 通知设置全局化: 统一写入 settings 表(key-value)
+  // 通知设置全局化: 统一写入 settings 表(key-value); qq_app_secret 加密存储
   function updateGlobalSettings(fields) {
     for (const [key, value] of Object.entries(fields)) {
       if (!(key in SETTING_COLUMNS)) continue;
       const type = SETTING_COLUMNS[key];
       const v = value === undefined || value === null ? null : (type === 'int' ? String(Math.trunc(Number(value) || 0)) : String(value));
-      stmt.setSetting.run(key, v);
+      const stored = (crypt && key === 'qq_app_secret' && v !== null) ? crypt.encrypt(v, 'settings:qq_app_secret') : v;
+      stmt.setSetting.run(key, stored);
     }
   }
 
@@ -231,6 +241,9 @@ function createDb(location = ':memory:', opts = {}) {
       if (!(r.key in SETTING_COLUMNS)) continue;
       const type = SETTING_COLUMNS[r.key];
       out[r.key] = r.value === null || r.value === undefined ? null : (type === 'int' ? Number(r.value) || 0 : String(r.value));
+    }
+    if (crypt && out.qq_app_secret !== null && out.qq_app_secret !== undefined) {
+      out.qq_app_secret = crypt.decrypt(out.qq_app_secret, 'settings:qq_app_secret');
     }
     return out;
   }
@@ -283,18 +296,20 @@ function createDb(location = ':memory:', opts = {}) {
         fields.statusDescription ?? null, fields.platform ?? null, fields.lastSeen ?? Date.now(), rowId
       );
     },
-    getUserByVrcId: (vrcId) => stmt.getUserByVrcId.get(vrcId) || null,
-    getUserByDbId: (id) => stmt.getUserByDbId.get(id) || null,
-    listUsers: () => stmt.listUsers.all(),
-    getSavedLogin: () => stmt.getSavedLogin.get() || null,
+    getUserByVrcId: (vrcId) => decryptUserRow(stmt.getUserByVrcId.get(vrcId)) || null,
+    getUserByDbId: (id) => decryptUserRow(stmt.getUserByDbId.get(id)) || null,
+    listUsers: () => stmt.listUsers.all().map(decryptUserRow),
+    getSavedLogin: () => decryptUserRow(stmt.getSavedLogin.get()) || null,
     // 全局最多保留一份 cookie: 保存前先清掉其他用户的已存 cookie
     saveCookies(dbId, cookieData, username) {
       stmt.clearOtherCookies.run(dbId);
-      stmt.saveCookies.run(cookieData, username ?? null, dbId);
+      stmt.saveCookies.run(crypt ? crypt.encrypt(cookieData, 'cookie_data:' + dbId) : cookieData, username ?? null, dbId);
     },
     clearCookies(dbId) { stmt.clearCookies.run(dbId); },
     // 自动重登用: 记住我时保存密码, 与 cookie 一起在登出时清除
-    savePassword(dbId, password) { stmt.savePassword.run(password ?? null, dbId); },
+    savePassword(dbId, password) {
+      stmt.savePassword.run(crypt ? crypt.encrypt(password, 'password:' + dbId) : (password ?? null), dbId);
+    },
     // QQ \u673a\u5668\u4eba\u7ed1\u5b9a (\u6bcf\u7528\u6237\u6bcf app \u4e00\u4efd)
     upsertQqBinding(dbId, { appId, openid, nickname, at }) {
       stmt.upsertQqBinding.run(dbId, appId, openid, nickname ?? null, at ?? Date.now());
@@ -303,6 +318,35 @@ function createDb(location = ':memory:', opts = {}) {
     getQqBinding: (dbId, appId) => stmt.getQqBinding.get(dbId, appId) || null,
     updateGlobalSettings,
     getGlobalSettings,
+    // 探测: 存在 v1: 密文但当前密钥解不开(密钥不符/密文损坏) → true(启动流程据此静默清库重启)
+    hasUndecryptableSensitive() {
+      if (!crypt) return false;
+      for (const r of stmt.listUsers.all()) {
+        for (const f of ['cookie_data', 'password']) {
+          if (crypt.isEncrypted(r[f]) && crypt.decrypt(r[f], f + ':' + r.id) === null) return true;
+        }
+      }
+      const s = stmt.getSetting.get('qq_app_secret');
+      if (s && crypt.isEncrypted(s.value) && crypt.decrypt(s.value, 'settings:qq_app_secret') === null) return true;
+      return false;
+    },
+    // 静默清库: 除 access_token 外全部数据删除(用户/好友/配置/绑定/去重/世界缓存/设置)
+    wipeAllExceptToken() {
+      db.exec('BEGIN');
+      try {
+        for (const t of ['users', 'friends', 'monitor_config', 'qq_bindings', 'notif_dedupe', 'world_cache']) {
+          db.prepare('DELETE FROM ' + t).run();
+        }
+        const token = stmt.getSetting.get('access_token');
+        db.prepare('DELETE FROM settings').run();
+        if (token && token.value !== null && token.value !== undefined) stmt.setSetting.run('access_token', token.value);
+        db.exec('COMMIT');
+        return true;
+      } catch (e) {
+        try { db.exec('ROLLBACK'); } catch (e2) { /* ignore */ }
+        throw e;
+      }
+    },
     // friends
     upsertFriend(dbId, friendVrcId, fields) {
       const existing = stmt.getFriend.get(dbId, friendVrcId);

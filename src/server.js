@@ -77,6 +77,7 @@ function createApp({
     if (!row) return null;
     const out = { ...row };
     delete out.cookie_data;
+    delete out.password; // 密码绝不出现在任何 API 响应(加密后同样不外泄)
     return out;
   }
 

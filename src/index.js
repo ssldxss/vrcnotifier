@@ -7,6 +7,7 @@ const { EventEmitter } = require('node:events');
 const { createDb } = require('./db');
 const { createLogger, setLogStream, setFileLog, maskKey, formatLocalTime } = require('./util');
 const { createFileLog } = require('./filelog');
+const { createCrypto, loadMasterKeyFromSecret } = require('./crypto');
 const { createVrcApi, isMissingCredentials, isUnauthorized } = require('./vrcapi');
 const { createNotifier } = require('./notify');
 const { createPipelineManager } = require('./pipeline');
@@ -75,7 +76,7 @@ function buildApplication(opts = {}) {
   if (dbPath !== ':memory:') {
     try { fs.mkdirSync(path.dirname(dbPath), { recursive: true }); } catch (e) { /* ignore */ }
   }
-  const db = opts.db || createDb(dbPath);
+  const db = opts.db || createDb(dbPath, { crypto: opts.crypto || null });
   // 后端日志流: 所有 logger 输出汇集于此, 供前端实时展示日志
   const logStream = opts.logStream || createLogStream();
   setLogStream(logStream);
@@ -244,7 +245,6 @@ function buildApplication(opts = {}) {
 
 async function main() {
   const dbPath = env('DB_PATH', path.join(__dirname, '..', 'data', 'vrcnotifier.db'));
-  const db = createDb(dbPath);
   // 日志: 内存流(前端实时展示) + 本地单文件 data/logs/vrcnotifier.log(每次启动清空重建, 10MB 覆盖)
   const logStream = createLogStream();
   setLogStream(logStream); // 提前接管: 启动期日志(含令牌行)也进前端流
@@ -255,6 +255,31 @@ async function main() {
   if (fileLog) { fileLog.open(); setFileLog(fileLog); }
   // 运行标识: 每次启动以分隔行隔开(文件清空后的首行, 前端同样可见)
   logger.info(`[启动] ======== vrcnotifier 运行开始 ${formatLocalTime()} pid=${process.pid} node=${process.version} ========`);
+
+  // 数据加密: 主密钥仅来自 Docker Secrets(不备份、不进镜像/环境变量; 换环境即数据失效)
+  let crypt = null;
+  if (dbPath !== ':memory:') {
+    try {
+      crypt = createCrypto({ masterKey: loadMasterKeyFromSecret() });
+    } catch (e) {
+      logger.error(`[启动] 无法读取主密钥 /run/secrets/vrcnotifier_master_key: ${e.message}`);
+      logger.error('[启动] 请通过 docker compose secrets 挂载(openssl rand -hex 32 > secrets/master_key); 密钥不备份, 缺失时敏感数据无法解密');
+      process.exit(1);
+    }
+  }
+
+  const db = createDb(dbPath, { crypto: crypt });
+
+  // 密钥不符/密文损坏: 静默清空数据(仅保留访问令牌), 记一条日志后退出, 由容器策略自动重启
+  if (crypt && db.hasUndecryptableSensitive()) {
+    db.wipeAllExceptToken();
+    try {
+      fs.rmSync(path.join(path.dirname(dbPath), 'avatars'), { recursive: true, force: true });
+    } catch (e) { /* 头像缓存清理失败忽略 */ }
+    logger.warn('[启动] 主密钥解密失败, 已清空数据(保留访问令牌)并重启');
+    process.exit(0); // compose restart: unless-stopped 自动重启
+  }
+
   const accessToken = resolveAccessToken(db, dbPath, logger);
   // 启动时确实输出过令牌的那一行(环境变量 ACCESS_TOKEN / 数据库已有令牌时不存在)
   const tokenLineEntry = logStream.findLast((e) => e.line.includes(accessToken));
@@ -265,6 +290,7 @@ async function main() {
     accessToken,
     logStream,
     fileLog,
+    crypto: crypt,
     apiBaseUrl: env('VRC_API_URL', DEFAULT_API_BASE),
     wsBaseUrl: env('VRC_WS_URL', DEFAULT_WS_BASE),
     userAgent: env('USER_AGENT', 'vrcnotifier/1.0'),

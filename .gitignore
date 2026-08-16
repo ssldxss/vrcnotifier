@@ -4,3 +4,6 @@ data/
 .env
 .verify/
 .agents/
+
+
+secrets/

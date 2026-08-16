@@ -27,6 +27,15 @@ services:
       - vrcnotifier-data:/app/data      # 数据库 / 头像缓存 / vrcnotifier.log
       # 改用宿主机目录备份(需保证 uid 1000 可写, entrypoint 会自动 chown):
       # - ./data:/app/data
+    secrets:
+      - vrcnotifier_master_key         # 数据加密主密钥(仅 Docker Secrets, 不备份)
+
+# 主密钥: 首次部署前生成(openssl rand -hex 32 > secrets/master_key, chmod 600);
+# 永不备份、不进 git —— 丢失/更换环境后敏感数据(密码/cookie/AppSecret)无法解密,
+# 后端会在启动时静默清空数据(保留访问令牌)并重启。
+secrets:
+  vrcnotifier_master_key:
+    file: ./secrets/master_key
 
 volumes:
   vrcnotifier-data:

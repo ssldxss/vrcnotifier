@@ -44,6 +44,18 @@ docker compose logs -f         # 首次启动会打印访问令牌(未固定 ACC
 6. 浏览器打开 `http://localhost:3000`(Docker Desktop 自动转发 WSL 端口)
 7. 收尾: `docker compose down`(保留数据); 连数据一起删: `docker compose down -v`
 
+## 数据加密(Docker Secrets)
+
+- 敏感数据(VRChat 密码 / 会话 cookie / QQ AppSecret)以 **AES-256-GCM** 加密落库(密文前缀 `v1:`), 密钥仅来自 Docker Secrets: `/run/secrets/vrcnotifier_master_key`。
+- 首次部署前生成密钥(64 位 hex, 32 字节):
+  ```bash
+  mkdir -p secrets && openssl rand -hex 32 > secrets/master_key
+  chmod 700 secrets && chmod 600 secrets/master_key
+  ```
+- **密钥永不备份、不进 git**(`secrets/` 已在 `.gitignore`)。丢失密钥 = 敏感数据永久无法恢复。
+- **换环境(密钥不同)/密钥损坏**: 启动时探测到密文解不开 → **静默清空数据(仅保留访问令牌)并自动重启**, 日志仅记录一行 `[warn] [startup] 主密钥解密失败, 已清空数据(保留访问令牌)并重启`。
+- 缺失密钥文件属于部署错误: 启动报错退出, 不会清库。
+
 ## 环境变量
 `PORT` `ACCESS_TOKEN` `VRC_API_URL` `VRC_WS_URL` `USER_AGENT` `SNAPSHOT_INTERVAL_MS` `DEDUPE_WINDOW_MS` `WATCHDOG_MS` `WATCHDOG_CHECK_MS` `WS_PING_INTERVAL_MS` `WS_PONG_TIMEOUT_MS` `RECONNECT_MAX_MS` `QQ_WS_URL` `QQ_API_BASE` `VRC_STATUS_URL` `SERVE_STATIC`
 

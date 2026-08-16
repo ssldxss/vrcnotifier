@@ -1,11 +1,14 @@
-﻿const test = require('node:test');
+const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const crypto = require('node:crypto');
 const { createDb } = require('../src/db');
+const { createCrypto } = require('../src/crypto');
 
 function newDb(opts) { return createDb(':memory:', opts); }
+function testCrypt() { return createCrypto({ masterKey: crypto.randomBytes(32) }); }
 
 test('users: upsert, get by vrc id, settings update', () => {
   const db = newDb();
@@ -224,4 +227,72 @@ test('legacy db migration moves notify columns into settings', () => {
   const id = db.getUserByVrcId('usr_old').id;
   db.upsertQqBinding(id, { appId: 'app1', openid: 'openid_old', nickname: 'x', at: 1 });
   assert.equal(db.getQqBinding(id, 'app1').openid, 'openid_old');
+});
+
+// ---------- 数据加密 ----------
+test('加密: 密码/cookie/AppSecret 落库为 v1: 密文, 读取还原明文', () => {
+  const crypt = testCrypt();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vrcnt-enc-'));
+  try {
+    const file = path.join(dir, 'enc.db');
+    const db = createDb(file, { crypto: crypt });
+    const id = db.upsertUser('usr_e', { username: 'u', displayName: 'E' });
+    db.savePassword(id, 'my-vrc-password');
+    db.saveCookies(id, 'cookie-serialized', 'u');
+    db.updateGlobalSettings({ qq_app_secret: 'qq-secret-123' });
+    // 同一实例(正确密钥)读取 → 明文
+    const u = db.getUserByDbId(id);
+    assert.equal(u.password, 'my-vrc-password');
+    assert.equal(u.cookie_data, 'cookie-serialized');
+    assert.equal(db.getGlobalSettings().qq_app_secret, 'qq-secret-123');
+    // 无 crypto 的实例直读同一库 → 落库形态必须是密文
+    const plain = createDb(file);
+    const raw = plain.getUserByDbId(id);
+    assert.ok(String(raw.password).startsWith('v1:'), '密码落库必须是 v1: 密文');
+    assert.ok(String(raw.cookie_data).startsWith('v1:'), 'cookie 落库必须是 v1: 密文');
+    assert.ok(String(plain.getGlobalSettings().qq_app_secret).startsWith('v1:'), 'AppSecret 落库必须是 v1: 密文');
+  } finally {
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) { /* ignore */ }
+  }
+});
+
+test('加密: 密钥不符时读取按未保存处理, 探测标记可解不可解', () => {
+  const keyA = testCrypt();
+  const keyB = testCrypt();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vrcnt-enc2-'));
+  try {
+    const file = path.join(dir, 'enc.db');
+    const dbA = createDb(file, { crypto: keyA });
+    const id = dbA.upsertUser('usr_e3', { username: 'u3', displayName: 'E3' });
+    dbA.savePassword(id, 'pw-a');
+    dbA.updateGlobalSettings({ qq_app_secret: 'sec-a' });
+    assert.equal(dbA.hasUndecryptableSensitive(), false, '正确密钥: 无可疑密文');
+    // 换密钥: 读取为空, 探测为真(启动流程据此清库重启)
+    const dbB = createDb(file, { crypto: keyB });
+    assert.equal(dbB.hasUndecryptableSensitive(), true, '错误密钥: 探测到解不开的密文');
+    assert.equal(dbB.getUserByDbId(id).password, null);
+    assert.equal(dbB.getGlobalSettings().qq_app_secret, null);
+    // 明文(无前缀)不影响探测
+    dbB.upsertUser('usr_e4', { username: 'u4', displayName: 'E4' });
+    assert.equal(dbB.hasUndecryptableSensitive(), true, '仍存在旧密文');
+  } finally {
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) { /* ignore */ }
+  }
+});
+
+test('清库: wipeAllExceptToken 清空全部数据但保留 access_token', () => {
+  const db = newDb({ crypto: testCrypt() });
+  const id = db.upsertUser('usr_w', { username: 'w', displayName: 'W' });
+  db.upsertFriend(id, 'usr_f', { displayName: 'F', state: 'online', trustLevel: 'User' });
+  db.upsertConfig(id, 'usr_f', {});
+  db.upsertQqBinding(id, { appId: 'a', openid: 'o', nickname: 'n', at: 1 });
+  db.setSetting('access_token', 'tok-keep');
+  db.setSetting('qq_enabled', '1');
+  db.wipeAllExceptToken();
+  assert.equal(db.listUsers().length, 0);
+  assert.equal(db.listFriends(id).length, 0);
+  assert.equal(db.listConfigs(id).length, 0);
+  assert.equal(db.getQqBinding(id, 'a'), null);
+  assert.equal(db.getSetting('access_token'), 'tok-keep', '访问令牌保留');
+  assert.equal(db.getSetting('qq_enabled'), null, '其余设置清空');
 });
