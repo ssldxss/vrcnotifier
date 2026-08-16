@@ -680,7 +680,7 @@ button.danger { background: linear-gradient(135deg, var(--bad), #b4232c); box-sh
 .dd-menu {
   position: absolute; top: calc(100% + 6px); left: 0; min-width: 100%; max-height: 280px; overflow: auto;
   z-index: 130; margin: 0; padding: 4px;
-  background: var(--header-bg);
+  background: light-dark(rgba(243,246,252,.96), rgba(16,19,26,.96)); /* 近实底: 降低透明度, 菜单内容清晰可读 */
   -webkit-backdrop-filter: blur(calc(var(--blur) - 4px)) saturate(150%);
   backdrop-filter: blur(calc(var(--blur) - 4px)) saturate(150%);
   border: 1px solid var(--card-border); border-radius: var(--r-md);

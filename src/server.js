@@ -543,7 +543,7 @@ function createApp({
     const bearer = header.startsWith('Bearer ') ? header.slice(7).trim() : '';
     const queryToken = req.query.token ? String(req.query.token) : '';
     if (tokenEquals(bearer || queryToken, config.accessToken)) return next();
-    log.warn('[server] 访问被拒绝: 缺少或错误的访问令牌');
+    log.error('[server] 访问被拒绝: 缺少或错误的访问令牌');
     return res.status(401).json({ error: '访问被拒绝: 缺少或错误的访问令牌' });
   });
 
