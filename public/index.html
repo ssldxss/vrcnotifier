@@ -108,6 +108,7 @@ header {
   position: sticky;
   top: 0;
   z-index: 60;
+  animation: riseIn .4s cubic-bezier(.22,.8,.3,1) backwards; /* 标题栏最先淡入 */
   display: flex;
   align-items: center;
   gap: 10px;
@@ -133,6 +134,8 @@ header h1 a { text-decoration: none; }
   margin-bottom: 8px;
   text-align: center;
   font-size: 15px;
+  animation: riseIn .4s cubic-bezier(.22,.8,.3,1) backwards;
+  animation-delay: calc(var(--i, 9) * 40ms); /* 底部文字最后淡入(好友行多时由 JS 顺延) */
 }
 .site-mark a {
   text-decoration: none;
@@ -199,11 +202,10 @@ header .spacer { flex: 1; }
   padding: 18px 20px;
   margin-bottom: 16px;
   box-shadow: var(--shadow-1), inset 0 1px 0 var(--card-hl);
-  animation: cardIn .38s cubic-bezier(.22,.8,.3,1) both;
+  animation: riseIn .4s cubic-bezier(.22,.8,.3,1) backwards;
+  animation-delay: calc(var(--i, 0) * 40ms);
   transition: border-color var(--t-med), box-shadow var(--t-med);
 }
-.card:nth-child(2) { animation-delay: .05s; }
-.card:nth-child(3) { animation-delay: .1s; }
 .card:hover { border-color: var(--line-strong); }
 .card h2 { font-size: 15px; margin: 0 0 12px; font-weight: 600; }
 #gateView .card, #loginView .card { max-width: 480px; }
@@ -211,7 +213,6 @@ header .spacer { flex: 1; }
 #loginView .login-split { display: flex; gap: 16px; align-items: flex-start; }
 #loginView .login-main { flex: 0 1 480px; min-width: 0; }
 #loginView .login-status { flex: 0 0 240px; min-width: 0; }
-#loginView .login-status .overview-item { animation: none; }
 /* 居中弹窗(登出确认/后端断开) */
 .modal-overlay {
   position: fixed;
@@ -231,7 +232,7 @@ header .spacer { flex: 1; }
   border-radius: var(--r-lg);
   box-shadow: var(--shadow-1), inset 0 1px 0 var(--card-hl);
   padding: 20px 22px;
-  animation: ovIn .28s cubic-bezier(.22,.8,.3,1) both;
+  animation: riseIn .28s cubic-bezier(.22,.8,.3,1) backwards;
 }
 /* 门禁/登录卡与弹窗: 与卡内元素一致的鼠标跟随高光 */
 #gateView .card::before,
@@ -254,8 +255,8 @@ header .spacer { flex: 1; }
 .modal p.muted { margin: 0 0 6px; }
 .modal .modal-body { margin: 12px 0 4px; display: flex; flex-direction: column; gap: 4px; }
 .modal .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
-@keyframes cardIn {
-  from { opacity: 0; transform: translateY(10px) scale(.99); }
+@keyframes riseIn {
+  from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: none; }
 }
 
@@ -271,6 +272,8 @@ header .spacer { flex: 1; }
   border-radius: var(--r-pill);
   -webkit-backdrop-filter: blur(12px);
   backdrop-filter: blur(12px);
+  animation: riseIn .4s cubic-bezier(.22,.8,.3,1) backwards;
+  animation-delay: calc(var(--i, 5) * 40ms); /* 概览条(0~4)之后 */
 }
  .tab {
    position: relative;
@@ -313,9 +316,6 @@ header .spacer { flex: 1; }
    color: var(--accent-contrast);
    box-shadow: 0 2px 10px var(--accent-soft);
 }
-#tab-friends:not(.hidden), #tab-settings:not(.hidden) { animation: viewIn .28s ease both; }
-@keyframes viewIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
-
 /* ---------- 表单控件 ---------- */
 input[type='text'], input[type='password'], input[type='number'], input[type='email'], select, textarea {
   width: 100%;
@@ -659,15 +659,8 @@ button.danger { background: linear-gradient(135deg, var(--bad), #b4232c); box-sh
    border-radius: var(--r-md);
    box-shadow: inset 0 1px 0 var(--card-hl);
    transition: border-color var(--t-fast), background var(--t-fast);
-   animation: ovIn .42s cubic-bezier(.22,.8,.3,1) both;
- }
- .overview-item:nth-child(2) { animation-delay: .05s; }
- .overview-item:nth-child(3) { animation-delay: .1s; }
- .overview-item:nth-child(4) { animation-delay: .15s; }
- .overview-item:nth-child(5) { animation-delay: .2s; }
- @keyframes ovIn {
-   from { opacity: 0; transform: translateY(8px) scale(.99); }
-   to { opacity: 1; transform: none; }
+   animation: riseIn .42s cubic-bezier(.22,.8,.3,1) backwards;
+   animation-delay: calc(var(--i, 0) * 40ms);
  }
  .overview-item::before {
    content: '';
@@ -816,6 +809,18 @@ button.danger { background: linear-gradient(135deg, var(--bad), #b4232c); box-sh
   transform: translate(-50%, 0);
 }
 
+/* ---------- 入场动画: 好友行与分组标题(仅首次渲染由 JS 标记 .enter, 快照/搜索重渲染不重播) ---------- */
+.group-title.enter, .friend.enter {
+  animation: riseIn .32s cubic-bezier(.22,.8,.3,1) backwards;
+  animation-delay: calc(var(--i, 0) * 30ms);
+}
+/* 页面切换: 旧页快速淡出, 新页从 0 开始立即淡入(覆盖静态 --i, 不再等待概览条等固定内容占用的序号) */
+section.page-fade-out { animation: pageOut .12s ease forwards; }
+@keyframes pageOut { from { opacity: 1; } to { opacity: 0; } }
+#tab-friends.switch-in > .card { animation-delay: 0ms; }
+#tab-settings.switch-in > .card:nth-child(1) { animation-delay: 0ms; }
+#tab-settings.switch-in > .card:nth-child(2) { animation-delay: 40ms; }
+
 /* ---------- 好友工具栏 ---------- */
 .toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
 .toolbar input { flex: 1; min-width: 160px; margin: 0; }
@@ -877,7 +882,7 @@ h3.chan { font-size: 13px; margin: 16px 0 6px; color: var(--text-2); font-weight
 </header>
 
 <div class='container' id='gateView'>
-  <div class='card'>
+  <div class='card' style='--i:1'>
     <h2>连接后端</h2>
     <p class='muted'>填写后端地址与访问令牌, 点击「连接」。令牌与后端启动日志中「已生成访问令牌」一致。</p>
     <div class='gate-form'>
@@ -906,7 +911,7 @@ h3.chan { font-size: 13px; margin: 16px 0 6px; color: var(--text-2); font-weight
 
 <div class='container hidden' id='loginView'>
   <div class='login-split'>
-    <div class='card login-main'>
+    <div class='card login-main' style='--i:1'>
       <h2>登录 VRChat</h2>
       <div id='loginForm'>
         <input type='text' id='loginUser' placeholder='用户名' autocomplete='username'>
@@ -930,7 +935,7 @@ h3.chan { font-size: 13px; margin: 16px 0 6px; color: var(--text-2); font-weight
       </div>
     </div>
     <div class='login-status'>
-      <div class='overview-item'>
+      <div class='overview-item' style='--i:2'>
         <span class='ov-label'>
           <span class='ov-label-text'>服务器状态</span>
           <span id='lgHealthLatency' class='ov-meta'>-</span>
@@ -944,17 +949,17 @@ h3.chan { font-size: 13px; margin: 16px 0 6px; color: var(--text-2); font-weight
 <div class='container hidden' id='mainView'>
   <!-- 常驻概览条: 两个页面都可见 -->
   <div class='overview'>
-    <div class='overview-item'><span class='ov-label'>好友</span><span id='stMonitored' class='ov-value ov-num'>-</span></div>
-    <div class='overview-item'><span class='ov-label'>QQ 机器人</span><span id='stQq' class='badge'>-</span></div>
-    <div class='overview-item'><span class='ov-label'>上次刷新</span><span id='stSnapshot' class='ov-value mono ov-num-sm'>-</span></div>
-    <div class='overview-item'>
+    <div class='overview-item' style='--i:0'><span class='ov-label'>好友</span><span id='stMonitored' class='ov-value ov-num'>-</span></div>
+    <div class='overview-item' style='--i:1'><span class='ov-label'>QQ 机器人</span><span id='stQq' class='badge'>-</span></div>
+    <div class='overview-item' style='--i:2'><span class='ov-label'>上次刷新</span><span id='stSnapshot' class='ov-value mono ov-num-sm'>-</span></div>
+    <div class='overview-item' style='--i:3'>
       <span class='ov-label'>
         <span class='ov-label-text'>服务器状态</span>
         <span id='stHealthLatency' class='ov-meta'>-</span>
       </span>
       <span id='stHealth' class='badge'>-</span>
     </div>
-    <div class='overview-item wide'>
+    <div class='overview-item wide' style='--i:4'>
       <span class='ov-label'>WebSocket 连接</span>
       <div class='ws-panel-row'>
         <span id='stWs' class='badge'>-</span>
@@ -972,7 +977,7 @@ h3.chan { font-size: 13px; margin: 16px 0 6px; color: var(--text-2); font-weight
   </div>
 
   <section id='tab-friends'>
-    <div class='card'>
+    <div class='card' style='--i:6'>
       <h2>好友监控 <span class='muted' id='friendsCount'></span></h2>
       <div class='toolbar'>
         <input type='text' id='friendSearch' placeholder='搜索昵称 / 世界 / 状态...' autocomplete='off'>
@@ -985,7 +990,7 @@ h3.chan { font-size: 13px; margin: 16px 0 6px; color: var(--text-2); font-weight
   </section>
 
   <section id='tab-settings' class='hidden'>
-    <div class='card'>
+    <div class='card' style='--i:7'>
       <h2>QQ 机器人</h2>
       <div class='grid2'>
         <div class='field'><label>启用</label><select id='sQqEnabled'><option value='0'>关闭</option><option value='1'>开启</option></select></div>
@@ -999,7 +1004,7 @@ h3.chan { font-size: 13px; margin: 16px 0 6px; color: var(--text-2); font-weight
         <span class='muted' id='settingsMsg'></span>
       </div>
     </div>
-    <div class='card'>
+    <div class='card' style='--i:8'>
       <h2>后端日志</h2>
       <p class='muted hint'>后端日志实时推送, 包含监控事件 / 通知发送 / 连接状态。</p>
       <div id='log'><div class='muted'>等待日志...</div></div>
@@ -1459,6 +1464,24 @@ function renderSelf() {
   box.innerHTML = p.avatarWrap + "<div class='name'>" + p.name + p.stateHtml + '</div>';
 }
 
+// 好友分组折叠状态: 保存在浏览器 localStorage, 刷新/快照重渲染后恢复; 首次默认全开
+const COLLAPSE_KEY = 'vrcn_groupCollapsed';
+let groupCollapsed = {};
+try { groupCollapsed = JSON.parse(localStorage.getItem(COLLAPSE_KEY) || '{}') || {}; } catch (e) { groupCollapsed = {}; }
+// 按 DOM 顺序(从上到下)给分组标题和每一行好友编号, 依次淡入; 底部文字跟在最后。
+// 打开网页首次渲染和每次切换到好友页时都会调用(重新编号, 让级联从 0 立即开始)。
+function markFriendsEntrance() {
+  const list = $('#friendsList');
+  let i = 0;
+  const FADE_CAP = 30; // 阶梯上限: 好友再多也约 1s 内全部入场
+  list.querySelectorAll('.group-title, .friend').forEach((el) => {
+    el.classList.add('enter');
+    el.style.setProperty('--i', String(Math.min(i++, FADE_CAP)));
+  });
+  const footer = document.querySelector('.site-mark');
+  if (footer) footer.style.setProperty('--i', String(Math.min(i, FADE_CAP) + 1));
+}
+let friendsEntered = false; // 好友列表入场动画只在首次渲染播放(快照/搜索重渲染不重播)
 function renderFriends() {
   const list = $('#friendsList');
   const kw = (searchQuery || '').trim().toLowerCase();
@@ -1500,21 +1523,23 @@ function renderFriends() {
   const onlineOthers = otherList.filter((f) => f.state === 'online');
   const activeOthers = otherList.filter((f) => f.state === 'active');
   const offlineOthers = otherList.filter((f) => f.state === 'offline');
-  const addGroup = (title, list2) => {
+  const addGroup = (key, title, list2) => {
     const g = document.createElement('div');
     g.className = 'group-title';
     const btn = document.createElement('button');
     btn.className = 'group-toggle';
     btn.type = 'button';
-    btn.title = '收起';
-    btn.setAttribute('aria-label', '收起');
+    const collapsed = !!groupCollapsed[key]; // 恢复浏览器保存的折叠状态(未保存过 = 全开)
+    btn.title = collapsed ? '展开' : '收起';
+    btn.setAttribute('aria-label', btn.title);
     btn.innerHTML = '<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"m6 9 6 6 6-6\"/></svg>';
     const label = document.createElement('span');
     label.textContent = title;
     g.appendChild(btn);
     g.appendChild(label);
     const body = document.createElement('div');
-    body.className = 'group-body';
+    body.className = 'group-body' + (collapsed ? ' collapsed' : '');
+    g.classList.toggle('collapsed', collapsed);
     const inner = document.createElement('div');
     inner.className = 'group-inner';
     for (const f of list2) inner.appendChild(renderRow(f));
@@ -1522,16 +1547,20 @@ function renderFriends() {
     list.appendChild(g);
     list.appendChild(body);
     btn.addEventListener('click', () => {
-      const collapsed = body.classList.toggle('collapsed');
-      g.classList.toggle('collapsed', collapsed);
-      btn.title = collapsed ? '展开' : '收起';
+      const nowCollapsed = body.classList.toggle('collapsed');
+      g.classList.toggle('collapsed', nowCollapsed);
+      btn.title = nowCollapsed ? '展开' : '收起';
       btn.setAttribute('aria-label', btn.title);
+      groupCollapsed[key] = nowCollapsed;
+      try { localStorage.setItem(COLLAPSE_KEY, JSON.stringify(groupCollapsed)); } catch (e) {}
     });
   };
-  if (favList.length) addGroup('⭐ 特别关注 (' + favList.length + ')', favList);
-  if (onlineOthers.length) addGroup('在线 (' + onlineOthers.length + ')', onlineOthers);
-  if (activeOthers.length) addGroup('网页在线 (' + activeOthers.length + ')', activeOthers);
-  if (offlineOthers.length) addGroup('离线 (' + offlineOthers.length + ')', offlineOthers);
+  if (favList.length) addGroup('fav', '⭐ 特别关注 (' + favList.length + ')', favList);
+  if (onlineOthers.length) addGroup('online', '在线 (' + onlineOthers.length + ')', onlineOthers);
+  if (activeOthers.length) addGroup('active', '网页在线 (' + activeOthers.length + ')', activeOthers);
+  if (offlineOthers.length) addGroup('offline', '离线 (' + offlineOthers.length + ')', offlineOthers);
+  // 首次渲染: 按 DOM 顺序(从上到下)给分组标题和每一行好友编号, 依次淡入; 底部文字跟在最后
+  if (!friendsEntered) { markFriendsEntrance(); friendsEntered = true; }
 }
 
 $('#friendsList').addEventListener('change', async (e) => {
@@ -2034,25 +2063,55 @@ function connectEvents() {
 
 // ---------- 页面切换: 好友监控 / 设置(设置页含 QQ 机器人 + 后端日志) ----------
 const PAGE_IDS = ['tab-friends', 'tab-settings'];
-function switchTab(name) {
+let fadeOutTimer = null;
+// instant=true(用户点击切换): 旧页快速淡出 → 新页立即从 0 开始级联淡入;
+// instant=false(启动恢复上次页面): 视为「打开网页」, 使用整页静态级联(概览条→导航→卡片→好友行→页脚)。
+function switchTab(name, opts = {}) {
   if (!PAGE_IDS.includes(name)) name = PAGE_IDS[0];
   $$('.tab').forEach((b) => b.classList.toggle('active', b.dataset.target === name));
-  PAGE_IDS.forEach((id) => {
-    const el = document.getElementById(id);
-    if (el) el.classList.toggle('hidden', id !== name);
-  });
-  window.scrollTo(0, 0); // 切换后回到页面顶部
+  const target = document.getElementById(name);
+  if (opts.instant) {
+    const finish = () => {
+      PAGE_IDS.filter((id) => id !== name).forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) { el.classList.add('hidden'); el.classList.remove('page-fade-out'); }
+      });
+      if (target) {
+        target.classList.remove('page-fade-out');
+        target.classList.add('switch-in'); // 覆盖静态 --i: 从 0 开始立即动画
+        target.classList.remove('hidden');
+        if (name === 'tab-friends') markFriendsEntrance(); // 好友行重新从上到下编号
+      }
+    };
+    clearTimeout(fadeOutTimer);
+    const old = PAGE_IDS.filter((id) => id !== name).map((id) => document.getElementById(id))
+      .find((el) => el && !el.classList.contains('hidden'));
+    if (old) {
+      old.classList.add('page-fade-out');
+      fadeOutTimer = setTimeout(finish, 120); // 快速淡出后立刻淡入(减弱动效用户由定时器兜底)
+    } else {
+      finish();
+    }
+  } else {
+    clearTimeout(fadeOutTimer);
+    PAGE_IDS.forEach((id) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.classList.remove('switch-in', 'page-fade-out');
+      el.classList.toggle('hidden', id !== name);
+    });
+  }
   try { sessionStorage.setItem('vrcn_lastTab', name); } catch (e) {} // 刷新恢复所在页
 }
 $$('.tab').forEach((btn) => {
-  btn.addEventListener('click', () => switchTab(btn.dataset.target));
+  btn.addEventListener('click', () => switchTab(btn.dataset.target, { instant: true }));
 });
 // QQ 机器人状态卡: 点击切换到设置页
 const qqStatusItem = $('#stQq') ? $('#stQq').closest('.overview-item') : null;
 if (qqStatusItem) {
   qqStatusItem.style.cursor = 'pointer';
   qqStatusItem.title = '点击打开设置页';
-  qqStatusItem.addEventListener('click', () => switchTab('tab-settings'));
+  qqStatusItem.addEventListener('click', () => switchTab('tab-settings', { instant: true }));
 }
 
 // ---------- 主题: 自动(跟随系统)/浅色/深色 ----------
