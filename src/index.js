@@ -5,7 +5,8 @@ const path = require('node:path');
 const fs = require('node:fs');
 const { EventEmitter } = require('node:events');
 const { createDb } = require('./db');
-const { createLogger, setLogStream } = require('./util');
+const { createLogger, setLogStream, setFileLog, maskKey, formatLocalTime } = require('./util');
+const { createFileLog } = require('./filelog');
 const { createVrcApi, isMissingCredentials, isUnauthorized } = require('./vrcapi');
 const { createNotifier } = require('./notify');
 const { createPipelineManager } = require('./pipeline');
@@ -78,6 +79,8 @@ function buildApplication(opts = {}) {
   // 后端日志流: 所有 logger 输出汇集于此, 供前端实时展示日志
   const logStream = opts.logStream || createLogStream();
   setLogStream(logStream);
+  const fileLog = opts.fileLog || null; // 本地文件日志(可选, main() 传入)
+  if (fileLog) setFileLog(fileLog);
   const avatarDir = opts.avatarDir || (dbPath === ':memory:'
     ? path.join(require('node:os').tmpdir(), `vrcnotifier-avatars-${process.pid}`)
     : path.join(path.dirname(dbPath), 'avatars'));
@@ -205,6 +208,9 @@ function buildApplication(opts = {}) {
   // 启动周期对账 + watchdog 定时器(单用户, 无会话时为空转)
   monitor.startTimers();
 
+  // 前端日志流令牌打码状态: 首次连接成功后由 main() 置 active; 置位后服务端出站行一律替换令牌
+  const maskState = { active: false, token: config.accessKey || null, masked: maskKey(config.accessKey) };
+
   const { app, autoLogin, getConnectionStatus, handleAuthCommand } = createApp({
     db, notifier, pipeline, monitor, sessionStore, vrcapiFactory, qq,
     avatarCache,
@@ -221,6 +227,8 @@ function buildApplication(opts = {}) {
     now,
     publicDir: opts.publicDir || null,
     logStream: logStream,
+    fileLog: opts.fileLog || null,
+    maskState,
     healthMonitor,
     vrcStatus
   });
@@ -229,20 +237,33 @@ function buildApplication(opts = {}) {
 
   return {
     app, autoLogin, monitor, pipeline, sessionStore, db, bus,
-    config, avatarCache, qq, logStream, healthMonitor, vrcStatus
+    config, avatarCache, qq, logStream, healthMonitor, vrcStatus, fileLog, maskState
   };
 }
 
 async function main() {
-  const logger = createLogger('vrcnotifier');
   const dbPath = env('DB_PATH', path.join(__dirname, '..', 'data', 'vrcnotifier.db'));
   const db = createDb(dbPath);
+  // 日志: 内存流(前端实时展示) + 本地单文件 data/logs/vrcnotifier.log(每次启动清空重建, 10MB 覆盖)
+  const logStream = createLogStream();
+  setLogStream(logStream); // 提前接管: 启动期日志(含令牌行)也进前端流
+  const logger = createLogger('app');
+  const fileLog = dbPath === ':memory:'
+    ? null
+    : createFileLog({ file: path.join(path.dirname(dbPath), 'logs', 'vrcnotifier.log') });
+  if (fileLog) { fileLog.open(); setFileLog(fileLog); }
+  // 运行标识: 每次启动以分隔行隔开(文件清空后的首行, 前端同样可见)
+  logger.info(`[启动] ======== vrcnotifier 运行开始 ${formatLocalTime()} pid=${process.pid} node=${process.version} ========`);
   const accessToken = resolveAccessToken(db, dbPath, logger);
+  // 启动时确实输出过令牌的那一行(环境变量 ACCESS_TOKEN / 数据库已有令牌时不存在)
+  const tokenLineEntry = logStream.findLast((e) => e.line.includes(accessToken));
   const runtime = buildApplication({
     logger,
     dbPath,
     db,
     accessToken,
+    logStream,
+    fileLog,
     apiBaseUrl: env('VRC_API_URL', DEFAULT_API_BASE),
     wsBaseUrl: env('VRC_WS_URL', DEFAULT_WS_BASE),
     userAgent: env('USER_AGENT', 'vrcnotifier/1.0'),
@@ -260,6 +281,17 @@ async function main() {
     publicDir: env('SERVE_STATIC') ? path.join(__dirname, '..', 'public') : null
   });
   const port = envInt('PORT', 3000);
+  // 首次连接成功后: 前端日志流中的令牌行替换为打码版, 并输出一条说明; 终端与本地日志文件保留明文。
+  // 只有启动时确实显示过令牌才会触发; 之后服务端出站(SSE/API)一律对令牌打码。
+  runtime.bus.once('ws-open', () => {
+    const { maskState } = runtime;
+    if (!tokenLineEntry || maskState.active) return;
+    const masked = tokenLineEntry.line.split(accessToken).join(maskState.masked);
+    if (masked === tokenLineEntry.line) return;
+    runtime.logStream.update(tokenLineEntry.seq, masked);
+    maskState.active = true;
+    logger.info(`[启动] 访问令牌已打码: 前端日志流中的令牌行已替换为 ${maskState.masked}, 终端与本地日志文件保留明文`);
+  });
   const server = runtime.app.listen(port, () => {
     logger.info(`[启动] vrcnotifier 运行中: http://localhost:${port}`);
   });

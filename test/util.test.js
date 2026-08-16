@@ -14,7 +14,7 @@ test('createLogger prefixes timestamp and level', () => {
   const log = createLogger('test', (s) => out.push(s));
   log.info('hello %s', 'x');
   assert.equal(out.length, 1);
-  assert.match(out[0], /^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\] \[test\] \[info\] hello %s x$/);
+  assert.match(out[0], /^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\] \[info\] \[test\] hello %s x$/);
 });
 
 test('createLogger pushes lines to global log stream when set', () => {
@@ -26,8 +26,8 @@ test('createLogger pushes lines to global log stream when set', () => {
     log.warn('注意 %s', 'A');
     log.error('出错 %s', 'B');
     assert.equal(stream.size(), 2);
-    assert.match(stream.tail(10)[0].line, /\[test\] \[warn\] 注意 %s A$/);
-    assert.match(stream.tail(10)[1].line, /\[test\] \[error\] 出错 %s B$/);
+    assert.match(stream.tail(10)[0].line, /\[warn\] \[test\] 注意 %s A$/);
+    assert.match(stream.tail(10)[1].line, /\[error\] \[test\] 出错 %s B$/);
   } finally {
     setLogStream(prev);
   }

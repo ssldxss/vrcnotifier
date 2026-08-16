@@ -1165,44 +1165,115 @@ async function api(method, path, body, opts = {}) {
   }
   return { status: res.status, data };
 }
-function addLogLine(line, cls) {
+let lastLogSeq = 0;
+let oldestSeqShown = null;   // 当前 DOM 中最早一行的 seq(向上翻页起点)
+let hasOlder = true;         // 服务端是否还有更旧的历史
+let loadingOlder = false;    // 防止重复翻页
+let loadMoreRow = null;      // 底部「加载更早日志」占位行
+
+function classFor(line) {
+  if (/\[warn\]/.test(line)) return 'warn';
+  if (/\[error\]/.test(line)) return 'err';
+  return '';
+}
+
+// 新日志: 插到顶部(seq 用于令牌行替换与翻页定位)
+function addLogLine(line, cls, seq) {
   const box = $('#log');
   const div = document.createElement('div');
   div.textContent = line;
-  if (!cls) {
-    if (/\[warn\]/.test(line)) cls = 'warn';
-    else if (/\[error\]/.test(line)) cls = 'err';
-  }
-  if (cls) div.className = cls;
+  const c = cls || classFor(line);
+  if (c) div.className = c;
+  if (seq !== undefined) div.dataset.seq = seq;
   const wasAtTop = box.scrollTop <= 2;          // 是否正停留在顶部跟随最新
   const beforeH = box.scrollHeight;
   box.insertBefore(div, box.firstChild);        // 新的日志在上面
-  while (box.children.length > 500) box.lastChild.remove(); // 裁剪最旧的(底部)
+  while (box.children.length > 2000) {          // 浏览窗口上限: 丢弃的最旧行可再翻页拉回
+    const last = box.lastChild;
+    if (last === loadMoreRow) break;
+    box.removeChild(last);
+  }
+  updateOldestSeq();
   if (wasAtTop) box.scrollTop = 0;              // 停顶部时保持跟随最新
   else box.scrollTop += box.scrollHeight - beforeH; // 正在阅读旧日志时保持视口不跳动
 }
 
-// 前端本地操作反馈(后端日志中也包含对应记录)
-function log(msg, cls) {
-  addLogLine(new Date().toLocaleTimeString() + ' ' + msg, cls);
+// 旧日志: 追加到底部(向上翻页加载), 不触发顶部跟随逻辑
+function addOldLogLine(line, seq) {
+  const box = $('#log');
+  const div = document.createElement('div');
+  div.textContent = line;
+  const c = classFor(line);
+  if (c) div.className = c;
+  if (seq !== undefined) div.dataset.seq = seq;
+  if (loadMoreRow) box.insertBefore(div, loadMoreRow);
+  else box.appendChild(div);
+  updateOldestSeq();
 }
 
-// 后端日志: 拉取历史(tail)或增量补齐(after), SSE 断线重连用 after 补缺口
-let lastLogSeq = 0;
+function updateOldestSeq() {
+  const rows = $('#log').querySelectorAll('div[data-seq]');
+  oldestSeqShown = rows.length ? Number(rows[rows.length - 1].dataset.seq) : null;
+}
+
+// 服务端日志行替换(令牌打码): 按 seq 同步已显示的行
+function replaceLogLine(seq, line) {
+  const el = $('#log').querySelector('div[data-seq="' + seq + '"]');
+  if (!el) return;
+  el.textContent = line;
+  el.className = classFor(line);
+}
+
+function showLoadMore() {
+  const box = $('#log');
+  loadMoreRow = document.createElement('div');
+  loadMoreRow.className = 'muted';
+  loadMoreRow.textContent = '加载更早日志...';
+  box.appendChild(loadMoreRow);
+}
+function clearLoadMore() {
+  if (loadMoreRow) { loadMoreRow.remove(); loadMoreRow = null; }
+}
+
+// 后端日志: 拉取历史(tail) / 增量补齐(after, SSE 断线重连) / 向前翻页(before, 滚动加载)
 function loadBackendLogs(opts = {}) {
-  const query = opts.after ? 'after=' + opts.after : 'tail=' + (opts.tail || 200);
+  const query = opts.after
+    ? 'after=' + opts.after
+    : opts.before
+      ? 'before=' + opts.before + '&limit=100'
+      : 'tail=' + (opts.tail || 100);
   return api('GET', '/api/logs?' + query)
     .then((r) => {
       if (!r || !r.data || !Array.isArray(r.data.logs)) return;
-      if (!opts.after) {
+      if (!opts.after && !opts.before) {
         const box = $('#log');
         box.textContent = '';
+        oldestSeqShown = null;
       }
-      for (const entry of r.data.logs) addLogLine(entry.line);
+      if (opts.before) {
+        for (const entry of r.data.logs) addOldLogLine(entry.line, entry.seq);
+        hasOlder = r.data.logs.length >= 100;
+      } else {
+        for (const entry of r.data.logs) addLogLine(entry.line, null, entry.seq);
+      }
       if (r.data.seq) lastLogSeq = r.data.seq;
     })
     .catch(() => {});
 }
+
+// 滚动到底自动加载更旧日志(后端单文件存储, 前端不缓存, 随滚动实时加载)
+$('#log').addEventListener('scroll', () => {
+  const box = $('#log');
+  if (!hasOlder || loadingOlder) return;
+  if (oldestSeqShown != null && box.scrollHeight - box.scrollTop - box.clientHeight < 60) {
+    loadingOlder = true;
+    showLoadMore();
+    loadBackendLogs({ before: oldestSeqShown }).finally(() => {
+      clearLoadMore();
+      loadingOlder = false;
+    });
+  }
+});
 
 function showView(name) {
   currentView = name;
@@ -1580,9 +1651,7 @@ $('#friendsList').addEventListener('change', async (e) => {
   const r = await api('PUT', '/api/friends/' + encodeURIComponent(id) + '/config', body);
   if (r.data.ok) {
     cur.config = r.data.config;
-    log('已更新好友配置: ' + (cur.display_name || id));
-  } else {
-    log(r.data.error || '配置保存失败', 'err');
+    // 操作记录统一由后端日志流推送([server] 更新监控配置...), 刷新后依然可见
   }
 });
 
@@ -1670,8 +1739,8 @@ $('#saveSettings').addEventListener('click', async () => {
 
 function bindTest(kind, btnId) {
   $(btnId).addEventListener('click', async () => {
-    const r = await api('POST', '/api/test/' + kind, {});
-    log('测试通知(' + kind + '): ' + (r.data.ok ? '已发送' : (r.data.result && r.data.result.reason ? r.data.result.reason : '失败')), r.data.ok ? '' : 'err');
+    // 发送结果统一由后端日志流推送([server] 发送测试通知/成功/失败), 刷新后依然可见
+    await api('POST', '/api/test/' + kind, {});
   });
 }
 bindTest('qq', '#testQq');
@@ -2030,14 +2099,19 @@ function startStatus() {
 
 function connectEvents() {
   if (window.__evt) window.__evt.close();
-  loadBackendLogs({ tail: 200 }); // 初始拉取后端日志历史
+  loadBackendLogs({ tail: 100 }); // 初始拉取后端日志尾部(更旧的随滚动加载)
   const evt = new EventSource(baseUrl() + '/api/events?token=' + encodeURIComponent(accessToken()));
   window.__evt = evt;
   // 后端日志实时推送
   evt.addEventListener('log', (e) => {
     const d = JSON.parse(e.data);
-    if (d && d.line) addLogLine(d.line);
+    if (d && d.line) addLogLine(d.line, null, d.seq);
     if (d && d.seq) lastLogSeq = d.seq;
+  });
+  // 服务端替换已显示的日志行(访问令牌打码): 按 seq 同步
+  evt.addEventListener('log-update', (e) => {
+    const d = JSON.parse(e.data);
+    if (d && d.line) replaceLogLine(d.seq, d.line);
   });
   // SSE 断线自动重连: 用 after 补齐错过的日志
   evt.onopen = () => { if (lastLogSeq > 0) loadBackendLogs({ after: lastLogSeq }); };

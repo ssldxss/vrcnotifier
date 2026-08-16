@@ -101,15 +101,17 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
     st.faultNotified = false;
   }
 
-  function startFault(userId, s) {
+  function startFault(userId, s, reason) {
     const st = stateOf(userId);
     st.apiOk = false; // 恢复需要故障后新的 200
     if (st.faultSince !== 0) return;
     st.faultSince = now();
+    log.info(`[monitor] 故障窗口开始 userId=${userId} (${reason || 'WS 断开或会话异常'})`);
     st.faultTimer = setTimeout(() => {
       st.faultTimer = null;
       if (st.faultSince === 0 || st.faultNotified || isRecovered(st)) return;
       st.faultNotified = true;
+      log.error(`[monitor] 连接故障超过 ${Math.round(faultNotifyMs / 60000)} 分钟未恢复, 已推送故障通知 userId=${userId}`);
       sysNotify(s.user, '⚠️ VRChat 连接故障', `连接断开或会话异常, 超过 ${Math.round(faultNotifyMs / 60000)} 分钟未恢复, 正在自动重试`);
     }, faultNotifyMs);
     if (st.faultTimer.unref) st.faultTimer.unref();
@@ -121,6 +123,7 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
     if (st.faultSince === 0 || !isRecovered(st)) return;
     const wasNotified = st.faultNotified;
     clearFaultWindow(st);
+    log.info(`[monitor] 故障恢复 userId=${userId} (${wasNotified ? '已推送过故障通知, 补发恢复说明' : '5 分钟内恢复, 静默处理'})`);
     if (wasNotified) st.recovering = true;
   }
 
@@ -144,19 +147,19 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
     st.open = false;
     const s = sessions.get(userId);
     if (!s) return;
-    startFault(userId, s);
+    startFault(userId, s, 'WS 断开');
   });
 
   // 401(重登/2FA 挂起)同样计入故障窗口
   bus.on('relogin-needed', ({ userId }) => {
     const s = sessions.get(userId);
     if (!s) return;
-    startFault(userId, s);
+    startFault(userId, s, 'cookie 失效, 需要自动重登');
   });
   bus.on('unauthorized-2fa', ({ userId }) => {
     const s = sessions.get(userId);
     if (!s) return;
-    startFault(userId, s);
+    startFault(userId, s, '会话挂起, 需要 2FA');
   });
 
   // 对账成功(200): 恢复标准的一半 + 启动/恢复说明
@@ -173,7 +176,10 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
   bus.on('session-expired', ({ userId }) => {
     clearFaultWindow(stateOf(userId));
     const s = sessions.get(userId);
-    if (s) sysNotify(s.user, '⚠️ VRChat 会话失效', '监控已停用, 请重新登录');
+    if (s) {
+      log.info(`[monitor] 会话失效, 监控已停用 userId=${userId}`);
+      sysNotify(s.user, '⚠️ VRChat 会话失效', '监控已停用, 请重新登录');
+    }
   });
 
   // ---------- 会话 ----------

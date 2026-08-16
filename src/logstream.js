@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 // 内存日志流: 环形缓冲 + 订阅。后端所有 logger 输出汇集于此,
 // 供前端 /api/logs 拉取尾部、SSE 实时推送日志原文。
 
@@ -15,6 +15,25 @@ function createLogStream({ capacity = 500 } = {}) {
       try { fn(entry); } catch (e) { /* 订阅者异常不影响日志 */ }
     }
     return entry;
+  }
+
+  /** 替换指定 seq 的行文本(令牌打码等); 订阅者会收到 (entry, 'update') */
+  function update(targetSeq, line) {
+    const entry = entries.find((e) => e.seq === targetSeq);
+    if (!entry) return null;
+    entry.line = String(line);
+    for (const fn of [...listeners]) {
+      try { fn(entry, 'update'); } catch (e) { /* 订阅者异常不影响日志 */ }
+    }
+    return entry;
+  }
+
+  /** 查找最近一条满足条件的行(启动令牌行定位用); 无则 null */
+  function findLast(pred) {
+    for (let i = entries.length - 1; i >= 0; i--) {
+      if (pred(entries[i])) return entries[i];
+    }
+    return null;
   }
 
   /** 最近 n 条(从旧到新); n<=0 返回空 */
@@ -46,7 +65,7 @@ function createLogStream({ capacity = 500 } = {}) {
 
   function lastSeq() { return seq; }
 
-  return { push, tail, after, subscribe, clear, size, lastSeq, capacity };
+  return { push, update, findLast, tail, after, subscribe, clear, size, lastSeq, capacity };
 }
 
 module.exports = { createLogStream };

@@ -20,12 +20,20 @@ const SETTING_MAP = {
 function createApp({
   db, notifier, pipeline, monitor,
   sessionStore = new Map(), vrcapiFactory, config = {}, logger = null,
-  now = Date.now, publicDir = null, avatarCache = null, qq = null, logStream = null, healthMonitor = null, vrcStatus = null
+  now = Date.now, publicDir = null, avatarCache = null, qq = null, logStream = null,
+  fileLog = null, maskState = null, healthMonitor = null, vrcStatus = null
 }) {
   const log = logger || { info: () => {}, warn: () => {}, error: () => {} };
   const app = express();
   const bus = monitor.events;
   const logStreamRef = logStream || getLogStream(); // 后端日志流: 未注入时回退全局
+  const fileLogRef = fileLog;      // 本地日志文件(向前翻页数据源)
+  const maskRef = maskState;       // 前端流令牌打码状态(首次连接成功后由 index.js 置 active)
+  // 前端流令牌打码: 置位后所有出站日志行(SSE/API)替换令牌; 终端与本地文件保留明文
+  const maskOut = (line) => {
+    if (!maskRef || !maskRef.active || !maskRef.token) return line;
+    return String(line).split(maskRef.token).join(maskRef.masked);
+  };
   const pending2faTtlMs = config.pending2faTtlMs ?? 5 * 60 * 1000;
 
   let current = null;        // { userId, dbId, vrcapi }
@@ -97,11 +105,13 @@ function createApp({
     }
   }
 
-  // 后端日志实时转发: 日志流每推一行, 广播给所有 SSE 客户端(前端直接展示后端日志原文)
+  // 后端日志实时转发: 日志流每推一行, 广播给所有 SSE 客户端(前端直接展示后端日志原文, 出站打码)
   if (logStreamRef) {
-    logStreamRef.subscribe((entry) => {
+    logStreamRef.subscribe((entry, kind) => {
+      const payload = { seq: entry.seq, line: maskOut(entry.line) };
+      const event = kind === 'update' ? 'log-update' : 'log'; // update: 令牌行被替换, 前端按 seq 同步
       for (const res of sseClients) {
-        try { sseSend(res, 'log', entry); } catch (e) { sseClients.delete(res); }
+        try { sseSend(res, event, payload); } catch (e) { sseClients.delete(res); }
       }
     });
   }
@@ -583,7 +593,10 @@ function createApp({
       log.info(`[server] 登录成功: ${user.display_name || user.vrchat_user_id} (rememberMe=${!!rememberMe})`);
       return res.json({ ok: true, user: selfUserForClient(user) });
     } catch (e) {
-      if (e.status === 401) return res.status(401).json({ error: '用户名或密码错误' });
+      if (e.status === 401) {
+        log.warn('[server] 登录失败: 用户名或密码错误');
+        return res.status(401).json({ error: '用户名或密码错误' });
+      }
       const friendly = loginError(e);
       if (friendly) {
         if (friendly.error.startsWith('登录过于频繁')) log.warn(`[server] 登录被限流: ${e.message}`);
@@ -609,6 +622,7 @@ function createApp({
       return res.json({ ok: true, user: selfUserForClient(user) });
     } catch (e) {
       if (e.status === 400 || e.status === 401) {
+        log.warn('[server] 2FA 验证失败: 验证码错误或已过期');
         return res.status(400).json({ error: '验证码错误或已过期' });
       }
       const friendly = loginError(e);
@@ -854,14 +868,24 @@ function createApp({
     }
   });
 
-  // 后端日志尾部/增量拉取(SSE 重连补拉用 after=seq); 前端直接展示后端日志
+  // 后端日志尾部/增量/向前翻页(SSE 重连补拉用 after=seq; 滚动加载更旧历史用 before=seq&limit=N)
   app.get('/api/logs', (req, res) => {
     if (!current) return res.status(401).json({ error: '未登录' });
     if (!logStreamRef) return res.json({ ok: true, logs: [], seq: 0 });
+    const beforeSeq = parseInt(req.query.before, 10);
+    if (Number.isFinite(beforeSeq)) {
+      // 更旧的历史从本地日志文件读取(已被轮转覆盖的部分返回空); 出站统一打码
+      const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 100, 1), 1000);
+      const logs = fileLogRef
+        ? fileLogRef.readBefore(beforeSeq, limit).map((e) => ({ seq: e.seq, line: maskOut(e.line) }))
+        : [];
+      return res.json({ ok: true, logs, seq: logStreamRef.lastSeq() });
+    }
     const tailN = Math.min(Math.max(parseInt(req.query.tail, 10) || 100, 1), 1000);
     const afterSeq = parseInt(req.query.after, 10);
     const entries = Number.isFinite(afterSeq) ? logStreamRef.after(afterSeq, 1000) : logStreamRef.tail(tailN);
-    return res.json({ ok: true, logs: entries, seq: logStreamRef.lastSeq() });
+    const logs = entries.map((e) => ({ seq: e.seq, line: maskOut(e.line) }));
+    return res.json({ ok: true, logs, seq: logStreamRef.lastSeq() });
   });
 
   app.get('/api/events', (req, res) => {
