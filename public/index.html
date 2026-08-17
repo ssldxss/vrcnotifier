@@ -695,6 +695,34 @@ button.danger { background: linear-gradient(135deg, var(--bad), #b4232c); box-sh
 .modal .modal-body input[type='checkbox']:checked { background: var(--accent); border-color: var(--accent); }
 .modal .modal-body input[type='checkbox']:checked::before { transform: scale(1); }
 
+/* 登录页「记住我」勾选框: 与好友行/登出弹窗自绘勾选框同款 */
+#loginView .login-main label.row { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+#loginView .login-main input[type='checkbox'] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 15px; height: 15px;
+  margin: 0;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 4px;
+  background: var(--input-bg);
+  cursor: pointer;
+  display: inline-grid;
+  place-content: center;
+  flex: 0 0 auto;
+  transition: background var(--t-fast), border-color var(--t-fast), transform var(--t-fast);
+}
+#loginView .login-main input[type='checkbox']:hover { transform: scale(1.1); }
+#loginView .login-main input[type='checkbox']::before {
+  content: '';
+  width: 9px; height: 9px;
+  clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
+  background: var(--accent-contrast);
+  transform: scale(0);
+  transition: transform .12s ease;
+}
+#loginView .login-main input[type='checkbox']:checked { background: var(--accent); border-color: var(--accent); }
+#loginView .login-main input[type='checkbox']:checked::before { transform: scale(1); }
+
 /* ---------- 日志 ---------- */
 #log {
   height: calc(250vh - 1550px); /* 日志高度 = 最初的 2.5 倍 */
@@ -1104,7 +1132,7 @@ h3.chan { font-size: 13px; margin: 16px 0 6px; color: var(--text-2); font-weight
         <input type='text' id='loginUser' placeholder='用户名' autocomplete='username'>
         <input type='password' id='loginPass' placeholder='密码' autocomplete='current-password'>
         <label class='row' style='justify-content:flex-start'>
-          <input type='checkbox' id='rememberMe' style='width:auto'> 记住我(保存会话, 自动恢复)
+          <input type='checkbox' id='rememberMe'> 记住我(保存会话, 自动恢复)
         </label>
         <div class='row'>
           <button id='loginBtn'>登录</button>
