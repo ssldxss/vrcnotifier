@@ -128,6 +128,8 @@ test('config endpoint exposes app config and access key requirement', async (t) 
   assert.equal(status, 200);
   assert.equal(data.tokenRequired, true);
   assert.ok(data.watchdogMs > 0);
+  assert.equal(data.encryptionEnabled, false);
+  assert.equal(data.encryptionMode, 'none');
   // 访问密钥校验
   const bad = await post(ctx, '/api/access/verify', { key: 'wrong' });
   assert.equal(bad.data.ok, false);

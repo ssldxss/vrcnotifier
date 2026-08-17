@@ -1088,6 +1088,7 @@ h3.chan { font-size: 13px; margin: 16px 0 6px; color: var(--text-2); font-weight
 <div id='bgGlow' aria-hidden='true'></div>
 <header>
   <h1><span class='ext-link' data-href='https://github.com/ssldxss/vrcnotifier' title='vrcnotifier on GitHub'>vrcnotifier</span></h1>
+  <span id='encryptionBadge' class='badge warn hidden' title='当前未启用数据加密，敏感数据可能明文保存'>未加密</span>
   <div class='self-info' id='selfInfo'></div>
   <span class='spacer'></span>
   <button id='themeBtn' class='theme-btn' title='主题: 跟随系统' aria-label='切换主题'></button>
@@ -1398,6 +1399,14 @@ function fillGateForm() {
 }
 
 let appConfig = { tokenRequired: false };
+function updateEncryptionHint() {
+  const el = $('#encryptionBadge');
+  if (!el) return;
+  const enabled = appConfig.encryptionEnabled;
+  const mode = appConfig.encryptionMode;
+  const show = enabled === false || mode === 'none' || mode === 'missing';
+  el.classList.toggle('hidden', !show);
+}
 let currentUser = null;
 let tempSessionId = null;
 let twofaKind = 'emailOtp';
@@ -1636,6 +1645,7 @@ async function loadConfig() {
   try {
     const r = await api('GET', '/api/config', undefined, { noAuth: true, signal: AbortSignal.timeout(5000) });
     appConfig = r.data || {};
+    updateEncryptionHint();
     if (appConfig.tokenRequired && !accessToken()) {
       $('#gateMsg').textContent = '';
       showView('gate');

@@ -606,6 +606,8 @@ function createApp({
       snapshotIntervalMs: config.snapshotIntervalMs ?? 3600000,
       watchdogMs: config.watchdogMs ?? 3600000,
       dedupeWindowMs: config.dedupeWindowMs ?? 30000,
+      encryptionEnabled: !!config.encryptionEnabled,
+      encryptionMode: config.encryptionMode || (config.encryptionEnabled ? 'encrypted' : 'none'),
       version: '0.1.0'
     });
   });

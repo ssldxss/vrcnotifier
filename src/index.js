@@ -95,6 +95,8 @@ function buildApplication(opts = {}) {
   const bus = opts.bus || new EventEmitter();
   const sessionStore = new Map();
   const now = opts.now || Date.now;
+  const encryptionEnabled = !!opts.crypto;
+  const encryptionMode = opts.encryptionMode || (encryptionEnabled ? 'encrypted' : 'none');
 
   const config = {
     apiBaseUrl: opts.apiBaseUrl || DEFAULT_API_BASE,
@@ -103,6 +105,8 @@ function buildApplication(opts = {}) {
     accessKey: opts.accessToken || null,
     corsOrigin: opts.corsOrigin || null,
     pending2faTtlMs: opts.pending2faTtlMs ?? 5 * 60 * 1000,
+    encryptionEnabled,
+    encryptionMode,
     monitor: {
       confirmDelayMs: opts.confirmDelayMs ?? 30000,
       dedupeWindowMs: opts.dedupeWindowMs ?? 30000,
@@ -223,7 +227,9 @@ function buildApplication(opts = {}) {
       confirmDelayMs: config.monitor.confirmDelayMs,
       dedupeWindowMs: config.monitor.dedupeWindowMs,
       snapshotIntervalMs: config.monitor.snapshotIntervalMs,
-      watchdogMs: config.monitor.watchdogMs
+      watchdogMs: config.monitor.watchdogMs,
+      encryptionEnabled: config.encryptionEnabled,
+      encryptionMode: config.encryptionMode
     },
     logger,
     now,
@@ -256,18 +262,17 @@ async function main() {
   // 运行标识: 每次启动以分隔行隔开(文件清空后的首行, 前端同样可见)
   logger.info(`[启动] ======== vrcnotifier 运行开始 ${formatLocalTime()} pid=${process.pid} node=${process.version} ========`);
 
-  // 数据加密: 密钥来源优先级 Docker Secret → 环境变量 MASTER_KEY → 开发模式(--no-encrypt 不加密所有数据)
+  // 数据加密: 密钥来源优先级 Docker Secret → 环境变量 MASTER_KEY → 兜底不加密
   let crypt = null;
+  let encryptionMode = 'none';
   if (dbPath !== ':memory:') {
     const resolved = resolveMasterKey({ envKey: env('MASTER_KEY'), devNoEncrypt: process.argv.includes('--no-encrypt') });
-    if (resolved.mode === 'missing') {
-      logger.error('[启动] 未找到数据加密主密钥: 请挂载 Docker Secret 或设置环境变量 MASTER_KEY(64 位 hex)');
-      logger.error('[启动] 开发模式(所有数据明文存储): node src/index.js --no-encrypt');
-      process.exit(1);
-    }
+    encryptionMode = resolved.mode === 'missing' ? 'none' : resolved.mode;
     if (resolved.mode === 'docker-secret') logger.info('[启动] 数据加密方式: Docker Secret');
     else if (resolved.mode === 'env') logger.info('[启动] 数据加密方式: 环境变量 MASTER_KEY');
-    else logger.warn('[启动] 数据加密方式: 无(--no-encrypt 开发模式, 所有数据明文存储)');
+    else logger.warn(resolved.mode === 'missing'
+      ? '[启动] 未配置加密密钥，敏感数据可能明文保存'
+      : '[启动] 数据加密方式: 无(--no-encrypt 开发模式, 所有数据明文存储)');
     crypt = resolved.key ? createCrypto({ masterKey: resolved.key }) : null;
   }
 
@@ -294,6 +299,7 @@ async function main() {
     logStream,
     fileLog,
     crypto: crypt,
+    encryptionMode,
     apiBaseUrl: env('VRC_API_URL', DEFAULT_API_BASE),
     wsBaseUrl: env('VRC_WS_URL', DEFAULT_WS_BASE),
     userAgent: env('USER_AGENT', 'vrcnotifier/1.0'),

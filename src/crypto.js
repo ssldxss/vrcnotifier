@@ -1,7 +1,7 @@
 'use strict';
 // 数据加密: AES-256-GCM + AAD 绑定(字段:行ID, 防密文跨行/跨字段置换)。
-// 主密钥仅来自 Docker Secrets(/run/secrets/vrcnotifier_master_key), 不备份、不进镜像/环境变量;
-// 换环境(密钥不同)时密文解密失败 → 由启动流程静默清库重启(见 index.js)。
+// 主密钥来源: Docker Secrets(/run/secrets/vrcnotifier_master_key) → 环境变量 MASTER_KEY → 兜底不加密;
+// 密钥不备份、不进镜像; 换环境(密钥不同)时密文解密失败 → 由启动流程静默清库重启(见 index.js)。
 // 密文格式: v1:<base64(iv|tag|cipher)>; 无前缀的旧值按明文直通(尚未上线, 无需迁移)。
 
 const crypto = require('node:crypto');
@@ -26,7 +26,7 @@ function loadMasterKeyFromSecret(file = '/run/secrets/vrcnotifier_master_key') {
 }
 
 /**
- * 密钥来源优先级: Docker Secret → 环境变量 MASTER_KEY → 开发模式(--no-encrypt, 不加密);
+ * 密钥来源优先级: Docker Secret → 环境变量 MASTER_KEY → 兜底不加密;
  * 返回 { key, mode }(mode: docker-secret | env | none | missing)。
  */
 function resolveMasterKey({ secretFile = '/run/secrets/vrcnotifier_master_key', envKey = null, devNoEncrypt = false } = {}) {
