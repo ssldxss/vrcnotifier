@@ -19,10 +19,25 @@ function decodeKey(text) {
   throw new Error('主密钥格式无效: 需要 64 位 hex 或 32 字节 base64');
 }
 
-/** 读取 Docker Secret(生产唯一密钥来源) */
+/** 读取 Docker Secret(生产第一优先级密钥来源) */
 function loadMasterKeyFromSecret(file = '/run/secrets/vrcnotifier_master_key') {
   const fs = require('node:fs');
   return decodeKey(fs.readFileSync(file, 'utf8'));
+}
+
+/**
+ * 密钥来源优先级: Docker Secret → 环境变量 MASTER_KEY → 开发模式(--no-encrypt, 不加密);
+ * 返回 { key, mode }(mode: docker-secret | env | none | missing)。
+ */
+function resolveMasterKey({ secretFile = '/run/secrets/vrcnotifier_master_key', envKey = null, devNoEncrypt = false } = {}) {
+  if (devNoEncrypt) return { key: null, mode: 'none' };
+  try {
+    return { key: loadMasterKeyFromSecret(secretFile), mode: 'docker-secret' };
+  } catch (e) { /* 无 Secret: 尝试环境变量 */ }
+  if (envKey) {
+    return { key: decodeKey(envKey), mode: 'env' };
+  }
+  return { key: null, mode: 'missing' };
 }
 
 function createCrypto({ masterKey }) {
@@ -61,4 +76,4 @@ function createCrypto({ masterKey }) {
   return { encrypt, decrypt, isEncrypted, key };
 }
 
-module.exports = { createCrypto, decodeKey, loadMasterKeyFromSecret };
+module.exports = { createCrypto, decodeKey, loadMasterKeyFromSecret, resolveMasterKey };

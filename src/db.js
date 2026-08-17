@@ -100,12 +100,15 @@ function createDb(location = ':memory:', opts = {}) {
   db.exec('PRAGMA journal_mode = WAL');
   db.exec(SCHEMA);
   const maxDedupeRows = opts.maxDedupeRows ?? MAX_DEDUPE_ROWS;
-  const crypt = opts.crypto || null; // 敏感字段加解密(未注入时明文直通, 供测试)
-  // 敏感字段行级解密(AAD = 字段:行ID, 防密文跨行置换); 密钥不符/损坏 → 该字段按未保存处理
+  const crypt = opts.crypto || null; // 敏感字段加解密(未注入时明文直通, 供测试/开发模式)
+  // 敏感字段行级解密(AAD = 字段:行ID / 字段:vrchat_user_id, 防密文跨行置换); 密钥不符/损坏 → 该字段按未保存处理
   function decryptUserRow(row) {
     if (!row || !crypt) return row;
-    for (const f of ['cookie_data', 'password']) {
+    for (const f of ['saved_username', 'password', 'cookie_data']) {
       if (row[f] !== null && row[f] !== undefined) row[f] = crypt.decrypt(row[f], f + ':' + row.id);
+    }
+    if (row.username !== null && row.username !== undefined) {
+      row.username = crypt.decrypt(row.username, 'username:' + row.vrchat_user_id);
     }
     return row;
   }
@@ -284,7 +287,12 @@ function createDb(location = ':memory:', opts = {}) {
   return {
     // users
     upsertUser(vrcId, { username, displayName, avatarUrl, avatarThumbUrl, status, statusDescription, platform }) {
-      stmt.upsertUser.run(vrcId, username ?? null, displayName ?? null, avatarUrl ?? null, avatarThumbUrl ?? null, status ?? null, statusDescription ?? null, platform ?? null);
+      stmt.upsertUser.run(
+        vrcId,
+        crypt ? crypt.encrypt(username, 'username:' + vrcId) : (username ?? null),
+        displayName ?? null, avatarUrl ?? null, avatarThumbUrl ?? null,
+        status ?? null, statusDescription ?? null, platform ?? null
+      );
       return stmt.getUserByVrcId.get(vrcId).id;
     },
     updateSelfProfile(rowId, { displayName, avatarUrl, avatarThumbUrl }) {
@@ -303,7 +311,11 @@ function createDb(location = ':memory:', opts = {}) {
     // 全局最多保留一份 cookie: 保存前先清掉其他用户的已存 cookie
     saveCookies(dbId, cookieData, username) {
       stmt.clearOtherCookies.run(dbId);
-      stmt.saveCookies.run(crypt ? crypt.encrypt(cookieData, 'cookie_data:' + dbId) : cookieData, username ?? null, dbId);
+      stmt.saveCookies.run(
+        crypt ? crypt.encrypt(cookieData, 'cookie_data:' + dbId) : cookieData,
+        crypt ? crypt.encrypt(username, 'saved_username:' + dbId) : (username ?? null),
+        dbId
+      );
     },
     clearCookies(dbId) { stmt.clearCookies.run(dbId); },
     // 自动重登用: 记住我时保存密码, 与 cookie 一起在登出时清除
@@ -322,9 +334,10 @@ function createDb(location = ':memory:', opts = {}) {
     hasUndecryptableSensitive() {
       if (!crypt) return false;
       for (const r of stmt.listUsers.all()) {
-        for (const f of ['cookie_data', 'password']) {
+        for (const f of ['saved_username', 'password', 'cookie_data']) {
           if (crypt.isEncrypted(r[f]) && crypt.decrypt(r[f], f + ':' + r.id) === null) return true;
         }
+        if (crypt.isEncrypted(r.username) && crypt.decrypt(r.username, 'username:' + r.vrchat_user_id) === null) return true;
       }
       const s = stmt.getSetting.get('qq_app_secret');
       if (s && crypt.isEncrypted(s.value) && crypt.decrypt(s.value, 'settings:qq_app_secret') === null) return true;

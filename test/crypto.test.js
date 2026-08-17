@@ -7,7 +7,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { createCrypto, decodeKey, loadMasterKeyFromSecret } = require('../src/crypto');
+const { createCrypto, decodeKey, loadMasterKeyFromSecret, resolveMasterKey } = require('../src/crypto');
 
 test('AES-256-GCM 往返: 加密后带 v1: 前缀, 解密还原原文', () => {
   const key = crypto.randomBytes(32);
@@ -61,6 +61,28 @@ test('loadMasterKeyFromSecret: 读取 secret 文件内容并解码', () => {
     const key = loadMasterKeyFromSecret(file);
     assert.equal(key.length, 32);
     assert.throws(() => loadMasterKeyFromSecret(path.join(dir, 'nope')));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('resolveMasterKey 优先级: dev > secret > env > missing', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vrcn-resolve-'));
+  try {
+    const file = path.join(dir, 'master_key');
+    fs.writeFileSync(file, 'ab'.repeat(32), 'utf8');
+    // 1) 开发模式: 不读任何密钥
+    assert.deepEqual(resolveMasterKey({ secretFile: file, envKey: 'cd'.repeat(32), devNoEncrypt: true }), { key: null, mode: 'none' });
+    // 2) Secret 优先于环境变量
+    const s = resolveMasterKey({ secretFile: file, envKey: 'cd'.repeat(32) });
+    assert.equal(s.mode, 'docker-secret');
+    assert.equal(s.key.subarray(0, 1).toString('hex'), 'ab');
+    // 3) 无 Secret 时用环境变量
+    const e = resolveMasterKey({ secretFile: path.join(dir, 'nope'), envKey: 'cd'.repeat(32) });
+    assert.equal(e.mode, 'env');
+    assert.equal(e.key.subarray(0, 1).toString('hex'), 'cd');
+    // 4) 都没有 → missing
+    assert.deepEqual(resolveMasterKey({ secretFile: path.join(dir, 'nope'), envKey: null }), { key: null, mode: 'missing' });
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

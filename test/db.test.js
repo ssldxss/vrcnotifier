@@ -242,12 +242,16 @@ test('加密: 密码/cookie/AppSecret 落库为 v1: 密文, 读取还原明文',
     db.updateGlobalSettings({ qq_app_secret: 'qq-secret-123' });
     // 同一实例(正确密钥)读取 → 明文
     const u = db.getUserByDbId(id);
+    assert.equal(u.username, 'u');
+    assert.equal(u.saved_username, 'u');
     assert.equal(u.password, 'my-vrc-password');
     assert.equal(u.cookie_data, 'cookie-serialized');
     assert.equal(db.getGlobalSettings().qq_app_secret, 'qq-secret-123');
     // 无 crypto 的实例直读同一库 → 落库形态必须是密文
     const plain = createDb(file);
     const raw = plain.getUserByDbId(id);
+    assert.ok(String(raw.username).startsWith('v1:'), '用户名落库必须是 v1: 密文');
+    assert.ok(String(raw.saved_username).startsWith('v1:'), '保存的用户名落库必须是 v1: 密文');
     assert.ok(String(raw.password).startsWith('v1:'), '密码落库必须是 v1: 密文');
     assert.ok(String(raw.cookie_data).startsWith('v1:'), 'cookie 落库必须是 v1: 密文');
     assert.ok(String(plain.getGlobalSettings().qq_app_secret).startsWith('v1:'), 'AppSecret 落库必须是 v1: 密文');

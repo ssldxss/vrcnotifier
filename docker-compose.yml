@@ -15,6 +15,9 @@ services:
       TZ: Asia/Shanghai      # 日志/通知时间使用本地时区
       # 固定访问令牌(强烈建议): 不设置则首次启动自动生成, 从日志获取
       # ACCESS_TOKEN: "换成你自己的长随机串"
+      # 加密主密钥备选(优先级低于 Docker Secret): 取消注释并填 64 位 hex
+      # MASTER_KEY: "换成64位hex随机串"
+      # 开发模式(不加密所有数据, 明文存储): docker compose run --rm vrcnotifier node src/index.js --no-encrypt
       # 可选调参(默认值见 src/index.js):
       # SNAPSHOT_INTERVAL_MS: "3600000"   # 周期对账间隔
       # WATCHDOG_MS: "3600000"            # 无消息强制重连阈值

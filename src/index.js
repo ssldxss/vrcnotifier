@@ -7,7 +7,7 @@ const { EventEmitter } = require('node:events');
 const { createDb } = require('./db');
 const { createLogger, setLogStream, setFileLog, maskKey, formatLocalTime } = require('./util');
 const { createFileLog } = require('./filelog');
-const { createCrypto, loadMasterKeyFromSecret } = require('./crypto');
+const { createCrypto, resolveMasterKey } = require('./crypto');
 const { createVrcApi, isMissingCredentials, isUnauthorized } = require('./vrcapi');
 const { createNotifier } = require('./notify');
 const { createPipelineManager } = require('./pipeline');
@@ -256,16 +256,19 @@ async function main() {
   // 运行标识: 每次启动以分隔行隔开(文件清空后的首行, 前端同样可见)
   logger.info(`[启动] ======== vrcnotifier 运行开始 ${formatLocalTime()} pid=${process.pid} node=${process.version} ========`);
 
-  // 数据加密: 主密钥仅来自 Docker Secrets(不备份、不进镜像/环境变量; 换环境即数据失效)
+  // 数据加密: 密钥来源优先级 Docker Secret → 环境变量 MASTER_KEY → 开发模式(--no-encrypt 不加密所有数据)
   let crypt = null;
   if (dbPath !== ':memory:') {
-    try {
-      crypt = createCrypto({ masterKey: loadMasterKeyFromSecret() });
-    } catch (e) {
-      logger.error(`[启动] 无法读取主密钥 /run/secrets/vrcnotifier_master_key: ${e.message}`);
-      logger.error('[启动] 请通过 docker compose secrets 挂载(openssl rand -hex 32 > secrets/master_key); 密钥不备份, 缺失时敏感数据无法解密');
+    const resolved = resolveMasterKey({ envKey: env('MASTER_KEY'), devNoEncrypt: process.argv.includes('--no-encrypt') });
+    if (resolved.mode === 'missing') {
+      logger.error('[启动] 未找到数据加密主密钥: 请挂载 Docker Secret 或设置环境变量 MASTER_KEY(64 位 hex)');
+      logger.error('[启动] 开发模式(所有数据明文存储): node src/index.js --no-encrypt');
       process.exit(1);
     }
+    if (resolved.mode === 'docker-secret') logger.info('[启动] 数据加密方式: Docker Secret');
+    else if (resolved.mode === 'env') logger.info('[启动] 数据加密方式: 环境变量 MASTER_KEY');
+    else logger.warn('[启动] 数据加密方式: 无(--no-encrypt 开发模式, 所有数据明文存储)');
+    crypt = resolved.key ? createCrypto({ masterKey: resolved.key }) : null;
   }
 
   const db = createDb(dbPath, { crypto: crypt });
