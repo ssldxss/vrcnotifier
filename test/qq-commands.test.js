@@ -80,7 +80,7 @@ test('createQqCommands: 任意输入都直接输出在线列表', async () => {
   const id = db.upsertUser('usr_me', { username: 'me', displayName: '我', avatarUrl: null });
   db.upsertFriend(id, 'usr_a', { displayName: 'Alice', state: 'online', status: 'active', worldName: 'WorldX' });
   db.upsertFriend(id, 'usr_b', { displayName: 'Bob', state: 'offline', status: 'busy', worldName: null });
-  const handler = createQqCommands({ db, logger: { info: () => {}, warn: () => {}, error: () => {} } });
+  const handler = createQqCommands({ db, logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} } });
   // 任意输入都直接输出在线列表(首次提示由绑定消息承担)
   for (const text of ['你好', '/在线列表', '好友', '随便聊聊']) {
     const reply = await handler({ dbId: id, content: text, openid: 'openid_x' });
@@ -97,7 +97,7 @@ test('createQqCommands: 连接异常时头部提示"当前未连接, 数据截�
   const db = createDb(':memory:');
   const id = db.upsertUser('usr_me', { username: 'me', displayName: '我', avatarUrl: null });
   db.upsertFriend(id, 'usr_a', { displayName: 'Alice', state: 'online', status: 'active', worldName: 'WorldX' });
-  const silent = { info: () => {}, warn: () => {}, error: () => {} };
+  const silent = { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
   // 连接正常: 无提示
   const ok = createQqCommands({ db, logger: silent, getStatus: () => ({ connected: true, since: null }) });
   const okReply = await ok({ dbId: id, content: 'hi' });
@@ -122,7 +122,7 @@ test('createQqCommands: onCode 优先处理验证码, 返回 null 时回落到�
   const db = createDb(':memory:');
   const id = db.upsertUser('usr_me', { username: 'me', displayName: '我', avatarUrl: null });
   db.upsertFriend(id, 'usr_a', { displayName: 'Alice', state: 'online', status: 'active', worldName: 'WorldX' });
-  const silent = { info: () => {}, warn: () => {}, error: () => {} };
+  const silent = { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
   const calls = [];
   const handler = createQqCommands({
     db, logger: silent,

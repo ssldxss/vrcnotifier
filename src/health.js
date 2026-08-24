@@ -9,13 +9,14 @@ function createHealthMonitor({
   userAgent = 'vrcnotifier/1.0',
   logger = null,
   now = Date.now,
-  intervalMs = 5000,
+  intervalMs = 60 * 1000,
   sampleCount = 3,
   sampleTimeoutMs = 3000,
   onSample = null
 } = {}) {
-  const log = logger || { info: () => {}, warn: () => {}, error: () => {} };
+  const log = logger || { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
   let latest = { status: 'starting', latencyMs: null, serverName: null, updatedAt: now() };
+  let lastOk = null; // 最近一次成功探测; 探测失败时对外沿用该状态(标记 stale)
   let timer = null;
   let inFlight = false;
 
@@ -53,15 +54,27 @@ function createHealthMonitor({
         samples.push(r.latencyMs);
         if (serverName === null && r.serverName) serverName = r.serverName;
       }
-      latest = {
-        status: samples.length > 0 ? 'ok' : 'error',
-        latencyMs: samples.length > 0 ? Math.round(samples.reduce((a, b) => a + b, 0) / samples.length) : null,
-        serverName,
-        updatedAt: now()
-      };
+      if (samples.length > 0) {
+        latest = {
+          status: 'ok',
+          latencyMs: Math.round(samples.reduce((a, b) => a + b, 0) / samples.length),
+          serverName,
+          updatedAt: now()
+        };
+        lastOk = { ...latest };
+      } else if (lastOk) {
+        // 本轮全部失败: 沿用最近一次成功状态展示(标记 stale), 不直接报 error
+        latest = { ...lastOk, stale: true };
+        log.warn(`[health] 本轮探测失败, 沿用 ${Math.max(1, Math.round((now() - lastOk.updatedAt) / 1000))}s 前的成功状态(${lastOk.latencyMs}ms)`);
+      } else {
+        latest = { status: 'error', latencyMs: null, serverName: null, updatedAt: now() };
+        log.warn('[health] 探测失败, 且尚无历史成功状态');
+      }
     } catch (e) {
       log.error(`[health] 探测异常: ${e.message}`);
-      latest = { status: 'error', latencyMs: null, serverName: null, updatedAt: now() };
+      latest = lastOk
+        ? { ...lastOk, stale: true }
+        : { status: 'error', latencyMs: null, serverName: null, updatedAt: now() };
     } finally {
       inFlight = false;
     }

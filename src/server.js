@@ -17,10 +17,10 @@ const SETTING_MAP = {
   qqEnabled: 'qq_enabled', qqAppId: 'qq_app_id', qqAppSecret: 'qq_app_secret'
 };
 
-// 日志筛选(服务端): 级别阈值语义与前端一致(信息含全部, 警告含错误, 错误仅错误)
-const LOG_LEVEL_RANK = { info: 0, warn: 1, error: 2 };
+// 日志筛选(服务端): 级别阈值语义与前端一致(调试含全部, 信息含警告/错误, 警告含错误, 错误仅错误)
+const LOG_LEVEL_RANK = { debug: 0, info: 1, warn: 2, error: 3 };
 function logLineMatches(line, levelSel, catSel) {
-  const m = /^\[[^\]]+\] \[(info|warn|error)\] \[([^\]]+)\] /.exec(String(line));
+  const m = /^\[[^\]]+\] \[(debug|info|warn|error)\] \[([^\]]+)\] /.exec(String(line));
   const lv = m ? m[1] : 'info';
   const cat = m ? m[2] : 'other';
   return (LOG_LEVEL_RANK[lv] ?? 0) >= (LOG_LEVEL_RANK[levelSel] ?? 0)
@@ -33,7 +33,7 @@ function createApp({
   now = Date.now, publicDir = null, avatarCache = null, qq = null, logStream = null,
   fileLog = null, maskState = null, healthMonitor = null, vrcStatus = null
 }) {
-  const log = logger || { info: () => {}, warn: () => {}, error: () => {} };
+  const log = logger || { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
   const app = express();
   const bus = monitor.events;
   const logStreamRef = logStream || getLogStream(); // 后端日志流: 未注入时回退全局
@@ -815,7 +815,7 @@ function createApp({
     });
     const cfg = db.getConfig(current.dbId, req.params.friendId);
     const friend = db.getFriend(current.dbId, req.params.friendId);
-    log.info(`[server] 更新监控配置: 好友=${(friend && friend.display_name) || req.params.friendId}, 特别关注=${cfg ? (cfg.favorite ? '开' : '关') : '?'}, 上线=${cfg ? cfg.notify_online : '?'}, 下线=${cfg ? cfg.notify_offline : '?'}, 状态=${cfg ? cfg.notify_status_change : '?'}, 世界=${cfg ? cfg.notify_world_change : '?'}`);
+    log.debug(`[server] 更新监控配置: 好友=${(friend && friend.display_name) || req.params.friendId}, 特别关注=${cfg ? (cfg.favorite ? '开' : '关') : '?'}, 上线=${cfg ? cfg.notify_online : '?'}, 下线=${cfg ? cfg.notify_offline : '?'}, 状态=${cfg ? cfg.notify_status_change : '?'}, 世界=${cfg ? cfg.notify_world_change : '?'}`);
     return res.json({ ok: true, config: cfg });
   });
 
@@ -877,7 +877,8 @@ function createApp({
       status: h.status,
       latencyMs: h.latencyMs,
       serverName: h.serverName,
-      updatedAt: h.updatedAt
+      updatedAt: h.updatedAt,
+      stale: h.stale === true // true = 本轮探测失败, 展示的是上次成功状态
     });
   });
 

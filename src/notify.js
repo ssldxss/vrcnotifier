@@ -5,7 +5,7 @@ const { buildQq } = require('./templates');
 const { formatLocalTime } = require('./util');
 
 function createNotifier({ logger = null, now = Date.now, qq = null, getSettings = null } = {}) {
-  const log = logger || { info: () => {}, warn: () => {}, error: () => {} };
+  const log = logger || { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
 
   // 通知配置统一来自全局 settings 表
   function globalConfig(user) {

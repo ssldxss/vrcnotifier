@@ -38,7 +38,7 @@ test('connects with authToken and UA; parses double-encoded message; dedupes ide
       userAgent: 'vrcnotifier-test/1.0',
       wsUrl: (token) => `${url}/?authToken=${token}`,
       config: cfg,
-      logger: { info: () => {}, warn: () => {}, error: () => {} }
+      logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} }
     });
     pm.connect('u1', '我');
     await sleep(100);
@@ -67,7 +67,7 @@ test('reconnects after server close with backoff and re-fetches token', async ()
       userAgent: 't/1',
       wsUrl: (token) => `${url}/?authToken=${token}`,
       config: cfg,
-      logger: { info: () => {}, warn: () => {}, error: () => {} }
+      logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} }
     });
     pm.connect('u1', '我');
     await sleep(80);
@@ -90,7 +90,7 @@ test('forceReconnect tears down and reconnects; disconnect stops reconnection', 
       userAgent: 't/1',
       wsUrl: (token) => `${url}/?authToken=${token}`,
       config: cfg,
-      logger: { info: () => {}, warn: () => {}, error: () => {} }
+      logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} }
     });
     pm.connect('u1', '我');
     await sleep(80);
@@ -105,6 +105,72 @@ test('forceReconnect tears down and reconnects; disconnect stops reconnection', 
   } finally { await close(); }
 });
 
+test('frame receipt logs at debug level; watchdog-forced reconnect logs at info level', async () => {
+  const { state, url, close } = await startMockPipeline();
+  try {
+    const logs = [];
+    const logger = {
+      debug: (...a) => logs.push(['debug', a.join(' ')]),
+      info: (...a) => logs.push(['info', a.join(' ')]),
+      warn: (...a) => logs.push(['warn', a.join(' ')]),
+      error: (...a) => logs.push(['error', a.join(' ')])
+    };
+    const pm = createPipelineManager({
+      getToken: async () => ({ status: 'ok', token: 't' }),
+      onMessage: () => {},
+      userAgent: 't/1',
+      wsUrl: (token) => `${url}/?authToken=${token}`,
+      config: cfg,
+      logger
+    });
+    pm.connect('u1', '我');
+    await sleep(80);
+    state.connections[0].ws.send(JSON.stringify({ type: 'friend-online', content: JSON.stringify({ userId: 'usr_f' }) }));
+    await sleep(50);
+    const frameLog = logs.find((l) => l[1].includes('收到消息'));
+    assert.ok(frameLog, '收到消息应输出日志');
+    assert.equal(frameLog[0], 'debug', '每帧收到消息应为 debug 级');
+    logs.length = 0;
+    pm.forceReconnect('u1');
+    await sleep(250);
+    assert.ok(state.connections.length >= 2, 'watchdog 强制重连成功');
+    const rcLog = logs.find((l) => l[1].includes('后重连'));
+    assert.ok(rcLog, '重连应输出日志');
+    assert.equal(rcLog[0], 'info', 'watchdog 触发的重连应为 info 级');
+    pm.disconnect('u1');
+  } finally { await close(); }
+});
+
+test('abnormal disconnect reconnect stays warn level', async () => {
+  const { state, url, close } = await startMockPipeline();
+  try {
+    const logs = [];
+    const logger = {
+      debug: () => {},
+      info: (...a) => logs.push(['info', a.join(' ')]),
+      warn: (...a) => logs.push(['warn', a.join(' ')]),
+      error: (...a) => logs.push(['error', a.join(' ')])
+    };
+    const pm = createPipelineManager({
+      getToken: async () => ({ status: 'ok', token: 't' }),
+      onMessage: () => {},
+      userAgent: 't/1',
+      wsUrl: (token) => `${url}/?authToken=${token}`,
+      config: cfg,
+      logger
+    });
+    pm.connect('u1', '我');
+    await sleep(80);
+    state.connections[0].ws.terminate(); // 模拟异常断开
+    await sleep(300);
+    assert.ok(state.connections.length >= 2, '异常断开后应重连');
+    const rcLog = logs.find((l) => l[1].includes('后重连'));
+    assert.ok(rcLog, '重连应输出日志');
+    assert.equal(rcLog[0], 'warn', '异常断开触发的重连应保持 warn 级');
+    pm.disconnect('u1');
+  } finally { await close(); }
+});
+
 test('onReconnect fires after reconnect succeeds, not on first connect', async () => {
   const { state, url, close } = await startMockPipeline();
   try {
@@ -116,7 +182,7 @@ test('onReconnect fires after reconnect succeeds, not on first connect', async (
       userAgent: 't/1',
       wsUrl: (token) => `${url}/?authToken=${token}`,
       config: cfg,
-      logger: { info: () => {}, warn: () => {}, error: () => {} }
+      logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} }
     });
     pm.connect('u1', '我');
     await sleep(80);
@@ -139,7 +205,7 @@ test('counts received messages per second and exposes last-60s series', async ()
       userAgent: 't/1',
       wsUrl: (token) => `${url}/?authToken=${token}`,
       config: { ...cfg, pingIntervalMs: 100000, pongTimeoutMs: 100000 },
-      logger: { info: () => {}, warn: () => {}, error: () => {} }
+      logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} }
     });
     pm.connect('u1', '我');
     await sleep(80);
@@ -170,7 +236,7 @@ test('disconnect during in-flight getToken does not open a zombie connection', a
       userAgent: 't/1',
       wsUrl: (token) => `${url}/?authToken=${token}`,
       config: cfg,
-      logger: { info: () => {}, warn: () => {}, error: () => {} }
+      logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} }
     });
     pm.connect('u1', '我');
     await sleep(20);          // 让 connectPipeline 停在 await getToken
@@ -195,7 +261,7 @@ test('notifies connect failure once after failNotifyMs and recovery on reopen', 
       userAgent: 't/1',
       wsUrl: (token) => `${url}/?authToken=${token}`,
       config: cfg,
-      logger: { info: () => {}, warn: () => {}, error: () => {} },
+      logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
       onConnectFailure: (userId, name) => failures.push({ userId, name }),
       onConnectRecovered: (userId, name) => recoveries.push({ userId, name })
     });
@@ -221,16 +287,16 @@ test('logs each received ws message as a single line', async (t) => {
     userAgent: 't/1',
     wsUrl: (token) => `${url}/?authToken=${token}`,
     config: cfg,
-    logger: { info: (...a) => logs.push(['info', ...a]), warn: (...a) => logs.push(['warn', ...a]), error: (...a) => logs.push(['error', ...a]) }
+    logger: { debug: (...a) => logs.push(['debug', ...a]), info: (...a) => logs.push(['info', ...a]), warn: (...a) => logs.push(['warn', ...a]), error: (...a) => logs.push(['error', ...a]) }
   });
   pm.connect('u1', '我');
   t.after(() => pm.disconnect('u1'));
   await sleep(80);
   state.connections[0].ws.send(JSON.stringify({ type: 'friend-online', content: JSON.stringify({ userId: 'usr_f', location: 'wrld_123:456', platform: 'standalonewindows' }) }));
   await sleep(50);
-  const info = logs.filter((l) => l[0] === 'info').map((l) => l.slice(1).join(' '));
-  assert.ok(info.some((s) => s.includes('[ws]') && s.includes('friend-online') && s.includes('usr_f')), 'received message logged with type and userId');
-  assert.ok(info.every((s) => !s.includes('\n')), 'each log line occupies a single line');
+  const dbg = logs.filter((l) => l[0] === 'debug').map((l) => l.slice(1).join(' '));
+  assert.ok(dbg.some((s) => s.includes('[ws]') && s.includes('friend-online') && s.includes('usr_f')), 'received message logged with type and userId');
+  assert.ok(dbg.every((s) => !s.includes('\n')), 'each log line occupies a single line');
 });
 
 test('status reports connected and lastMessageAt', async () => {
@@ -244,7 +310,7 @@ test('status reports connected and lastMessageAt', async () => {
       wsUrl: (token) => `${url}/?authToken=${token}`,
       config: cfg,
       now: () => t,
-      logger: { info: () => {}, warn: () => {}, error: () => {} }
+      logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} }
     });
     pm.connect('u1', '我');
     await sleep(80);
@@ -270,7 +336,7 @@ test('reconnect does not dedupe first frame against pre-disconnect frame', async
       userAgent: 't/1',
       wsUrl: (token) => `${url}/?authToken=${token}`,
       config: cfg,
-      logger: { info: () => {}, warn: () => {}, error: () => {} }
+      logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} }
     });
     pm.connect('u1', '我');
     await sleep(80);

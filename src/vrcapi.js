@@ -13,7 +13,7 @@ class ApiError extends Error {
 
 function createVrcApi({ baseUrl = 'https://api.vrchat.cloud/api/1', userAgent = 'vrcnotifier/1.0', cookieJar = null, fetchImpl = fetch, logger = null, retryBaseMs = 5000, retryMaxMs = 3600000, jitterMs = 1000 } = {}) {
   const jar = cookieJar || new CookieJar();
-  const log = logger || { info: () => {}, warn: () => {}, error: () => {} };
+  const log = logger || { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
   let cookiesChanged = null;
 
   // 401/429/网络错误/5xx 都按指数退避 + jitter 重试(与 WS 重连一致, 默认 5s 起、1h 封顶)。

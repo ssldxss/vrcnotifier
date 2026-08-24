@@ -6,7 +6,7 @@ const path = require('node:path');
 const { createDb } = require('../src/db');
 const { resolveAccessToken } = require('../src/index');
 
-const silent = { info: () => {}, warn: () => {}, error: () => {} };
+const silent = { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
 
 test('resolveAccessToken generates once and reuses from database', () => {
   const db = createDb(':memory:');

@@ -799,7 +799,7 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
       if (pipeline.isConnected(uid)) {
         const last = pipeline.lastMessageAt(uid);
         if (last === 0 || now() - last >= watchdogMs) {
-          log.warn(`[monitor] watchdog: userId=${uid} ${Math.round(watchdogMs / 60000)} 分钟无 WS 消息, 强制重连(重连成功后先对账)`);
+          log.info(`[monitor] watchdog: userId=${uid} ${Math.round(watchdogMs / 60000)} 分钟无 WS 消息, 强制重连(重连成功后先对账)`);
           pipeline.forceReconnect(uid);
         }
       }

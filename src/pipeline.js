@@ -15,7 +15,7 @@ function createPipelineManager(opts) {
     config = {}
   } = opts;
 
-  const log = logger || { info: () => {}, warn: () => {}, error: () => {} };
+  const log = logger || { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
   const pingIntervalMs = config.pingIntervalMs ?? 10000;
   const pongTimeoutMs = config.pongTimeoutMs ?? 30000;
   const reconnectBaseMs = config.reconnectBaseMs ?? 5000;
@@ -119,7 +119,8 @@ function createPipelineManager(opts) {
     if (!conn.failedSince) conn.failedSince = now();
     const delay = backoffMs(conn.attempt);
     conn.attempt += 1;
-    log.warn(`[ws] userId=${userId} ${delay}ms 后重连(第 ${conn.attempt} 次)`);
+    // watchdog 触发的正常断开/重连按 info 记录; 异常断开导致的重连保持 warn
+    (conn.watchdogForced ? log.info : log.warn)(`[ws] userId=${userId} ${delay}ms 后重连(第 ${conn.attempt} 次)`);
     maybeNotifyFailure(userId, conn);
     conn.reconnectTimer = setTimeout(() => {
       conn.reconnectTimer = null;
@@ -207,7 +208,7 @@ function createPipelineManager(opts) {
         try { ws.close(); } catch (e) { /* ignore */ }
         return;
       }
-      log.info(`[ws] 收到消息 userId=${userId}: ${summarizeFrame(parsed)}`);
+      log.debug(`[ws] 收到消息 userId=${userId}: ${summarizeFrame(parsed)}`);
       if (!onMessage) return;
       const prev = chains.get(userId) || Promise.resolve();
       chains.set(userId, prev

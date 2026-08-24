@@ -4,7 +4,7 @@ const http = require('node:http');
 const { WebSocketServer } = require('ws');
 const { buildApplication } = require('../src/index');
 
-const silent = { info: () => {}, warn: () => {}, error: () => {} };
+const silent = { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
 
 function startMockApi() {
   return new Promise((resolve) => {

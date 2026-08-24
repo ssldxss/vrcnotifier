@@ -17,6 +17,14 @@ test('createLogger prefixes timestamp and level', () => {
   assert.match(out[0], /^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\] \[info\] \[test\] hello %s x$/);
 });
 
+test('createLogger supports debug level with the same line format', () => {
+  const out = [];
+  const log = createLogger('test', (s) => out.push(s));
+  log.debug('每帧消息 %s', 'ws');
+  assert.equal(out.length, 1);
+  assert.match(out[0], /^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\] \[debug\] \[test\] 每帧消息 %s ws$/);
+});
+
 test('createLogger pushes lines to global log stream when set', () => {
   const stream = createLogStream();
   const prev = getLogStream();

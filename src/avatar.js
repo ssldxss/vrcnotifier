@@ -43,7 +43,7 @@ function detectImageType(filePath) {
 }
 
 function createAvatarCache({ dir, logger = null, fetchImpl = fetch, userAgent = 'vrcnotifier/1.0', ttlMs = 30 * 24 * 3600 * 1000, downloadTimeoutMs = DOWNLOAD_TIMEOUT_MS }) {
-  const log = logger || { info: () => {}, warn: () => {}, error: () => {} };
+  const log = logger || { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
   const inFlight = new Map(); // key -> Promise
 
   function ensureDir() {

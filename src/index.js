@@ -206,7 +206,7 @@ function buildApplication(opts = {}) {
     userAgent: config.userAgent,
     fetchImpl: opts.fetchImpl || fetch,
     logger,
-    intervalMs: opts.healthIntervalMs ?? 5000,
+    intervalMs: opts.healthIntervalMs ?? 60 * 1000,
     sampleCount: opts.healthSampleCount ?? 3,
     sampleTimeoutMs: opts.healthSampleTimeoutMs ?? 3000,
     onSample: (h) => bus.emit('health', h) // 每轮采样完成 → SSE 推给前端(替代 5s 轮询)

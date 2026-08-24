@@ -55,6 +55,7 @@ function parseCategory(msg) {
 
 /**
  * 创建日志器。行格式: [时间] [级别] [分类] 正文。
+ * 级别: debug < info < warn < error; 筛选阈值语义: 调试含全部, 信息含警告/错误, 警告含错误, 错误仅错误。
  * 输出同时进 console(明文)与本地日志文件(明文); 内存日志流供前端展示(服务层负责打码)。
  * 文件写满 10MB 时清空从头覆盖(先在流内发一行轮转说明)。
  * 方法返回日志流条目(无流时为 null), 供调用方后续替换(令牌打码)。
@@ -78,6 +79,7 @@ function createLogger(defaultCategory = 'app', out = console.log) {
     return entry;
   };
   return {
+    debug: (...a) => emit('debug', a),
     info: (...a) => emit('info', a),
     warn: (...a) => emit('warn', a),
     error: (...a) => emit('error', a)

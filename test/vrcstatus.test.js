@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const { createVrcStatus } = require('../src/vrcstatus');
 
-const silent = { info: () => {}, warn: () => {}, error: () => {} };
+const silent = { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
 
 function fakeFetch(handlers) {
   const calls = [];
@@ -92,4 +92,55 @@ test('vrcstatus: fetch failure maps to unknown with error detail', async () => {
   assert.equal(st.state, 'unknown');
   assert.equal(st.description, '无法获取');
   assert.equal(st.summary, 'network down');
+});
+
+test('vrcstatus: 获取失败沿用上次成功状态(stale), 恢复后清除标记', async () => {
+  let mode = 'ok';
+  const f = (url) => new Promise((resolve, reject) => {
+    setTimeout(() => {
+      if (mode === 'fail') { reject(new Error('network down')); return; }
+      resolve({ ok: true, status: 200, json: async () => operational, headers: { get: () => null } });
+    }, 5);
+  });
+  let t = 1000;
+  const s = createVrcStatus({ fetchImpl: f, logger: silent, now: () => t, cacheTtlMs: 60000 });
+  const a = await s.status();
+  assert.equal(a.state, 'normal');
+  assert.equal(a.stale, undefined, '成功获取无 stale 标记');
+
+  mode = 'fail';
+  t += 61000; // 超过 TTL → 重新请求(失败)
+  const b = await s.status();
+  assert.equal(b.state, 'normal', '获取失败沿用上次成功状态');
+  assert.equal(b.stale, true, '标记 stale');
+  assert.equal(b.description, 'All Systems Operational');
+
+  const c = await s.status(); // TTL 内复用, 不重新请求
+  assert.equal(c.state, 'normal');
+  assert.equal(c.stale, true);
+
+  t += 61000; // 再次过期重取(仍失败), 继续沿用上次成功
+  const d = await s.status();
+  assert.equal(d.state, 'normal');
+  assert.equal(d.stale, true);
+
+  mode = 'ok';
+  t += 61000;
+  const e = await s.status();
+  assert.equal(e.state, 'normal');
+  assert.equal(e.stale, undefined, '恢复后清除 stale 标记');
+});
+
+test('vrcstatus: 获取成功输出 debug 日志', async () => {
+  const logs = [];
+  const logger = { debug: (...a) => logs.push(a.join(' ')), info: () => {}, warn: () => {}, error: () => {} };
+  const f = fakeFetch({ 'status.json': { body: operational } });
+  const s = createVrcStatus({ fetchImpl: f, logger });
+  await s.status();
+  assert.ok(logs.some((l) => l.includes('[vrcstatus]') && l.includes('状态获取成功')), '成功时输出获取成功日志');
+  assert.ok(logs.some((l) => l.includes('normal')), '日志含状态值');
+  // 缓存命中(不重新请求)不应重复输出
+  logs.length = 0;
+  await s.status();
+  assert.equal(logs.length, 0, '缓存命中不重复输出日志');
 });

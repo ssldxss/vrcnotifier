@@ -42,7 +42,7 @@ function setup(opts = {}) {
   };
   const monitor = createMonitor({
     db, notifier, pipeline, bus,
-    logger: { info: () => {}, warn: () => {}, error: () => {} },
+    logger: opts.logger || { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
     now: opts.now || (() => 1000000),
     config: { confirmDelayMs: opts.confirmDelayMs ?? 30000, dedupeWindowMs: 30000, snapshotIntervalMs: 600000, watchdogMs: 600000, statusCoalesceMs: opts.statusCoalesceMs ?? 3000, faultNotifyMs: opts.faultNotifyMs ?? 300000 }
   });
@@ -455,6 +455,25 @@ test('watchdog only forces reconnect (snapshot runs after reconnect succeeds)', 
   assert.equal(t.pipeline.reconnects, 1);
   assert.equal(t.events.filter((e) => e.kind === 'snapshot').length, snapshotsBefore, 'watchdog 本身不跑快照');
   assert.equal(t.notifications.length, 0);
+});
+
+test('watchdog 1h 无消息按 info 记录', async () => {
+  const logs = [];
+  const logger = {
+    debug: () => {},
+    info: (...a) => logs.push(['info', a.join(' ')]),
+    warn: (...a) => logs.push(['warn', a.join(' ')]),
+    error: () => {}
+  };
+  const t = setup({ lastMessageAt: () => 0, now: () => 2000000, onlineFriends: [onlineFriend('usr_f1')], logger });
+  const user = addUser(t.db);
+  addConfig(t.db, user.id, 'usr_f1');
+  await t.monitor.activateUser(user, t.vrcapi);
+  await t.monitor.runWatchdog();
+  assert.equal(t.pipeline.reconnects, 1, 'watchdog 应触发强制重连');
+  const l = logs.find((x) => x[1].includes('watchdog'));
+  assert.ok(l, 'watchdog 应输出日志');
+  assert.equal(l[0], 'info', 'watchdog 无消息应为 info 级');
 });
 
 test('ws reconnect: snapshot first, WS messages ignored until snapshot done', async () => {

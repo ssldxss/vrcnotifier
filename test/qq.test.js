@@ -5,7 +5,7 @@ const { WebSocketServer } = require('ws');
 const { createDb } = require('../src/db');
 const { createQqManager } = require('../src/qq');
 
-const silent = { info: () => {}, warn: () => {}, error: () => {} };
+const silent = { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // 模拟 QQ 开放平台: token 端点 + 发消息端点(HTTP), WebSocket 网关(WS)
@@ -373,6 +373,34 @@ test('WS: op9 失效会话 → 清 token 重连并重新获取凭证', async () 
     await sleep(400);
     const tokenCallsAfter = platform.state.httpCalls.filter((c) => c.url.includes('/app/getAppAccessToken')).length;
     assert.ok(tokenCallsAfter > tokenCallsBefore, '重新获取了 access_token');
+    assert.ok(platform.state.connections.length >= 2, '已重连');
+    qq.stopAll();
+  } finally { await platform.close(); }
+});
+
+test('WS: op7 服务端要求重连按 info 记录', async () => {
+  const platform = await startQqPlatform({ appId: 'app1', clientSecret: 'sec1', token: 'tok1' });
+  const db = createDb(':memory:');
+  const logs = [];
+  const qq = createQqManager({
+    db,
+    logger: {
+      debug: () => {},
+      info: (...a) => logs.push(['info', a.join(' ')]),
+      warn: (...a) => logs.push(['warn', a.join(' ')]),
+      error: () => {}
+    },
+    fetchImpl: async (url, init) => fetch(url, init),
+    config: { tokenUrl: platform.base + '/app/getAppAccessToken', apiBase: platform.base, wsUrl: platform.wsUrl, reconnectBaseMs: 20, reconnectMaxMs: 100, jitterMs: 5 }
+  });
+  try {
+    qq.sync(1, { qq_enabled: 1, qq_app_id: 'app1', qq_app_secret: 'sec1' });
+    await sleep(120);
+    platform.state.connections[0].ws.send(JSON.stringify({ op: 7, d: false }));
+    await sleep(200);
+    const l = logs.find((x) => x[1].includes('服务端要求重连'));
+    assert.ok(l, '服务端要求重连应输出日志');
+    assert.equal(l[0], 'info', '服务端要求重连应为 info 级');
     assert.ok(platform.state.connections.length >= 2, '已重连');
     qq.stopAll();
   } finally { await platform.close(); }

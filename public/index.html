@@ -741,6 +741,7 @@ button.danger { background: linear-gradient(135deg, var(--bad), #b4232c); box-sh
 #log .log-row:hover { background: var(--input-bg-hover); }
 #log .log-time { flex: 0 0 auto; font-size: 11px; color: var(--text-3); font-variant-numeric: tabular-nums; }
 #log .log-lv { flex: 0 0 auto; min-width: 34px; text-align: center; font-weight: 700; font-size: 11px; line-height: 1.7; border-radius: 4px; padding: 0 5px; }
+#log .lv-debug { color: var(--p-offline); background: light-dark(rgba(115,127,141,.14), rgba(115,127,141,.2)); }
 #log .lv-info { color: var(--ok); background: var(--ok-soft); }
 #log .lv-warn { color: var(--warn); background: var(--warn-soft); }
 #log .lv-error { color: var(--bad); background: var(--bad-soft); }
@@ -1232,7 +1233,8 @@ h3.chan { font-size: 13px; margin: 16px 0 6px; color: var(--text-2); font-weight
       <h2>后端日志
         <span class='log-tools'>
           <select id='logLevelSel' title='等级筛选' aria-label='等级筛选'>
-            <option value='info'>信息(全部)</option>
+            <option value='debug'>调试(全部)</option>
+            <option value='info' selected>信息</option>
             <option value='warn'>警告(含错误)</option>
             <option value='error'>错误</option>
           </select>
@@ -1460,12 +1462,12 @@ let loadMoreRow = null;      // 底部「加载更早日志」占位行
 
 // ---------- 日志行渲染(OpenClash 观感): [时间] [级别] [分类] 正文 → 级别词着色 + 分类徽章 ----------
 const LOG_CATS = ['startup', 'server', 'auth', 'monitor', 'ws', 'vrcapi', 'world', 'qq', 'notify', 'avatar', 'status'];
-const LEVEL_RANK = { info: 0, warn: 1, error: 2 };
-let logLevelSel = null; // 'info' | 'warn' | 'error'; 阈值语义: 信息含全部, 警告含错误, 错误仅错误
+const LEVEL_RANK = { debug: 0, info: 1, warn: 2, error: 3 };
+let logLevelSel = null; // 'debug' | 'info' | 'warn' | 'error'; 阈值语义: 调试含全部, 信息含警告/错误, 警告含错误, 错误仅错误
 let logCatSel = null;   // 'all' 或具体分类
 
 function parseLogLine(line) {
-  const m = /^\[([^\]]+)\] \[(info|warn|error)\] \[([^\]]+)\] (.*)$/.exec(line);
+  const m = /^\[([^\]]+)\] \[(debug|info|warn|error)\] \[([^\]]+)\] (.*)$/.exec(line);
   if (!m) return null;
   return { time: m[1], level: m[2], cat: m[3], body: m[4] };
 }
@@ -2353,7 +2355,7 @@ async function loadStatus() {
   renderStatus(r.data || {});
 }
 
-// VRC 服务器状态由后端判断(惰性请求 + 30s 缓存), 前端只负责展示三态(主界面与登录页共用)
+// VRC 服务器状态由后端判断(惰性请求 + 60s 缓存; 获取失败时沿用上次成功状态), 前端只负责展示三态(主界面与登录页共用)
 function applyVrcStatus(badge, d) {
   if (!d || d.state === 'unknown') {
     // 获取失败(后端明确返回 unknown): 灰色徽章 + 「无法获取」; 未返回数据时保持「-」

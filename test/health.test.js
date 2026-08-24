@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const { createHealthMonitor } = require('../src/health');
 
-const silent = { info: () => {}, warn: () => {}, error: () => {} };
+const silent = { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
 
 // 可编程 fetch: 支持延迟、非 200、超时中止(监听 AbortSignal)
 function fakeFetch(plan) {
@@ -78,6 +78,37 @@ test('health: all samples fail reports error with null latency', async () => {
   const s = h.status();
   assert.equal(s.status, 'error');
   assert.equal(s.latencyMs, null);
+});
+
+test('health: failed round after a success keeps last ok status (stale)', async () => {
+  const fetchImpl = fakeFetch([
+    { latencyMs: 100, body: { ok: true }, headers: { 'x-vrc-api-server': 'mock-vrc' } }, // 第 1 轮成功
+    { status: 500, latencyMs: 5 },  // 第 2 轮全部失败
+    { throw: true, latencyMs: 5 }
+  ]);
+  const h = createHealthMonitor({
+    apiBaseUrl: 'https://api.vrchat.cloud/api/1',
+    fetchImpl, sampleCount: 1, sampleTimeoutMs: 300, logger: silent
+  });
+  await h._debug.tick();
+  assert.equal(h.status().status, 'ok');
+  const okLatency = h.status().latencyMs;
+  await h._debug.tick();
+  const s = h.status();
+  assert.equal(s.status, 'ok', '失败后沿用上次成功状态');
+  assert.equal(s.stale, true, '标记为 stale');
+  assert.equal(s.latencyMs, okLatency);
+  assert.equal(s.serverName, 'mock-vrc');
+  // 无历史成功且整轮失败 → error
+  const h2 = createHealthMonitor({
+    apiBaseUrl: 'https://api.vrchat.cloud/api/1',
+    fetchImpl: fakeFetch([{ status: 500, latencyMs: 5 }]),
+    sampleCount: 1, sampleTimeoutMs: 300, logger: silent
+  });
+  await h2._debug.tick();
+  const s2 = h2.status();
+  assert.equal(s2.status, 'error');
+  assert.equal(s2.stale, undefined);
 });
 
 test('health: onSample called after each round with latest status', async () => {

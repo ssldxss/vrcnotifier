@@ -11,7 +11,7 @@ const { createAvatarCache } = require('../src/avatar');
 const { createApp } = require('../src/server');
 const { createLogStream } = require('../src/logstream');
 
-const silent = { info: () => {}, warn: () => {}, error: () => {} };
+const silent = { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
 
 function setup(opts = {}) {
   const db = createDb(':memory:');
@@ -590,7 +590,7 @@ test('manual snapshot emits success log', async (t) => {
 
 test('frontend operations emit logs: config switch, settings, test', async (t) => {
   const logs = [];
-  const logger = { info: (...a) => logs.push(['info', ...a]), warn: (...a) => logs.push(['warn', ...a]), error: (...a) => logs.push(['error', ...a]) };
+  const logger = { debug: (...a) => logs.push(['debug', ...a]), info: (...a) => logs.push(['info', ...a]), warn: (...a) => logs.push(['warn', ...a]), error: (...a) => logs.push(['error', ...a]) };
   const ctx = setup({ onlineFriends: [{ id: 'usr_f1', displayName: 'F1', location: 'offline', status: 'active' }], logger });
   t.after(() => close(ctx));
   await post(ctx, '/api/login', { username: 'me', password: 'pw' });
@@ -602,13 +602,15 @@ test('frontend operations emit logs: config switch, settings, test', async (t) =
   const tt = await post(ctx, '/api/test/qq', {});
   assert.equal(tt.status, 200);
   const info = logs.filter((l) => l[0] === 'info').map((l) => l.slice(1).join(' ')).join('\n');
-  assert.ok(info.includes('更新监控配置'));
-  assert.ok(info.includes('好友=F1'));
-  assert.ok(info.includes('特别关注=开'));
+  const dbg = logs.filter((l) => l[0] === 'debug').map((l) => l.slice(1).join(' ')).join('\n');
+  assert.ok(dbg.includes('更新监控配置'), '更新监控配置为 debug 级');
+  assert.ok(dbg.includes('好友=F1'));
+  assert.ok(dbg.includes('特别关注=开'));
   assert.ok(info.includes('更新通知设置'));
   assert.ok(info.includes('发送测试通知'));
   assert.ok(info.includes('测试通知发送成功'));
   assert.ok(!info.includes('secret123'), 'qq_app_secret 不应以明文出现在日志');
+  assert.ok(!dbg.includes('secret123'), 'qq_app_secret 不应以明文出现在 debug 日志');
 });
 
 test('test notification failure returns 502 and logs error', async (t) => {
@@ -956,20 +958,26 @@ test('GET /api/logs filters by level and category server-side', async (t) => {
   const ctx = setup({ accessToken: 'secret123' });
   t.after(() => close(ctx));
   await post(ctx, '/api/login', { username: 'me', password: 'pw' });
+  ctx.logStream.push('[2026-01-01 00:00:00] [debug] [ws] 收到消息 userId=usr_f');
   ctx.logStream.push('[2026-01-01 00:00:01] [info] [ws] 已连接');
   ctx.logStream.push('[2026-01-01 00:00:02] [warn] [qq] 断开 appId=1');
   ctx.logStream.push('[2026-01-01 00:00:03] [error] [monitor] 连接故障超过 5 分钟');
-  // 阈值语义: warn 含 error; info 含全部
+  // 阈值语义: debug 含全部; info 不含 debug; warn 含 error; error 仅错误
+  const dbg = await get(ctx, '/api/logs?tail=10&level=debug');
+  assert.deepEqual(dbg.data.logs.map((l) => l.seq), [1, 2, 3, 4]);
+  const infoSel = await get(ctx, '/api/logs?tail=10&level=info');
+  assert.deepEqual(infoSel.data.logs.map((l) => l.seq), [2, 3, 4]);
   const warn = await get(ctx, '/api/logs?tail=10&level=warn');
-  assert.deepEqual(warn.data.logs.map((l) => l.seq), [2, 3]);
+  assert.deepEqual(warn.data.logs.map((l) => l.seq), [3, 4]);
   const onlyErr = await get(ctx, '/api/logs?tail=10&level=error');
-  assert.deepEqual(onlyErr.data.logs.map((l) => l.seq), [3]);
+  assert.deepEqual(onlyErr.data.logs.map((l) => l.seq), [4]);
   const qqWarn = await get(ctx, '/api/logs?tail=10&level=warn&cat=qq');
-  assert.deepEqual(qqWarn.data.logs.map((l) => l.seq), [2]);
+  assert.deepEqual(qqWarn.data.logs.map((l) => l.seq), [3]);
+  // 默认级别为 info: 不含 debug 行
   const all2 = await get(ctx, '/api/logs?tail=10');
-  assert.deepEqual(all2.data.logs.map((l) => l.seq), [1, 2, 3]);
+  assert.deepEqual(all2.data.logs.map((l) => l.seq), [2, 3, 4]);
   const afterF = await get(ctx, '/api/logs?after=1&level=error');
-  assert.deepEqual(afterF.data.logs.map((l) => l.seq), [3]);
+  assert.deepEqual(afterF.data.logs.map((l) => l.seq), [4]);
 });
 
 test('SSE stream emits backend log lines live', async (t) => {

@@ -58,7 +58,7 @@ function buildOnlineList(friends) {
 }
 
 function createQqCommands({ db, logger = null, getStatus = null, onCode = null }) {
-  const log = logger || { info: () => {}, warn: () => {}, error: () => {} };
+  const log = logger || { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
   return async function handleCommand(ctx) {
     const { dbId, content } = ctx;
     // 优先: 两步验证码 / 重发验证码(等待验证会话时由 onCode 消费, 返回 null 则回落在线列表)

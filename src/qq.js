@@ -15,7 +15,7 @@ const MAX_TEXT_LEN = 2000;
 
 function createQqManager(opts = {}) {
   const { db, logger = null, fetchImpl = fetch, WsClient = WebSocket, now = Date.now, config = {}, getSettings = null, onCommand = null, onStatusChange = null } = opts;
-  const log = logger || { info: () => {}, warn: () => {}, error: () => {} };
+  const log = logger || { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
   const tokenUrl = config.tokenUrl || DEFAULT_TOKEN_URL;
   const apiBase = (config.apiBase || DEFAULT_API_BASE).replace(/\/+$/, '');
   const wsUrl = config.wsUrl || DEFAULT_WS_URL;
@@ -282,7 +282,7 @@ function createQqManager(opts = {}) {
         bot.lastAckAt = now();
         break;
       case 7: // 服务端要求重连
-        log.warn(`[qq] 服务端要求重连 appId=${bot.appId}`);
+        log.info(`[qq] 服务端要求重连 appId=${bot.appId}`);
         if (bot.ws === ws) { try { ws.close(4000, 'server reconnect'); } catch (e) { /* 忽略 */ } }
         break;
       case 9: // invalid session: 刷新凭证后重连
