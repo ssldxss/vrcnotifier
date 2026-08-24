@@ -239,7 +239,7 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
       const w = await fetchWorld(worldId); // 世界名查询失败不阻塞快照, 缓存未知世界
       if (w && w.name) {
         name = w.name;
-        log.info(`[world] 世界名获取成功 worldId=${worldId} name=${name}`);
+        log.debug(`[world] 世界名获取成功 worldId=${worldId} name=${name}`);
       }
     } catch (e) {
       log.warn(`[world] 世界 ${worldId} 名称获取失败: ${e.message}`);

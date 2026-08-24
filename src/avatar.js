@@ -112,7 +112,7 @@ function createAvatarCache({ dir, logger = null, fetchImpl = fetch, userAgent = 
     if (!p) {
       p = download(key, url)
         .then((info) => {
-          log.info(`[avatar] 已下载并缓存 key=${key} size=${info.size} bytes`);
+          log.debug(`[avatar] 已下载并缓存 key=${key} size=${info.size} bytes`);
           return { filePath: filePath(key), ...info };
         })
         .finally(() => inFlight.delete(key));
