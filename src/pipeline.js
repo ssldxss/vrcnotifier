@@ -119,13 +119,13 @@ function createPipelineManager(opts) {
     if (!conn.failedSince) conn.failedSince = now();
     const delay = backoffMs(conn.attempt);
     conn.attempt += 1;
-    log.info(`[ws] userId=${userId} ${delay}ms 后重连(第 ${conn.attempt} 次)`);
+    log.warn(`[ws] userId=${userId} ${delay}ms 后重连(第 ${conn.attempt} 次)`);
     maybeNotifyFailure(userId, conn);
     conn.reconnectTimer = setTimeout(() => {
       conn.reconnectTimer = null;
       if (conn.stopped) return;
       connectPipeline(userId, conn.displayName).catch((e) => {
-        log.error(`[ws] 重连异常 userId=${userId}: ${e.message}`);
+        log.warn(`[ws] 重连异常 userId=${userId}: ${e.message}`);
         scheduleReconnect(userId, conn);
       });
     }, delay);
@@ -228,7 +228,7 @@ function createPipelineManager(opts) {
       if (onClose) {
         try { onClose(userId); } catch (e) { log.error(`[ws] onClose 错误 userId=${userId}: ${e.message}`); }
       }
-      log.info(`[ws] 断开 userId=${userId}`);
+      log.warn(`[ws] 断开 userId=${userId}`);
       scheduleReconnect(userId, conn);
     });
 

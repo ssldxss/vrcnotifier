@@ -9,6 +9,7 @@ const { createLogger, setLogStream, setFileLog, maskKey, formatLocalTime } = req
 const { createFileLog } = require('./filelog');
 const { createCrypto, resolveMasterKey } = require('./crypto');
 const { createVrcApi, isMissingCredentials, isUnauthorized } = require('./vrcapi');
+const { createWorldFetcher } = require('./world');
 const { createNotifier } = require('./notify');
 const { createPipelineManager } = require('./pipeline');
 const { createMonitor } = require('./monitor');
@@ -161,6 +162,12 @@ function buildApplication(opts = {}) {
     logger, qq,
     getSettings: () => db.getGlobalSettings()
   });
+  const worldFetcher = opts.worldFetcher || createWorldFetcher({
+    baseUrl: config.apiBaseUrl,
+    userAgent: config.userAgent,
+    fetchImpl: opts.fetchImpl || fetch,
+    logger
+  });
   let monitor = null;
   const pipeline = opts.pipeline || createPipelineManager({
     getToken: async (userId) => {
@@ -191,6 +198,7 @@ function buildApplication(opts = {}) {
   });
   monitor = opts.monitor || createMonitor({
     db, notifier, pipeline, bus, logger, now,
+    worldFetcher,
     config: config.monitor
   });
   const healthMonitor = opts.healthMonitor || createHealthMonitor({
@@ -245,7 +253,7 @@ function buildApplication(opts = {}) {
 
   return {
     app, autoLogin, monitor, pipeline, sessionStore, db, bus,
-    config, avatarCache, qq, logStream, healthMonitor, vrcStatus, fileLog, maskState
+    config, avatarCache, qq, logStream, healthMonitor, vrcStatus, fileLog, maskState, worldFetcher
   };
 }
 

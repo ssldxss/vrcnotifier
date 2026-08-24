@@ -8,7 +8,7 @@ const { formatLocalTime, createLogger, trustLevelFromTags } = require('./util');
 const { isMissingCredentials, isUnauthorized } = require('./vrcapi');
 const { STARTUP_TEXT } = require('./qq-commands');
 
-function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger = null, now = Date.now }) {
+function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger = null, now = Date.now, worldFetcher = null }) {
   const log = logger || createLogger('monitor');
   const events = bus || new EventEmitter();
   const sessions = new Map();      // vrchat_user_id -> { vrcapi, user }
@@ -106,7 +106,7 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
     st.apiOk = false; // 恢复需要故障后新的 200
     if (st.faultSince !== 0) return;
     st.faultSince = now();
-    log.info(`[monitor] 故障窗口开始 userId=${userId} (${reason || 'WS 断开或会话异常'})`);
+    log.warn(`[monitor] 故障窗口开始 userId=${userId} (${reason || 'WS 断开或会话异常'})`);
     st.faultTimer = setTimeout(() => {
       st.faultTimer = null;
       if (st.faultSince === 0 || st.faultNotified || isRecovered(st)) return;
@@ -232,11 +232,17 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
     const rec = db.getWorldCache(worldId);
     const failCount = rec ? (rec.fail_count || 0) : 0;
     let name = UNKNOWN_WORLD_NAME;
+    const fetchWorld = worldFetcher
+      ? (id) => worldFetcher.world(id)
+      : (id) => vrcapi.world(id, { noRetry: true }); // 生产走独立无 Cookie 世界模块; 测试可回退注入的 vrcapi.world
     try {
-      const w = await vrcapi.world(worldId, { noRetry: true }); // 世界名查询失败不阻塞快照, 缓存未知世界
-      if (w && w.name) name = w.name;
+      const w = await fetchWorld(worldId); // 世界名查询失败不阻塞快照, 缓存未知世界
+      if (w && w.name) {
+        name = w.name;
+        log.info(`[world] 世界名获取成功 worldId=${worldId} name=${name}`);
+      }
     } catch (e) {
-      log.warn(`[monitor] 世界 ${worldId} 名称获取失败: ${e.message}`);
+      log.warn(`[world] 世界 ${worldId} 名称获取失败: ${e.message}`);
     }
     if (name === UNKNOWN_WORLD_NAME) {
       // 失败: 指数退避安排下次重试, 达到上限 1h 后保持不回退, 直到成功清零

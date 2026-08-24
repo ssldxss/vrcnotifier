@@ -42,7 +42,8 @@ const CATEGORY_ALIASES = {
   'monitor': 'monitor', 'ws': 'ws', 'vrcapi': 'vrcapi', 'qq': 'qq',
   '通知': 'notify', 'notify': 'notify',
   'avatar': 'avatar',
-  'health': 'status', 'vrcstatus': 'status', 'status': 'status'
+  'health': 'status', 'vrcstatus': 'status', 'status': 'status',
+  'world': 'world', '世界': 'world'
 };
 
 function parseCategory(msg) {

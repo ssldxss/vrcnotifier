@@ -752,6 +752,7 @@ button.danger { background: linear-gradient(135deg, var(--bad), #b4232c); box-sh
 .cat-monitor { --c: #a78bfa; }
 .cat-ws { --c: #38bdf8; }
 .cat-vrcapi { --c: #2dd4bf; }
+.cat-world { --c: #34d399; }
 .cat-qq { --c: #60a5fa; }
 .cat-notify { --c: #f472b6; }
 .cat-avatar { --c: #fb923c; }
@@ -1243,6 +1244,7 @@ h3.chan { font-size: 13px; margin: 16px 0 6px; color: var(--text-2); font-weight
             <option value='monitor'>监控</option>
             <option value='ws'>WebSocket</option>
             <option value='vrcapi'>API</option>
+            <option value='world'>世界</option>
             <option value='qq'>QQ机器人</option>
             <option value='notify'>通知</option>
             <option value='avatar'>头像</option>
@@ -1457,7 +1459,7 @@ let loadingOlder = false;    // 防止重复翻页
 let loadMoreRow = null;      // 底部「加载更早日志」占位行
 
 // ---------- 日志行渲染(OpenClash 观感): [时间] [级别] [分类] 正文 → 级别词着色 + 分类徽章 ----------
-const LOG_CATS = ['startup', 'server', 'auth', 'monitor', 'ws', 'vrcapi', 'qq', 'notify', 'avatar', 'status'];
+const LOG_CATS = ['startup', 'server', 'auth', 'monitor', 'ws', 'vrcapi', 'world', 'qq', 'notify', 'avatar', 'status'];
 const LEVEL_RANK = { info: 0, warn: 1, error: 2 };
 let logLevelSel = null; // 'info' | 'warn' | 'error'; 阈值语义: 信息含全部, 警告含错误, 错误仅错误
 let logCatSel = null;   // 'all' 或具体分类
