@@ -17,14 +17,17 @@ const SETTING_MAP = {
   qqEnabled: 'qq_enabled', qqAppId: 'qq_app_id', qqAppSecret: 'qq_app_secret'
 };
 
-// 日志筛选(服务端): 级别阈值语义与前端一致(调试含全部, 信息含警告/错误, 警告含错误, 错误仅错误)
-const LOG_LEVEL_RANK = { debug: 0, info: 1, warn: 2, error: 3 };
+// 日志筛选(服务端): 多选集合语义 — 选中集合=匹配集合(选一个只显示一个);
+// null=参数省略, 该维度不过滤; 空数组=不匹配任何行; 无法解析的行恒匹配(前端强制显示, 不受任何筛选)。
 function logLineMatches(line, levelSel, catSel) {
   const m = /^\[[^\]]+\] \[(debug|info|warn|error)\] \[([^\]]+)\] /.exec(String(line));
-  const lv = m ? m[1] : 'info';
-  const cat = m ? m[2] : 'other';
-  return (LOG_LEVEL_RANK[lv] ?? 0) >= (LOG_LEVEL_RANK[levelSel] ?? 0)
-    && (catSel === 'all' || cat === catSel);
+  if (!m) return true;
+  return (!levelSel || levelSel.includes(m[1])) && (!catSel || catSel.includes(m[2]));
+}
+// 解析筛选参数: undefined/null=省略(不过滤); ''=空集(不匹配); 'a,b'=选中集合
+function parseLogSel(q) {
+  if (q === undefined || q === null) return null;
+  return String(q).split(',').map((s) => s.trim()).filter(Boolean);
 }
 
 function createApp({
@@ -918,8 +921,8 @@ function createApp({
   app.get('/api/logs', (req, res) => {
     if (!current) return res.status(401).json({ error: '未登录' });
     if (!logStreamRef) return res.json({ ok: true, logs: [], seq: 0 });
-    const levelSel = String(req.query.level || 'info');
-    const catSel = String(req.query.cat || 'all');
+    const levelSel = parseLogSel(req.query.level);
+    const catSel = parseLogSel(req.query.cat);
     const matches = (line) => logLineMatches(line, levelSel, catSel);
     const beforeSeq = parseInt(req.query.before, 10);
     if (Number.isFinite(beforeSeq)) {

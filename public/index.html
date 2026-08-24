@@ -788,21 +788,58 @@ button.danger { background: linear-gradient(135deg, var(--bad), #b4232c); box-sh
   border: 1px solid var(--card-border); border-radius: var(--r-md);
   box-shadow: var(--shadow-1);
   transform-origin: top left;
+  /* 淡入淡出: 由 .dd.open 驱动双向过渡(不能用全局 .hidden, 其 display:none 会跳过透明度过渡, 同 .to-top.off 手法) */
+  opacity: 0; visibility: hidden; pointer-events: none;
+  transform: translateY(-5px) scale(.97);
+  transition: opacity .16s ease, transform .2s cubic-bezier(.4,0,.7,1), visibility 0s linear .16s;
 }
-.dd-menu:not(.hidden) { animation: ddIn .18s cubic-bezier(.22,.8,.3,1) both; }
-@keyframes ddIn {
-  from { opacity: 0; transform: translateY(-5px) scale(.97); }
-  to { opacity: 1; transform: none; }
+.dd.open .dd-menu {
+  opacity: 1; visibility: visible; pointer-events: auto; transform: none;
+  transition: opacity .22s cubic-bezier(.22,.8,.3,1), transform .26s cubic-bezier(.22,.8,.3,1), visibility 0s;
 }
 .dd-item {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   padding: 6px 10px; border-radius: var(--r-sm); cursor: pointer;
   color: var(--text-2); font-size: 13px; white-space: nowrap;
-  transition: background var(--t-fast), color var(--t-fast), box-shadow var(--t-fast);
+  transition: background var(--t-fast), color var(--t-fast), box-shadow var(--t-fast), transform .1s ease;
 }
 .dd-item:hover, .dd-item.act { background: var(--btn-sec-hover); color: var(--text-1); }
-.dd-item.sel { background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: var(--accent-contrast); box-shadow: 0 2px 8px var(--accent-soft); }
-.dd-item.sel::after { content: '✓'; font-size: 11px; }
+.dd-item:active { transform: scale(.985); } /* 点击按压反馈, 同按钮 :active 质感 */
+/* 多选下拉: 复选框行(与好友行/登出弹窗自绘勾选框同款) */
+.dd-check { justify-content: flex-start; gap: 8px; }
+.dd-cb {
+  width: 15px; height: 15px; flex: 0 0 auto;
+  border: 1.5px solid var(--line-strong); border-radius: 4px; background: var(--input-bg);
+  display: inline-grid; place-content: center;
+  transition: background var(--t-fast), border-color var(--t-fast);
+}
+.dd-cb::before {
+  content: ''; width: 9px; height: 9px;
+  clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
+  background: var(--accent-contrast);
+  transform: scale(0);
+  transition: transform .18s cubic-bezier(.3,.8,.3,1.2); /* 弹性回弹, 同开关滑块手感 */
+}
+.dd-check.on .dd-cb { background: var(--accent); border-color: var(--accent); }
+.dd-check.on .dd-cb::before { transform: scale(1); }
+.dd-check.ind .dd-cb { background: var(--accent); border-color: var(--accent); }
+.dd-check.ind .dd-cb::before { clip-path: none; width: 8px; height: 2px; transform: scale(1); }
+.dd-check .dd-lb { color: var(--text-2); transition: color var(--t-fast); }
+.dd-check.on .dd-lb { color: var(--text-1); }
+/* 展开时选项逐行淡入(轻微级联, 每行 20ms, 同页面 riseIn 语汇) */
+@keyframes ddItemIn { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
+.dd.open .dd-item { animation: ddItemIn .26s cubic-bezier(.22,.8,.3,1) backwards; }
+.dd.open .dd-item:nth-child(2) { animation-delay: .02s; }
+.dd.open .dd-item:nth-child(3) { animation-delay: .04s; }
+.dd.open .dd-item:nth-child(4) { animation-delay: .06s; }
+.dd.open .dd-item:nth-child(5) { animation-delay: .08s; }
+.dd.open .dd-item:nth-child(6) { animation-delay: .1s; }
+.dd.open .dd-item:nth-child(7) { animation-delay: .12s; }
+.dd.open .dd-item:nth-child(8) { animation-delay: .14s; }
+.dd.open .dd-item:nth-child(9) { animation-delay: .16s; }
+.dd.open .dd-item:nth-child(10) { animation-delay: .18s; }
+.dd.open .dd-item:nth-child(11) { animation-delay: .2s; }
+.dd.open .dd-item:nth-child(12) { animation-delay: .22s; }
 .field .dd, .field .dd-btn { width: 100%; }
 
 /* ---------- 概览条(常驻) ---------- */
@@ -1232,14 +1269,13 @@ h3.chan { font-size: 13px; margin: 16px 0 6px; color: var(--text-2); font-weight
     <div class='card' style='--i:8'>
       <h2>后端日志
         <span class='log-tools'>
-          <select id='logLevelSel' title='等级筛选' aria-label='等级筛选'>
-            <option value='debug'>调试(全部)</option>
-            <option value='info' selected>信息</option>
-            <option value='warn'>警告(含错误)</option>
+          <select id='logLevelSel' title='等级筛选(多选)' aria-label='等级筛选'>
+            <option value='debug'>调试</option>
+            <option value='info'>信息</option>
+            <option value='warn'>警告</option>
             <option value='error'>错误</option>
           </select>
-          <select id='logCatSel' title='分类筛选' aria-label='分类筛选'>
-            <option value='all'>分类: 全部</option>
+          <select id='logCatSel' title='分类筛选(多选)' aria-label='分类筛选'>
             <option value='startup'>启动</option>
             <option value='server'>服务端</option>
             <option value='auth'>登录认证</option>
@@ -1254,7 +1290,7 @@ h3.chan { font-size: 13px; margin: 16px 0 6px; color: var(--text-2); font-weight
           </select>
         </span>
       </h2>
-      <p class='muted hint'>后端日志实时推送; 新的在上面, 向下滚动加载更早历史, 可按等级与分类筛选。</p>
+      <p class='muted hint'>后端日志实时推送; 新的在上面, 向下滚动加载更早历史; 等级/分类多选(默认全选, 选择会被记住), 无法解析的行始终显示。</p>
       <div id='log'><div class='muted'>等待日志...</div></div>
     </div>
   </section>
@@ -1462,9 +1498,8 @@ let loadMoreRow = null;      // 底部「加载更早日志」占位行
 
 // ---------- 日志行渲染(OpenClash 观感): [时间] [级别] [分类] 正文 → 级别词着色 + 分类徽章 ----------
 const LOG_CATS = ['startup', 'server', 'auth', 'monitor', 'ws', 'vrcapi', 'world', 'qq', 'notify', 'avatar', 'status'];
-const LEVEL_RANK = { debug: 0, info: 1, warn: 2, error: 3 };
-let logLevelSel = null; // 'debug' | 'info' | 'warn' | 'error'; 阈值语义: 调试含全部, 信息含警告/错误, 警告含错误, 错误仅错误
-let logCatSel = null;   // 'all' 或具体分类
+let logLevelSel = null; // 多选下拉: 选中集合在 selectedValues (Set); 选中集合=显示集合, 默认全选
+let logCatSel = null;   // 多选下拉: 选中集合在 selectedValues (Set)
 
 function parseLogLine(line) {
   const m = /^\[([^\]]+)\] \[(debug|info|warn|error)\] \[([^\]]+)\] (.*)$/.exec(line);
@@ -1475,12 +1510,12 @@ function parseLogLine(line) {
 function renderLogRow(div, line) {
   div.className = 'log-row';
   const p = parseLogLine(line);
-  if (!p) { // 无法解析的行按原样显示, 按 info/other 参与筛选
+  if (!p) { // 无法解析的行按原样显示, 始终显示(不受任何筛选)
     div.textContent = line;
-    div.dataset.level = 'info';
-    div.dataset.cat = 'other';
+    div.dataset.raw = '1';
     return;
   }
+  delete div.dataset.raw; // 重渲染(令牌打码替换)时统一还原 raw 标记
   div.textContent = '';
   const tm = document.createElement('span');
   tm.className = 'log-time';
@@ -1501,10 +1536,11 @@ function renderLogRow(div, line) {
 }
 
 function setRowVisible(row) {
-  const lvSel = logLevelSel ? logLevelSel.value : 'info';
-  const catSel = logCatSel ? logCatSel.value : 'all';
-  const show = (LEVEL_RANK[row.dataset.level] ?? 0) >= (LEVEL_RANK[lvSel] ?? 0)
-    && (catSel === 'all' || row.dataset.cat === catSel);
+  if (row.dataset.raw) { row.classList.remove('hidden'); return; } // 无法解析的行始终显示, 不受任何筛选
+  const lvSel = logLevelSel ? logLevelSel.selectedValues : null;
+  const catSel = logCatSel ? logCatSel.selectedValues : null;
+  const show = (!lvSel || lvSel.has(row.dataset.level))
+    && (!catSel || catSel.has(row.dataset.cat));
   row.classList.toggle('hidden', !show);
 }
 
@@ -1569,14 +1605,15 @@ function clearLoadMore() {
   if (loadMoreRow) { loadMoreRow.remove(); loadMoreRow = null; }
 }
 
-// 当前筛选参数(等级/分类), 附加到所有日志请求: 服务端在文件里直接凑满一页匹配行,
+// 当前筛选参数(等级/分类多选集合), 附加到所有日志请求: 服务端在文件里直接凑满一页匹配行,
 // 避免「前端缓存里没有、后端文件里有」的历史消息翻不出来。
+// 协议: 参数省略=该维度不过滤; 空串=不匹配任何行; 逗号分隔=选中集合。
 function logFilterQuery() {
-  const lv = logLevelSel ? logLevelSel.value : 'info';
-  const cat = logCatSel ? logCatSel.value : 'all';
+  const csv = (el) => Array.from(el.options).map((o) => o.value)
+    .filter((v) => el.selectedValues.has(v)).join(',');
   let q = '';
-  if (lv !== 'info') q += '&level=' + encodeURIComponent(lv);
-  if (cat !== 'all') q += '&cat=' + encodeURIComponent(cat);
+  if (logLevelSel) q += '&level=' + encodeURIComponent(csv(logLevelSel));
+  if (logCatSel) q += '&cat=' + encodeURIComponent(csv(logCatSel));
   return q;
 }
 
@@ -2918,9 +2955,10 @@ $('#themeBtn').addEventListener('click', () => {
 applyTheme(localStorage.getItem(THEME_KEY) || 'dark');
 
 // ---------- 自定义下拉: 隐藏原生 select, 玻璃拟态菜单 + 动画 + 键盘导航 ----------
-function makeDropdown(sel) {
+function makeDropdown(sel, opts = {}) {
   if (!sel || sel.dataset.dd) return sel ? sel.syncDd : null;
   sel.dataset.dd = '1';
+  const multi = !!opts.multi; // 多选: 选中集合=显示集合; 单选保持原行为
   const wrap = document.createElement('div');
   wrap.className = 'dd';
   sel.parentNode.insertBefore(wrap, sel);
@@ -2931,15 +2969,41 @@ function makeDropdown(sel) {
   btn.className = 'dd-btn';
   btn.innerHTML = "<span class='dd-val'></span><svg class='dd-arrow' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m6 9 6 6 6-6'/></svg>";
   const menu = document.createElement('div');
-  menu.className = 'dd-menu hidden';
+  menu.className = 'dd-menu'; // 开合由 .dd.open 驱动(全局 .hidden 是 display:none, 会跳过淡入淡出)
   wrap.append(btn, menu);
   const items = [];
+  function checkEl() { const cb = document.createElement('span'); cb.className = 'dd-cb'; return cb; }
+  function labelEl(text) { const lb = document.createElement('span'); lb.className = 'dd-lb'; lb.textContent = text; return lb; }
+  let allRow = null;
+  if (multi) {
+    // 多选: 选中集合(默认全选); 「全选」行固定菜单顶部, 点击切换 全选/全不选
+    sel.selectedValues = new Set(Array.from(sel.options).map((o) => o.value));
+    allRow = document.createElement('div');
+    allRow.className = 'dd-item dd-check'; // 复选框行: 全选中=对勾填满, 部分选中=横线
+    allRow.append(checkEl(), labelEl('全选'));
+    allRow.addEventListener('click', () => {
+      const allVals = items.map((it) => it.dataset.v);
+      const allSelected = allVals.length > 0 && allVals.every((v) => sel.selectedValues.has(v));
+      if (allSelected) sel.selectedValues.clear();
+      else allVals.forEach((v) => sel.selectedValues.add(v));
+      sync();
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    menu.appendChild(allRow);
+  }
   for (const opt of sel.options) {
     const it = document.createElement('div');
-    it.className = 'dd-item';
+    it.className = 'dd-item dd-check'; // 统一复选框行样式: 单选模式只有一个勾选框被填满
     it.dataset.v = opt.value;
-    it.textContent = opt.textContent;
+    it.append(checkEl(), labelEl(opt.textContent));
     it.addEventListener('click', () => {
+      if (multi) {
+        if (sel.selectedValues.has(opt.value)) sel.selectedValues.delete(opt.value);
+        else sel.selectedValues.add(opt.value);
+        sync();
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+        return; // 多选: 点完不关菜单, 继续勾选
+      }
       if (sel.value !== opt.value) {
         sel.value = opt.value;
         sel.dispatchEvent(new Event('change', { bubbles: true }));
@@ -2951,38 +3015,48 @@ function makeDropdown(sel) {
     items.push(it);
   }
   function sync() {
-    btn.querySelector('.dd-val').textContent = sel.selectedOptions[0] ? sel.selectedOptions[0].textContent : String(sel.value || '');
-    items.forEach((it) => it.classList.toggle('sel', it.dataset.v === sel.value));
+    if (multi) {
+      const allVals = items.map((it) => it.dataset.v);
+      const n = allVals.filter((v) => sel.selectedValues.has(v)).length;
+      const allSelected = allVals.length > 0 && n === allVals.length;
+      // 按钮文案: 名称 + 选中/总数, 折叠状态一眼可见(等级 4/4、等级 2/4、分类 8/11)
+      btn.querySelector('.dd-val').textContent = (opts.label ? opts.label + ' ' : '') + n + '/' + allVals.length;
+      items.forEach((it) => it.classList.toggle('on', sel.selectedValues.has(it.dataset.v)));
+      allRow.classList.toggle('on', allSelected);            // 全选中: 「全选」对勾填满
+      allRow.classList.toggle('ind', !allSelected && n > 0); // 部分选中: 「全选」显示横线
+    } else {
+      btn.querySelector('.dd-val').textContent = sel.selectedOptions[0] ? sel.selectedOptions[0].textContent : String(sel.value || '');
+      items.forEach((it) => it.classList.toggle('on', it.dataset.v === sel.value));
+    }
   }
   function close() {
-    menu.classList.add('hidden');
-    wrap.classList.remove('open');
+    wrap.classList.remove('open'); // CSS 过渡负责淡出
   }
+  const navItems = multi ? [allRow, ...items] : items; // 多选时「全选」行也参与键盘导航
   let activeIdx = -1;
   function markActive() {
-    items.forEach((it, i) => it.classList.toggle('act', i === activeIdx));
+    navItems.forEach((it, i) => it.classList.toggle('act', i === activeIdx));
   }
   btn.addEventListener('click', (e) => {
     e.preventDefault();
     e.stopPropagation();
-    if (menu.classList.contains('hidden')) {
-      $$('.dd-menu:not(.hidden)').forEach((m) => m.classList.add('hidden'));
-      $$('.dd.open').forEach((w) => w.classList.remove('open'));
+    if (!wrap.classList.contains('open')) {
+      $$('.dd.open').forEach((w) => w.classList.remove('open')); // 其他菜单同步淡出
       sync();
-      activeIdx = items.findIndex((it) => it.classList.contains('sel'));
+      activeIdx = navItems.findIndex((it) => it.classList.contains('on'));
+      if (activeIdx < 0) activeIdx = 0; // 键盘导航默认落在第一行
       markActive();
-      menu.classList.remove('hidden');
-      wrap.classList.add('open');
+      wrap.classList.add('open'); // CSS 过渡负责淡入
     } else {
       close();
     }
   });
-  // 键盘导航: ↑↓ 移动, Enter/空格选中, Esc 关闭
+  // 键盘导航: ↑↓ 移动, Enter/空格选中(多选为切换, 不关菜单), Esc 关闭
   wrap.addEventListener('keydown', (e) => {
-    if (menu.classList.contains('hidden')) return;
-    if (e.key === 'ArrowDown') { e.preventDefault(); activeIdx = (activeIdx + 1) % items.length; markActive(); }
-    else if (e.key === 'ArrowUp') { e.preventDefault(); activeIdx = (activeIdx - 1 + items.length) % items.length; markActive(); }
-    else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); const it = items[activeIdx]; if (it) it.click(); }
+    if (!wrap.classList.contains('open')) return;
+    if (e.key === 'ArrowDown') { e.preventDefault(); activeIdx = (activeIdx + 1) % navItems.length; markActive(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); activeIdx = (activeIdx - 1 + navItems.length) % navItems.length; markActive(); }
+    else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); const it = navItems[activeIdx]; if (it) it.click(); }
     else if (e.key === 'Escape') { e.preventDefault(); close(); }
   });
   document.addEventListener('click', (e) => {
@@ -2993,16 +3067,37 @@ function makeDropdown(sel) {
   return wrap;
 }
 
-// 初始化所有下拉(替代原生 select): 门禁/断开弹窗协议、日志等级与分类筛选(QQ 启用已是开关)
+// 初始化所有下拉(替代原生 select): 门禁/断开弹窗协议(单选)、日志等级与分类筛选(多选; QQ 启用已是开关)
 makeDropdown($('#gateScheme'));
 makeDropdown($('#connScheme'));
-makeDropdown($('#logLevelSel'));
-makeDropdown($('#logCatSel'));
+makeDropdown($('#logLevelSel'), { multi: true, label: '等级' });
+makeDropdown($('#logCatSel'), { multi: true, label: '分类' });
 logLevelSel = $('#logLevelSel');
 logCatSel = $('#logCatSel');
-// 切换筛选 → 服务端按条件重新拉取尾部(文件里匹配的历史行都能翻出来)
-$('#logLevelSel').addEventListener('change', () => { loadBackendLogs({ tail: 100 }); });
-$('#logCatSel').addEventListener('change', () => { loadBackendLogs({ tail: 100 }); });
+// 筛选选择持久化: 恢复浏览器缓存(缓存里无效值丢弃, 只剩无效值按空集处理); 无缓存用默认全选
+try {
+  const saved = JSON.parse(localStorage.getItem('vrcnotifier.logFilter') || 'null');
+  if (saved && typeof saved === 'object') {
+    for (const [el, key] of [[logLevelSel, 'level'], [logCatSel, 'cat']]) {
+      if (!el || !Array.isArray(saved[key])) continue;
+      const valid = saved[key].filter((v) => Array.from(el.options).some((o) => o.value === v));
+      el.selectedValues.clear();
+      for (const v of valid) el.selectedValues.add(v);
+      if (el.syncDd) el.syncDd();
+    }
+  }
+} catch (e) { /* 缓存读取失败, 用默认全选 */ }
+// 切换筛选 → 服务端按条件重新拉取尾部(文件里匹配的历史行都能翻出来), 并把选择写入缓存
+function saveLogFilter() {
+  try {
+    localStorage.setItem('vrcnotifier.logFilter', JSON.stringify({
+      level: logLevelSel ? Array.from(logLevelSel.selectedValues) : [],
+      cat: logCatSel ? Array.from(logCatSel.selectedValues) : []
+    }));
+  } catch (e) { /* 存储不可用(隐私模式等)时忽略 */ }
+}
+$('#logLevelSel').addEventListener('change', () => { saveLogFilter(); loadBackendLogs({ tail: 100 }); });
+$('#logCatSel').addEventListener('change', () => { saveLogFilter(); loadBackendLogs({ tail: 100 }); });
 
 // ---------- 丝滑滚动: 替换默认滚轮为指数趋近的惯性滚动 ----------
 // 起步跟手、尾段柔和; 日志卡/下拉菜单等内部滚动容器仍走原生; 减弱动态效果用户保持原生。

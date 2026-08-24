@@ -962,22 +962,26 @@ test('GET /api/logs filters by level and category server-side', async (t) => {
   ctx.logStream.push('[2026-01-01 00:00:01] [info] [ws] 已连接');
   ctx.logStream.push('[2026-01-01 00:00:02] [warn] [qq] 断开 appId=1');
   ctx.logStream.push('[2026-01-01 00:00:03] [error] [monitor] 连接故障超过 5 分钟');
-  // 阈值语义: debug 含全部; info 不含 debug; warn 含 error; error 仅错误
+  // 多选集合语义: 选中集合=匹配集合, 不再阈值(选警告不再自动含错误)
   const dbg = await get(ctx, '/api/logs?tail=10&level=debug');
-  assert.deepEqual(dbg.data.logs.map((l) => l.seq), [1, 2, 3, 4]);
-  const infoSel = await get(ctx, '/api/logs?tail=10&level=info');
-  assert.deepEqual(infoSel.data.logs.map((l) => l.seq), [2, 3, 4]);
-  const warn = await get(ctx, '/api/logs?tail=10&level=warn');
-  assert.deepEqual(warn.data.logs.map((l) => l.seq), [3, 4]);
+  assert.deepEqual(dbg.data.logs.map((l) => l.seq), [1]);
+  const multi = await get(ctx, '/api/logs?tail=10&level=debug,error');
+  assert.deepEqual(multi.data.logs.map((l) => l.seq), [1, 4]);
   const onlyErr = await get(ctx, '/api/logs?tail=10&level=error');
   assert.deepEqual(onlyErr.data.logs.map((l) => l.seq), [4]);
-  const qqWarn = await get(ctx, '/api/logs?tail=10&level=warn&cat=qq');
+  const qqWarn = await get(ctx, '/api/logs?tail=10&level=warn,error&cat=qq');
   assert.deepEqual(qqWarn.data.logs.map((l) => l.seq), [3]);
-  // 默认级别为 info: 不含 debug 行
+  // 空集=不匹配; 参数省略=不过滤(全部行)
+  const none = await get(ctx, '/api/logs?tail=10&level=');
+  assert.deepEqual(none.data.logs.map((l) => l.seq), []);
   const all2 = await get(ctx, '/api/logs?tail=10');
-  assert.deepEqual(all2.data.logs.map((l) => l.seq), [2, 3, 4]);
+  assert.deepEqual(all2.data.logs.map((l) => l.seq), [1, 2, 3, 4]);
   const afterF = await get(ctx, '/api/logs?after=1&level=error');
   assert.deepEqual(afterF.data.logs.map((l) => l.seq), [4]);
+  // 无法解析的行恒匹配(前端强制显示, 不受筛选)
+  ctx.logStream.push('没有格式的原始行');
+  const rawF = await get(ctx, '/api/logs?tail=10&level=warn,error&cat=qq');
+  assert.deepEqual(rawF.data.logs.map((l) => l.seq), [3, 5]);
 });
 
 test('SSE stream emits backend log lines live', async (t) => {
