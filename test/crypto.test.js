@@ -81,8 +81,35 @@ test('resolveMasterKey 优先级: dev > secret > env > missing', () => {
     const e = resolveMasterKey({ secretFile: path.join(dir, 'nope'), envKey: 'cd'.repeat(32) });
     assert.equal(e.mode, 'env');
     assert.equal(e.key.subarray(0, 1).toString('hex'), 'cd');
-    // 4) 都没有 → missing
+    // 4) 都没有(无密钥文件) → missing
     assert.deepEqual(resolveMasterKey({ secretFile: path.join(dir, 'nope'), envKey: null }), { key: null, mode: 'missing' });
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('resolveMasterKey 数据目录密钥文件: 自动生成 → 持久化复用, 优先级低于 secret/env', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vrcn-keyfile-'));
+  try {
+    const keyFile = path.join(dir, 'master_key');
+    // 1) 首次: 自动生成并落盘(0600)
+    const g = resolveMasterKey({ secretFile: path.join(dir, 'nope'), envKey: null, keyFile });
+    assert.equal(g.mode, 'generated');
+    assert.equal(g.key.length, 32);
+    assert.ok(fs.existsSync(keyFile));
+    assert.equal(fs.statSync(keyFile).mode & 0o777, 0o600);
+    // 2) 再次: 复用同一把密钥(重启不丢)
+    const r = resolveMasterKey({ secretFile: path.join(dir, 'nope'), envKey: null, keyFile });
+    assert.equal(r.mode, 'data-dir');
+    assert.ok(r.key.equals(g.key));
+    // 3) 生成的密钥可用于加解密
+    const c = createCrypto({ masterKey: g.key });
+    assert.equal(c.decrypt(c.encrypt('pw', 'password:1'), 'password:1'), 'pw');
+    // 4) 优先级: secret 与 env 都压过密钥文件
+    const secretFile = path.join(dir, 'secret_key');
+    fs.writeFileSync(secretFile, 'ab'.repeat(32), 'utf8');
+    assert.equal(resolveMasterKey({ secretFile, envKey: null, keyFile }).mode, 'docker-secret');
+    assert.equal(resolveMasterKey({ secretFile: path.join(dir, 'nope'), envKey: 'cd'.repeat(32), keyFile }).mode, 'env');
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

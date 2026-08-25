@@ -29,7 +29,7 @@ curl -s http://localhost:3000/api/version   # 当前运行的 git commit(分支/
 
 - 打开 `http://localhost:8080`: 门禁页填后端地址 `http://服务器IP:3000` 与访问令牌; 左上角显示代码版本徽章(git commit)
 - **版本判断**: 容器记录启动时拉取的代码 `git commit` 哈希 —— ① 启动日志 ② `GET /api/version` ③ 前端版本徽章 ④ 容器内 `/app/.vrcn-version`。重启容器即自动更新为该分支最新提交(想固定版本可临时改 `VRCN_BRANCH` 指向 tag/分支)
-- **加密/凭据**: 三把密钥(主密钥/访问令牌/git token)**一律优先 Docker Secrets** 存放(`./secrets/` 文件, 见「密钥与加密」); 环境变量只是兜底; git 拉取走 HTTPS, token 仅经 askpass 传递(不落盘不进日志)
+- **加密/凭据**: 容器自包含 — 主密钥/访问令牌首次启动自动生成并随数据卷持久化, **无需宿主机任何文件**(可选 Docker Secrets 覆盖, 见「密钥与加密」); git 拉取走 HTTPS, token 仅经 askpass 传递(不落盘不进日志)
 - 数据: named volume `vrcnotifier-data`(数据库 `vrcnotifier.db` / 头像缓存 `avatars/` / 日志 `logs/vrcnotifier.log`); 想用宿主机目录备份就改用 `./data:/app/data`(entrypoint 会自动修属主)
 - 容器以非 root(node)运行, 内置健康检查(`/api/config`), `restart: unless-stopped`
 - 日志文件单文件 10MB 覆盖轮转, 每次启动以运行标识分隔
@@ -46,31 +46,34 @@ curl -s http://localhost:3000/api/version   # 当前运行的 git commit(分支/
 6. 浏览器打开 `http://localhost:8080`(前端页面, 门禁页填后端地址 `http://localhost:3000`; Docker Desktop 自动转发 WSL 端口)
 7. 收尾: `docker compose down`(保留数据); 连数据一起删: `docker compose down -v`
 
-## 密钥与加密(Docker Secrets 优先)
+## 密钥与加密(容器自包含, 无需宿主机文件)
 
-三把密钥**一律优先用 Docker Secrets 存放**: 文件放 `./secrets/`(已在 `.gitignore`, 永不进镜像/仓库), compose 挂载到容器 `/run/secrets/<名称>`; 文件缺失时回退环境变量, 再缺失走内置兜底。
+**最终交付物就是容器**: `docker pull` + `docker run` 即可运行, 宿主机上不需要准备任何密钥文件 —— 三把密钥都有容器内自举兜底, Docker Secrets / 环境变量只是可选覆盖(优先级更高, 用于密钥与数据分离的场景)。
 
-| 密钥 | Secret 名称 | 文件 | 兜底环境变量 | 最终兜底 |
-|---|---|---|---|---|
-| 数据加密主密钥(AES-256-GCM) | `vrcnotifier_master_key` | `secrets/master_key` | `MASTER_KEY`(64 位 hex) | 不加密启动(记录 warn) |
-| API 访问令牌 | `vrcnotifier_access_token` | `secrets/access_token` | `ACCESS_TOKEN` | 首次启动自动生成(日志打印并存库) |
-| GitHub Token(启动拉码) | `vrcnotifier_git_token` | `secrets/git_token` | `VRCN_TOKEN` | 匿名 clone(仅公有仓库, 有匿名限流风险) |
+| 密钥 | 容器内自举(默认) | 可选覆盖(按优先级) |
+|---|---|---|
+| 数据加密主密钥(AES-256-GCM) | **首次启动自动生成**(64 位 hex), 保存到数据卷 `/app/data/master_key`(0600), 之后每次启动自动复用 | Docker Secret `vrcnotifier_master_key` → 环境变量 `MASTER_KEY` |
+| API 访问令牌 | **首次启动自动生成**(日志打印一次并存库) | Docker Secret `vrcnotifier_access_token` → 环境变量 `ACCESS_TOKEN` |
+| GitHub Token(启动拉码) | 匿名 clone(公有仓库可用, 有匿名限流风险) | Docker Secret `vrcnotifier_git_token` → 环境变量 `VRCN_TOKEN` |
 
-首次部署前生成(本仓库已备好 `master_key` 与 `access_token`):
-```bash
-mkdir -p secrets
-openssl rand -hex 32 > secrets/master_key     # 数据加密主密钥
-openssl rand -hex 32 > secrets/access_token   # 访问令牌(任意长随机串)
-printf '%s' 'ghp_你的PAT' > secrets/git_token # GitHub PAT(可选: 私有仓库/避免限流)
-chmod 600 secrets/*
-```
+- 密钥与数据同在数据卷: **备份卷 = 密钥+数据一起带走**; 卷丢失 = 敏感数据永久无法恢复。
+- 敏感数据(**VRChat 用户名 / 密码 / 会话 cookie / QQ AppSecret**)以 **AES-256-GCM** 加密落库(密文前缀 `v1:`); 每次启动日志会声明当前加密方式与访问令牌来源。
+- git token 只经 `GIT_ASKPASS` 传递给 clone 进程, 不写入 argv、remote URL 或日志。
+- **可选 Docker Secrets**(想要密钥与数据分离时用): 文件放 `./secrets/`(已在 `.gitignore`), compose 已声明三个 secret(`required: false`, 缺失不阻塞启动), 挂载到容器 `/run/secrets/<名称>`:
+  ```bash
+  mkdir -p secrets
+  openssl rand -hex 32 > secrets/master_key && chmod 600 secrets/master_key
+  openssl rand -hex 32 > secrets/access_token && chmod 600 secrets/access_token
+  printf '%s' 'ghp_你的PAT' > secrets/git_token && chmod 600 secrets/git_token
+  ```
+- **开发模式**: 手动强制明文: `node src/index.js --no-encrypt`
 
 - 敏感数据(**VRChat 用户名 / 密码 / 会话 cookie / QQ AppSecret**)以 **AES-256-GCM** 加密落库(密文前缀 `v1:`); 每次启动日志会声明当前加密方式与访问令牌来源。
 - git token 只经 `GIT_ASKPASS` 传递给 clone 进程, 不写入 argv、remote URL 或日志。
 - **开发模式**: 无 Secret 文件也无 `MASTER_KEY` 时默认不加密启动(敏感数据明文保存); 也可手动强制明文: `node src/index.js --no-encrypt`
 - **密钥永不备份、不进 git**(`secrets/` 已在 `.gitignore`)。丢失密钥 = 敏感数据永久无法恢复。
 - **换环境(密钥不同)/密钥损坏**: 启动时探测到密文解不开 → **静默清空数据(仅保留访问令牌)并自动重启**, 日志仅记录一行 `[warn] [startup] 主密钥解密失败, 已清空数据(保留访问令牌)并重启`。
-- 三种密钥来源都缺失时: 默认以不加密模式启动并记录 `[warn]` 日志，前端标题栏也会显示未加密提示；不会因缺少密钥而无法启动。
+- 极端情况(数据目录不可写且无 Secret/env): 退化为不加密模式启动并记录 `[warn]` 日志, 前端标题栏显示未加密提示; 不会因密钥问题无法启动。
 
 ## 环境变量
 `PORT` `ACCESS_TOKEN` `VRC_API_URL` `VRC_WS_URL` `USER_AGENT` `SNAPSHOT_INTERVAL_MS` `DEDUPE_WINDOW_MS` `WATCHDOG_MS` `WATCHDOG_CHECK_MS` `WS_PING_INTERVAL_MS` `WS_PONG_TIMEOUT_MS` `RECONNECT_MAX_MS` `QQ_WS_URL` `QQ_API_BASE` `VRC_STATUS_URL` `SERVE_STATIC`(本地同源托管前端, 容器部署不使用) `MASTER_KEY`

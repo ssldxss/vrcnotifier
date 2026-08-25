@@ -1,10 +1,12 @@
 'use strict';
 // 数据加密: AES-256-GCM + AAD 绑定(字段:行ID, 防密文跨行/跨字段置换)。
-// 主密钥来源: Docker Secrets(/run/secrets/vrcnotifier_master_key) → 环境变量 MASTER_KEY → 兜底不加密;
-// 密钥不备份、不进镜像; 换环境(密钥不同)时密文解密失败 → 由启动流程静默清库重启(见 index.js)。
+// 主密钥来源: Docker Secrets(/run/secrets/vrcnotifier_master_key) → 环境变量 MASTER_KEY
+//   → 数据目录密钥文件(不存在则自动生成并持久化, 容器自包含: 无需宿主机任何文件)
+//   → 兜底不加密; 换环境(密钥不同)时密文解密失败 → 由启动流程静默清库重启(见 index.js)。
 // 密文格式: v1:<base64(iv|tag|cipher)>; 无前缀的旧值按明文直通(尚未上线, 无需迁移)。
 
 const crypto = require('node:crypto');
+const path = require('node:path');
 
 const PREFIX = 'v1:';
 
@@ -25,17 +27,36 @@ function loadMasterKeyFromSecret(file = '/run/secrets/vrcnotifier_master_key') {
   return decodeKey(fs.readFileSync(file, 'utf8'));
 }
 
+/** 数据目录密钥文件: 存在则读取, 不存在则生成并写入(0600) */
+function loadOrGenerateKeyFile(file) {
+  const fs = require('node:fs');
+  if (fs.existsSync(file)) {
+    return { key: decodeKey(fs.readFileSync(file, 'utf8')), mode: 'data-dir' };
+  }
+  const generated = crypto.randomBytes(32).toString('hex');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const fd = fs.openSync(file, 'w', 0o600);
+  fs.writeSync(fd, generated + '\n');
+  fs.closeSync(fd);
+  return { key: Buffer.from(generated, 'hex'), mode: 'generated' };
+}
+
 /**
- * 密钥来源优先级: Docker Secret → 环境变量 MASTER_KEY → 兜底不加密;
- * 返回 { key, mode }(mode: docker-secret | env | none | missing)。
+ * 密钥来源优先级: Docker Secret → 环境变量 MASTER_KEY → 数据目录密钥文件(自动生成持久化) → 兜底不加密;
+ * 返回 { key, mode }(mode: docker-secret | env | data-dir | generated | none | missing)。
  */
-function resolveMasterKey({ secretFile = '/run/secrets/vrcnotifier_master_key', envKey = null, devNoEncrypt = false } = {}) {
+function resolveMasterKey({ secretFile = '/run/secrets/vrcnotifier_master_key', envKey = null, keyFile = null, devNoEncrypt = false } = {}) {
   if (devNoEncrypt) return { key: null, mode: 'none' };
   try {
     return { key: loadMasterKeyFromSecret(secretFile), mode: 'docker-secret' };
   } catch (e) { /* 无 Secret: 尝试环境变量 */ }
   if (envKey) {
     return { key: decodeKey(envKey), mode: 'env' };
+  }
+  if (keyFile) {
+    try {
+      return loadOrGenerateKeyFile(keyFile);
+    } catch (e) { /* 密钥文件不可用(只读等): 兜底不加密 */ }
   }
   return { key: null, mode: 'missing' };
 }

@@ -10,9 +10,9 @@ ENV NODE_ENV=production \
     VRCN_REPO=https://github.com/ssldxss/vrcnotifier.git \
     VRCN_BRANCH=main \
     VRCN_APPDIR=/app/vrcnotifier
-# git: 启动时拉取源码(HTTPS); tzdata: 让 TZ 生效(日志/通知时间用本地时区)
+# git: 启动时拉取源码(HTTPS); ca-certificates: HTTPS 证书校验(git clone / npm / 运行时 fetch 都需要); tzdata: 让 TZ 生效
 RUN apt-get update \
- && apt-get install -y --no-install-recommends git tzdata \
+ && apt-get install -y --no-install-recommends git ca-certificates tzdata \
  && rm -rf /var/lib/apt/lists/*
 # 只注入两个启动引导脚本(非应用源码): entrypoint(root→降权) + bootstrap(拉码→装依赖→起双进程)
 COPY docker/entrypoint.sh /usr/local/bin/vrcn-entrypoint

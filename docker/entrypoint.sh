@@ -5,4 +5,6 @@
 set -e
 mkdir -p /app/data/logs /app/data/avatars
 chown -R node:node /app 2>/dev/null || true
+# HOME 指向 /app: 降权后 node 用户的 npm 缓存/git 配置落在自己可写的目录(否则落到 root 的 /root)
+export HOME=/app
 exec setpriv --reuid=node --regid=node --init-groups /usr/local/bin/vrcn-bootstrap
