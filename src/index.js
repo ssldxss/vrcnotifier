@@ -29,27 +29,8 @@ function env(name, fallback = null) {
   return v === undefined || v === '' ? fallback : v;
 }
 
-const TOKEN_SECRET_FILE = '/run/secrets/vrcnotifier_access_token';
-
-// 读取 Docker Secret(推荐的密钥存放方式): 文件不存在/为空/不可读 → null
-function readSecretFile(file) {
-  try {
-    const s = String(fs.readFileSync(file, 'utf8')).trim();
-    return s || null;
-  } catch (e) {
-    return null;
-  }
-}
-
-// 访问令牌来源优先级: Docker Secret(优先, compose 挂载) → 环境变量 ACCESS_TOKEN → 数据库/遗留文件 → 自动生成
-function resolveAccessToken(db, dbPath, logger, opts = {}) {
-  const secretToken = readSecretFile(opts.secretFile || TOKEN_SECRET_FILE);
-  if (secretToken) {
-    logger.info(`[启动] 访问令牌来源: Docker Secret (${opts.secretFile || TOKEN_SECRET_FILE})`);
-    return secretToken;
-  }
-  const envToken = env('ACCESS_TOKEN');
-  if (envToken) return envToken;
+// 访问令牌只存数据库: 库中已有 → 使用; 遗留 token.txt → 迁移入库; 都没有 → 生成并存库(唯一来源)
+function resolveAccessToken(db, dbPath, logger) {
   const saved = db.getSetting('access_token');
   if (saved) return saved;
   // 迁移旧方案: data/token.txt 文件 -> 数据库
@@ -325,7 +306,7 @@ async function main() {
   }
 
   const accessToken = resolveAccessToken(db, dbPath, logger);
-  // 启动时确实输出过令牌的那一行(环境变量 ACCESS_TOKEN / 数据库已有令牌时不存在)
+  // 启动时确实输出过令牌的那一行(数据库已有令牌时不存在)
   const tokenLineEntry = logStream.findLast((e) => e.line.includes(accessToken));
   const runtime = buildApplication({
     logger,
