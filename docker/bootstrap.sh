@@ -87,7 +87,8 @@ shutdown_children() {
 trap 'shutdown_children; exit 143' INT TERM
 
 log "启动后端 API: http://0.0.0.0:$API_PORT"
-PORT="$API_PORT" node src/index.js &
+# 数据目录固定 /app/data(卷): 代码目录每次启动清空重建, 数据库/主密钥/头像/日志绝不能落在代码目录内
+DB_PATH=/app/data/vrcnotifier.db PORT="$API_PORT" node src/index.js &
 BACKEND_PID=$!
 log "启动前端页面: http://0.0.0.0:$UI_PORT"
 FRONTEND_PORT="$UI_PORT" node serve.js &
