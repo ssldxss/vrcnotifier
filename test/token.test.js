@@ -29,6 +29,34 @@ test('resolveAccessToken prefers ACCESS_TOKEN env and does not persist it', () =
   }
 });
 
+test('resolveAccessToken prefers Docker Secret file over env and database', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vrcn-toksec-'));
+  const secretFile = path.join(dir, 'access_token');
+  fs.writeFileSync(secretFile, 'secret-token-789\n');
+  process.env.ACCESS_TOKEN = 'env-token-123';
+  try {
+    const db = createDb(':memory:');
+    db.setSetting('access_token', 'db-token-000');
+    const t = resolveAccessToken(db, ':memory:', silent, { secretFile });
+    assert.equal(t, 'secret-token-789');
+    assert.equal(db.getSetting('access_token'), 'db-token-000'); // secret 令牌不落库
+  } finally {
+    delete process.env.ACCESS_TOKEN;
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) { /* ignore */ }
+  }
+});
+
+test('resolveAccessToken falls back to env when secret file missing', () => {
+  process.env.ACCESS_TOKEN = 'env-token-123';
+  try {
+    const db = createDb(':memory:');
+    const t = resolveAccessToken(db, ':memory:', silent, { secretFile: '/nonexistent/vrcn-secret' });
+    assert.equal(t, 'env-token-123');
+  } finally {
+    delete process.env.ACCESS_TOKEN;
+  }
+});
+
 test('resolveAccessToken migrates legacy token.txt into database and removes file', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vrcn-tok-'));
   const dbPath = path.join(dir, 'db.sqlite');

@@ -1,37 +1,30 @@
 # syntax=docker/dockerfile:1
-# vrcnotifier 生产镜像: 后端 API + 前端静态同源托管(SERVE_STATIC=1), 单容器开箱即用。
+# vrcnotifier 运行时容器: 镜像只带运行环境(Node 22 + git), 不含任何应用源码。
+# 每次启动: 从 GitHub 拉取最新代码 → 安装依赖 → 同时启动后端 API(3000) 与前端页面(8080)。
 # 构建: docker build -t vrcnotifier .
-
-# ---------- 依赖构建阶段 ----------
-FROM node:22-bookworm-slim AS build
-WORKDIR /app
-COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
-
-# ---------- 运行阶段 ----------
 FROM node:22-bookworm-slim
 ENV NODE_ENV=production \
+    TZ=Asia/Shanghai \
     PORT=3000 \
-    SERVE_STATIC=1 \
-    TZ=Asia/Shanghai
-WORKDIR /app
-# tzdata: 让 TZ 生效, 日志/通知时间使用本地时区
+    FRONTEND_PORT=8080 \
+    VRCN_REPO=https://github.com/ssldxss/vrcnotifier.git \
+    VRCN_BRANCH=main \
+    VRCN_APPDIR=/app/vrcnotifier
+# git: 启动时拉取源码(HTTPS); tzdata: 让 TZ 生效(日志/通知时间用本地时区)
 RUN apt-get update \
- && apt-get install -y --no-install-recommends tzdata \
+ && apt-get install -y --no-install-recommends git tzdata \
  && rm -rf /var/lib/apt/lists/*
-COPY --from=build /app/node_modules ./node_modules
-COPY package.json serve.js ./
-COPY src ./src
-COPY public ./public
-COPY docker/entrypoint.sh /usr/local/bin/vrcnotifier-entrypoint.sh
-RUN chmod +x /usr/local/bin/vrcnotifier-entrypoint.sh \
- && mkdir -p /app/data \
+# 只注入两个启动引导脚本(非应用源码): entrypoint(root→降权) + bootstrap(拉码→装依赖→起双进程)
+COPY docker/entrypoint.sh /usr/local/bin/vrcn-entrypoint
+COPY docker/bootstrap.sh /usr/local/bin/vrcn-bootstrap
+RUN chmod +x /usr/local/bin/vrcn-entrypoint /usr/local/bin/vrcn-bootstrap \
+ && mkdir -p /app/data/logs /app/data/avatars \
  && chown -R node:node /app
 # 数据目录: vrcnotifier.db / avatars/ / logs/vrcnotifier.log
+# 源码位于 /app/vrcnotifier, 每次启动清空重建, 不需要卷
 VOLUME ["/app/data"]
-EXPOSE 3000
-# 存活探针: /api/config 在 token 白名单内, 无需鉴权
-HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-  CMD ["node", "-e", "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/api/config').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
-ENTRYPOINT ["/usr/local/bin/vrcnotifier-entrypoint.sh"]
-CMD ["node", "src/index.js"]
+EXPOSE 3000 8080
+# 健康检查: /api/config 在 token 白名单内, 无需鉴权; start-period 覆盖首次 clone + npm ci
+HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --retries=3 \
+  CMD ["node", "-e", "fetch('http://127.0.0.1:3000/api/config').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+ENTRYPOINT ["/usr/local/bin/vrcn-entrypoint"]

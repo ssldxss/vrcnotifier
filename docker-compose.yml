@@ -1,6 +1,7 @@
-# vrcnotifier 生产部署(Docker Desktop / WSL2 / Linux 服务器通用)
-# 启动: docker compose up -d --build
-# 查看日志(首次启动会打印访问令牌): docker compose logs -f
+# vrcnotifier 部署(单容器: 只带运行时环境, 每次启动从 GitHub 拉取最新源码)
+# 构建并启动: docker compose up -d --build
+# 日志: docker compose logs -f   (首次打印访问令牌; 每次启动都打印拉取的代码版本)
+# 查看当前运行版本: curl -s http://localhost:3000/api/version
 services:
   vrcnotifier:
     build: .
@@ -8,37 +9,56 @@ services:
     container_name: vrcnotifier
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "3000:3000"    # 后端 API
+      - "8080:8080"    # 前端页面(独立进程; 门禁页填后端地址 http://服务器IP:3000)
     environment:
-      PORT: "3000"
-      SERVE_STATIC: "1"      # 后端同源托管前端页面(单容器开箱即用)
-      TZ: Asia/Shanghai      # 日志/通知时间使用本地时区
-      # 固定访问令牌(强烈建议): 不设置则首次启动自动生成, 从日志获取
-      # ACCESS_TOKEN: "换成你自己的长随机串"
-      # 加密主密钥备选(优先级低于 Docker Secret): 取消注释并填 64 位 hex
-      # MASTER_KEY: "换成64位hex随机串"
-      # 未配置 Docker Secret / MASTER_KEY 时默认不加密启动; 也可手动强制明文: docker compose run --rm vrcnotifier node src/index.js --no-encrypt
-      # 可选调参(默认值见 src/index.js):
+      TZ: Asia/Shanghai
+      # ---- 启动时拉取的源码(默认见 Dockerfile, 可覆盖) ----
+      # VRCN_REPO: "https://github.com/ssldxss/vrcnotifier.git"
+      # VRCN_BRANCH: "main"
+      # ---- 密钥: 一律优先 Docker Secrets(文件放 ./secrets/, 见文件末尾与 README) ----
+      # 以下环境变量仅为兜底(对应 secret 文件缺失时才生效):
+      # ACCESS_TOKEN: "访问令牌(未提供 secrets/access_token 时)"
+      # MASTER_KEY: "数据加密主密钥(未提供 secrets/master_key 时, 64位hex)"
+      # VRCN_TOKEN: "GitHub PAT(未提供 secrets/git_token 时; 私有仓库/匿名限流才需要)"
+      # ---- 可选调参(默认值见 src/index.js) ----
       # SNAPSHOT_INTERVAL_MS: "3600000"   # 周期对账间隔
       # WATCHDOG_MS: "3600000"            # 无消息强制重连阈值
       # WS_PING_INTERVAL_MS: "10000"
       # RECONNECT_MAX_MS: "3600000"
-      # QQ_API_BASE: ""                   # QQ 接口地址覆盖
-      # QQ_WS_URL: ""                     # QQ 网关地址覆盖
-      # VRC_STATUS_URL: ""                # VRChat 状态页地址覆盖
+      # QQ_API_BASE: ""
+      # QQ_WS_URL: ""
+      # VRC_STATUS_URL: ""
     volumes:
-      - vrcnotifier-data:/app/data      # 数据库 / 头像缓存 / vrcnotifier.log
+      - vrcnotifier-data:/app/data    # 数据库 / 头像缓存 / vrcnotifier.log(源码在容器内, 每次启动重建, 无需卷)
       # 改用宿主机目录备份(需保证 uid 1000 可写, entrypoint 会自动 chown):
       # - ./data:/app/data
     secrets:
-      - vrcnotifier_master_key         # 数据加密主密钥(仅 Docker Secrets, 不备份)
+      - vrcnotifier_master_key        # 数据加密主密钥(AES-256-GCM, 不备份)
+      - vrcnotifier_access_token      # API 访问令牌
+      - vrcnotifier_git_token         # GitHub PAT(可选: 私有仓库/匿名限流)
 
-# 主密钥: 首次部署前生成(openssl rand -hex 32 > secrets/master_key, chmod 600);
-# 永不备份、不进 git —— 丢失/更换环境后敏感数据(密码/cookie/AppSecret)无法解密,
+# 密钥一律优先 Docker Secrets: 文件放 ./secrets/ (已在 .gitignore, 永不进镜像/仓库),
+# 挂载到容器 /run/secrets/<name>; required: false → 文件缺失不阻塞启动,
+# 按 环境变量 → 数据库/自动生成 的顺序兜底(优先级见 README「密钥与加密」)。
+# 生成(首次部署前):
+#   mkdir -p secrets
+#   openssl rand -hex 32 > secrets/master_key     # 数据加密主密钥
+#   openssl rand -hex 32 > secrets/access_token   # 访问令牌(任意长随机串)
+#   printf '%s' 'ghp_你的PAT' > secrets/git_token # GitHub PAT(可选)
+#   chmod 600 secrets/*
+# 主密钥丢失/更换环境后: 敏感数据(密码/cookie/AppSecret)无法解密,
 # 后端会在启动时静默清空数据(保留访问令牌)并重启。
 secrets:
   vrcnotifier_master_key:
     file: ./secrets/master_key
+    required: false
+  vrcnotifier_access_token:
+    file: ./secrets/access_token
+    required: false
+  vrcnotifier_git_token:
+    file: ./secrets/git_token
+    required: false
 
 volumes:
   vrcnotifier-data:

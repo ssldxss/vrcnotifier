@@ -586,8 +586,8 @@ function createApp({
     next();
   });
 
-  // Bearer token 鉴权: 除 config/verify 外所有 /api 接口都需要 token
-  const authWhitelist = new Set(['/api/config', '/api/access/verify']);
+  // Bearer token 鉴权: 除 config/verify/version 外所有 /api 接口都需要 token
+  const authWhitelist = new Set(['/api/config', '/api/access/verify', '/api/version']);
   app.use((req, res, next) => {
     if (!config.accessToken) return next(); // 未配置 token 时跳过(测试/内嵌兼容)
     const pathname = (req.path || req.url.split('?')[0]).replace(/\/+$/, '');
@@ -612,6 +612,25 @@ function createApp({
       encryptionEnabled: !!config.encryptionEnabled,
       encryptionMode: config.encryptionMode || (config.encryptionEnabled ? 'encrypted' : 'none'),
       version: '0.1.0'
+    });
+  });
+
+  // 代码版本: 容器启动引导(docker/bootstrap.sh)从 GitHub 拉码后注入 commit 信息;
+  // 本地开发无这些环境变量 → 字段为 null, source=local。无需 token(供前端徽章/运维判断版本)
+  app.get('/api/version', (req, res) => {
+    res.json({
+      ok: true,
+      name: 'vrcnotifier',
+      version: '0.1.0',
+      node: process.version,
+      source: process.env.VRCN_COMMIT ? 'github' : 'local',
+      repo: process.env.VRCN_REPO || null,
+      branch: process.env.VRCN_BRANCH || null,
+      commit: process.env.VRCN_COMMIT || null,
+      commitShort: process.env.VRCN_COMMIT_SHORT || null,
+      commitDate: process.env.VRCN_COMMIT_DATE || null,
+      commitSubject: process.env.VRCN_COMMIT_SUBJECT || null,
+      fetchedAt: process.env.VRCN_FETCHED_AT || null
     });
   });
 

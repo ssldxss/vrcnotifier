@@ -29,7 +29,25 @@ function env(name, fallback = null) {
   return v === undefined || v === '' ? fallback : v;
 }
 
-function resolveAccessToken(db, dbPath, logger) {
+const TOKEN_SECRET_FILE = '/run/secrets/vrcnotifier_access_token';
+
+// 读取 Docker Secret(推荐的密钥存放方式): 文件不存在/为空/不可读 → null
+function readSecretFile(file) {
+  try {
+    const s = String(fs.readFileSync(file, 'utf8')).trim();
+    return s || null;
+  } catch (e) {
+    return null;
+  }
+}
+
+// 访问令牌来源优先级: Docker Secret(优先, compose 挂载) → 环境变量 ACCESS_TOKEN → 数据库/遗留文件 → 自动生成
+function resolveAccessToken(db, dbPath, logger, opts = {}) {
+  const secretToken = readSecretFile(opts.secretFile || TOKEN_SECRET_FILE);
+  if (secretToken) {
+    logger.info(`[启动] 访问令牌来源: Docker Secret (${opts.secretFile || TOKEN_SECRET_FILE})`);
+    return secretToken;
+  }
   const envToken = env('ACCESS_TOKEN');
   if (envToken) return envToken;
   const saved = db.getSetting('access_token');
@@ -269,6 +287,10 @@ async function main() {
   if (fileLog) { fileLog.open(); setFileLog(fileLog); }
   // 运行标识: 每次启动以分隔行隔开(文件清空后的首行, 前端同样可见)
   logger.info(`[启动] ======== vrcnotifier 运行开始 ${formatLocalTime()} pid=${process.pid} node=${process.version} ========`);
+  // 代码版本: 容器引导(每次启动从 GitHub 拉取最新源码)注入 commit 信息; 本地开发不设置
+  if (process.env.VRCN_COMMIT) {
+    logger.info(`[启动] 代码版本: ${process.env.VRCN_BRANCH || 'main'} @ ${process.env.VRCN_COMMIT_SHORT || String(process.env.VRCN_COMMIT).slice(0, 12)} — ${process.env.VRCN_COMMIT_SUBJECT || '(无主题)'} (${process.env.VRCN_COMMIT_DATE || ''})`);
+  }
 
   // 数据加密: 密钥来源优先级 Docker Secret → 环境变量 MASTER_KEY → 兜底不加密
   let crypt = null;

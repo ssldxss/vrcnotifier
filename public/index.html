@@ -1128,6 +1128,7 @@ h3.chan { font-size: 13px; margin: 16px 0 6px; color: var(--text-2); font-weight
 <header>
   <h1><span class='ext-link' data-href='https://github.com/ssldxss/vrcnotifier' title='vrcnotifier on GitHub'>vrcnotifier</span></h1>
   <span id='encryptionBadge' class='badge warn hidden' title='当前未启用数据加密，敏感数据可能明文保存'>未加密</span>
+  <span id='versionBadge' class='badge ok hidden' title='代码版本(git commit)'></span>
   <div class='self-info' id='selfInfo'></div>
   <span class='spacer'></span>
   <button id='themeBtn' class='theme-btn' title='主题: 跟随系统' aria-label='切换主题'></button>
@@ -1447,6 +1448,24 @@ function updateEncryptionHint() {
   const show = enabled === false || mode === 'none' || mode === 'missing';
   el.classList.toggle('hidden', !show);
 }
+// 代码版本徽章: /api/version(白名单, 无需 token)返回后端正在运行的代码的 git commit
+// (容器每次启动从 GitHub 拉取最新源码, 该徽章即当前运行的提交, 便于判断版本)
+async function loadVersionBadge() {
+  const el = $('#versionBadge');
+  if (!el) return;
+  try {
+    const r = await fetch(baseUrl() + '/api/version', { signal: AbortSignal.timeout(3000) });
+    if (!r.ok) return;
+    const v = await r.json();
+    if (v && v.commitShort) {
+      el.textContent = v.commitShort;
+      el.title = `代码版本 ${v.branch || ''} @ ${v.commit || ''}\n${v.commitSubject || ''}\n${v.commitDate || ''}\n${v.repo || ''}`;
+      el.classList.remove('hidden');
+      return;
+    }
+  } catch (e) { /* 旧版后端/本地开发: 无版本信息, 隐藏徽章 */ }
+  el.classList.add('hidden');
+}
 let currentUser = null;
 let tempSessionId = null;
 let twofaKind = 'emailOtp';
@@ -1687,6 +1706,7 @@ async function loadConfig() {
     const r = await api('GET', '/api/config', undefined, { noAuth: true, signal: AbortSignal.timeout(5000) });
     appConfig = r.data || {};
     updateEncryptionHint();
+    loadVersionBadge();
     if (appConfig.tokenRequired && !accessToken()) {
       $('#gateMsg').textContent = '';
       showView('gate');

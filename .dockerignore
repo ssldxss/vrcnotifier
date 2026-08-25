@@ -1,16 +1,6 @@
-node_modules
-data
-test
-.verify
-.agents
-gk
-.git
-.gitignore
-.gitattributes
-*.log
-.env
-.vscode
-Dockerfile
-docker-compose.yml
-.dockerignore
-README.md
+# 镜像绝不携带应用源码: 构建上下文只保留 docker/ 下的两个引导脚本,
+# 其余一切(src/ public/ 依赖/文档/密钥)都被排除 —— 运行时从 GitHub 拉取。
+*
+!docker
+!docker/entrypoint.sh
+!docker/bootstrap.sh
