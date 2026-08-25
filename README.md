@@ -51,11 +51,12 @@ curl -s http://localhost:3000/api/version   # 当前运行的 git commit(分支/
 **访问令牌**: 只存数据库(首次启动自动生成, 日志打印一次, 无其他来源)。
 
 **加密主密钥 3 种方式**:
-1. **Docker Secrets(生产)**: 首次启动无密钥时容器**自动生成, 保存到 Docker secrets 目录 `./secrets/master_key`**(compose 已挂载 `./secrets:/secrets`, 文件落宿主机; 之后 compose 把它作为真正的 Docker Secret 挂载, 每次启动自动复用)。手动预置 `secrets/master_key` 则直接使用该密钥, 不再生成;
+1. **Docker Secrets(生产)**: 首次启动无密钥时容器**自动生成, 保存到密钥目录 `./secrets/master_key`**(compose 绑定挂载 `./secrets:/secrets`, 文件落宿主机; 之后每次启动自动复用同一把)。手动预置 `secrets/master_key` 则直接使用该密钥, 不再生成。用绑定挂载而非 compose `secrets:` 块, **兼容所有 Docker Compose 版本**(老版本不支持 `required` 字段);
 2. **环境变量 `MASTER_KEY`**(64 位 hex): 手动启动时用(本地开发 `node src/index.js`), 提供时跳过自动生成;
 3. **研发模式不加密**: 手动 `node src/index.js --no-encrypt` 强制明文; **非容器环境(Windows 测试/本地)无密钥时也自动以不加密方式启动**(记录 `[warn]`, 前端标题栏显示未加密提示, 敏感数据明文保存)。
 
-- 容器内未挂载 `./secrets` 的纯 `docker run`: 首次生成的密钥兜底存数据卷 `/app/data/master_key`(0600, 下次启动自动复用)。
+- 纯 `docker run` 未挂载 `./secrets` 时: 首次生成的密钥兜底存数据卷 `/app/data/master_key`(0600, 下次启动自动复用)。
+- git token 放 `./secrets/git_token`(可选)或 `VRCN_TOKEN` 环境变量; 也兼容 compose `secrets:` 块挂载到 `/run/secrets/vrcnotifier_git_token`。
 - 敏感数据(**VRChat 用户名 / 密码 / 会话 cookie / QQ AppSecret**)以 **AES-256-GCM** 加密落库(密文前缀 `v1:`); 每次启动日志会声明当前加密方式与密钥位置。
 - **密钥不符(换环境换了密钥)/密钥损坏**: 启动时探测到密文解不开 → **静默清空数据(仅保留访问令牌)并自动重启**, 日志仅一行 `[warn] [启动] 主密钥解密失败, 已清空数据(保留访问令牌)并重启`。
 - 主密钥只存在于 `./secrets/`(在 `.gitignore`, 永不进镜像/仓库)或数据卷: **密钥丢失 = 敏感数据永久无法恢复**(备份数据卷会带走密钥, 但 `./secrets/` 需另行保管)。

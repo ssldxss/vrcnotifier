@@ -21,15 +21,22 @@ log() { printf '[vrcn-bootstrap] %s\n' "$*"; }
 # (./secrets 挂载目录优先 → 落宿主机成为 Docker Secret 文件; 未挂载则兜底数据卷)
 export VRCN_IN_DOCKER=1
 
-# ---------- 1) 可选 git 凭据: Docker Secret 优先, 环境变量兜底; token 只经 askpass 传给 git, 不进 argv / remote URL / 日志 ----------
-GIT_TOKEN_FILE="${VRCN_GIT_TOKEN_FILE:-/run/secrets/vrcnotifier_git_token}"
+# ---------- 1) 可选 git 凭据: /run/secrets → ./secrets 目录 → 环境变量兜底; token 只经 askpass 传给 git, 不进 argv / remote URL / 日志 ----------
 cleanup_askpass() { rm -f /tmp/.vrcn-askpass 2>/dev/null || true; }
-if [ -r "$GIT_TOKEN_FILE" ] && [ -s "$GIT_TOKEN_FILE" ]; then
-  VRCN_TOKEN="$(tr -d '[:space:]' < "$GIT_TOKEN_FILE")"
-  export VRCN_TOKEN
-  log "GitHub 认证: 使用 Docker Secret ($GIT_TOKEN_FILE)"
-elif [ -n "${VRCN_TOKEN:-}" ]; then
-  log "GitHub 认证: 使用 VRCN_TOKEN 环境变量"
+TOKEN_SOURCE=""
+for _tf in "${VRCN_GIT_TOKEN_FILE:-/run/secrets/vrcnotifier_git_token}" /secrets/git_token; do
+  if [ -r "$_tf" ] && [ -s "$_tf" ]; then
+    VRCN_TOKEN="$(tr -d '[:space:]' < "$_tf")"
+    export VRCN_TOKEN
+    TOKEN_SOURCE="密钥文件 ($_tf)"
+    break
+  fi
+done
+if [ -z "$TOKEN_SOURCE" ] && [ -n "${VRCN_TOKEN:-}" ]; then
+  TOKEN_SOURCE="VRCN_TOKEN 环境变量"
+fi
+if [ -n "$TOKEN_SOURCE" ]; then
+  log "GitHub 认证: 使用 $TOKEN_SOURCE"
 fi
 if [ -n "${VRCN_TOKEN:-}" ]; then
   cat > /tmp/.vrcn-askpass <<'EOF'
