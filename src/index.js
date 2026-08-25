@@ -273,23 +273,20 @@ async function main() {
     logger.info(`[启动] 代码版本: ${process.env.VRCN_BRANCH || 'main'} @ ${process.env.VRCN_COMMIT_SHORT || String(process.env.VRCN_COMMIT).slice(0, 12)} — ${process.env.VRCN_COMMIT_SUBJECT || '(无主题)'} (${process.env.VRCN_COMMIT_DATE || ''})`);
   }
 
-  // 数据加密: 密钥来源优先级 Docker Secret → 环境变量 MASTER_KEY → 数据目录密钥文件(首次启动自动生成) → 兜底不加密
+  // 数据加密: 主密钥只有三种方式(不自动生成) — 1) Docker Secret(生产) 2) env MASTER_KEY(手动启动) 3) 研发模式不加密
   let crypt = null;
   let encryptionMode = 'none';
   if (dbPath !== ':memory:') {
     const resolved = resolveMasterKey({
       envKey: env('MASTER_KEY'),
-      keyFile: path.join(path.dirname(dbPath), 'master_key'),
       devNoEncrypt: process.argv.includes('--no-encrypt')
     });
     encryptionMode = resolved.mode === 'missing' ? 'none' : resolved.mode;
     if (resolved.mode === 'docker-secret') logger.info('[启动] 数据加密方式: Docker Secret');
-    else if (resolved.mode === 'env') logger.info('[启动] 数据加密方式: 环境变量 MASTER_KEY');
-    else if (resolved.mode === 'generated') logger.info('[启动] 数据加密方式: 主密钥已自动生成并保存到数据目录(随数据卷备份, 下次启动自动复用)');
-    else if (resolved.mode === 'data-dir') logger.info('[启动] 数据加密方式: 数据目录主密钥(复用首次启动生成的密钥)');
+    else if (resolved.mode === 'env') logger.info('[启动] 数据加密方式: 环境变量 MASTER_KEY(手动启动)');
     else logger.warn(resolved.mode === 'missing'
-      ? '[启动] 未配置加密密钥，敏感数据可能明文保存'
-      : '[启动] 数据加密方式: 无(--no-encrypt 开发模式, 所有数据明文存储)');
+      ? '[启动] 未提供加密密钥(Docker Secret 或 MASTER_KEY), 研发模式: 不加密, 敏感数据明文保存'
+      : '[启动] 数据加密方式: 无(--no-encrypt 研发模式, 所有数据明文存储)');
     crypt = resolved.key ? createCrypto({ masterKey: resolved.key }) : null;
   }
 

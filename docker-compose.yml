@@ -16,10 +16,11 @@ services:
       # ---- 启动时拉取的源码(默认见 Dockerfile, 可覆盖) ----
       # VRCN_REPO: "https://github.com/ssldxss/vrcnotifier.git"
       # VRCN_BRANCH: "main"
-      # ---- 密钥: 优先 Docker Secrets(文件放 ./secrets/, 见文件末尾与 README) ----
+      # ---- 密钥: 主密钥 3 种方式(不自动生成), 见文件末尾与 README「密钥与加密」 ----
+      #   生产: 下方 Docker Secret vrcnotifier_master_key(推荐)
+      #   手动启动: 环境变量 MASTER_KEY(64位hex)
+      #   研发模式: 两者都无 → 不加密启动(warn + 前端未加密提示)
       # 访问令牌无需配置: 只存数据库(首次启动自动生成, 日志打印一次)
-      # 以下环境变量仅为兜底(对应 secret 文件缺失时才生效):
-      # MASTER_KEY: "数据加密主密钥(未提供 secrets/master_key 时, 64位hex)"
       # VRCN_TOKEN: "GitHub PAT(未提供 secrets/git_token 时; 私有仓库/匿名限流才需要)"
       # ---- 可选调参(默认值见 src/index.js) ----
       # SNAPSHOT_INTERVAL_MS: "3600000"   # 周期对账间隔
@@ -37,16 +38,16 @@ services:
       - vrcnotifier_master_key        # 数据加密主密钥(AES-256-GCM)
       - vrcnotifier_git_token         # GitHub PAT(可选: 私有仓库/匿名限流)
 
-# 可选覆盖(默认不需要 — 访问令牌只存数据库, 主密钥容器自举到数据卷):
+# 主密钥 3 种方式(不自动生成): 1) 下方 Docker Secret(生产) 2) 环境变量 MASTER_KEY(手动启动)
+# 3) 研发模式不加密(两者都未提供时自动降级); 访问令牌只存数据库, 无需配置。
 # 文件放 ./secrets/ (已在 .gitignore, 永不进镜像/仓库), 挂载到容器 /run/secrets/<name>;
-# required: false → 文件缺失不阻塞启动。优先级: Docker Secret > 环境变量 > 容器自举(见 README「密钥与加密」)。
+# required: false → 文件缺失不阻塞启动(降级到下一方式)。
 # 生成(首次部署前):
 #   mkdir -p secrets
 #   openssl rand -hex 32 > secrets/master_key     # 数据加密主密钥
 #   printf '%s' 'ghp_你的PAT' > secrets/git_token # GitHub PAT(可选)
 #   chmod 600 secrets/*
-# 主密钥丢失/更换环境后: 敏感数据(密码/cookie/AppSecret)无法解密,
-# 后端会在启动时静默清空数据(保留访问令牌)并重启。
+# 主密钥丢失/更换环境(密文解不开): 后端会在启动时静默清空数据(保留访问令牌)并重启。
 secrets:
   vrcnotifier_master_key:
     file: ./secrets/master_key
