@@ -15,13 +15,12 @@ function startMockApi() {
         res.end(JSON.stringify(obj));
       };
       if (url.pathname === '/api/1/auth/user' && req.method === 'GET') {
+        const me = { id: 'usr_me', displayName: 'SmokeUser', state: 'online', friends: ['usr_f1'], onlineFriends: [], offlineFriends: ['usr_f1'], activeFriends: [], presence: { world: 'wrld_b', instance: '2~region(us)', platform: 'web' } };
         if (req.headers.authorization && req.headers.authorization.startsWith('Basic ')) {
-          return send(200, { id: 'usr_me', displayName: 'SmokeUser', onlineFriends: [], offlineFriends: [], activeFriends: [] }, {
-            'Set-Cookie': 'auth=smoke_auth; Path=/; HttpOnly'
-          });
+          return send(200, me, { 'Set-Cookie': 'auth=smoke_auth; Path=/; HttpOnly' });
         }
         if ((req.headers.cookie || '').includes('auth=smoke_auth')) {
-          return send(200, { id: 'usr_me', displayName: 'SmokeUser', onlineFriends: [], offlineFriends: [], activeFriends: [] });
+          return send(200, me);
         }
         return send(401, { error: { message: 'Missing Credentials' } });
       }
@@ -140,7 +139,7 @@ test('end-to-end: login → configure → ws event → QQ notification', async (
   assert.equal(login.status, 200);
   assert.equal(login.data.ok, true);
   assert.equal(login.data.user.vrchat_user_id, 'usr_me');
-  assert.equal(login.data.user.state, 'online', '/users/{id} 解析自己的信息并入首屏');
+  assert.equal(login.data.user.state, 'online', 'me() presence 解析自己的信息并入首屏');
   assert.equal(login.data.user.world_name, '世界B');
   let health = null;
   for (let i = 0; i < 50 && !health; i++) {

@@ -10,7 +10,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // 模拟 QQ 开放平台: token 端点 + 发消息端点(HTTP), WebSocket 网关(WS)
 function startQqPlatform(opts = {}) {
-  const state = { connections: [], frames: [], httpCalls: [] };
+  const state = { connections: [], frames: [], httpCalls: [], tokenIssuances: 0 };
   // --- HTTP ---
   const http = require('node:http');
   const server = http.createServer((req, res) => {
@@ -24,13 +24,16 @@ function startQqPlatform(opts = {}) {
           res.writeHead(200, { 'Content-Type': 'application/json' });
           return res.end(JSON.stringify({ code: 100016, message: 'invalid appid or secret' }));
         }
+        const token = opts.tokenSeq ? `${opts.token || 'tok'}-${++state.tokenIssuances}` : (opts.token || 'tok');
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        return res.end(JSON.stringify({ access_token: opts.token || 'tok', expires_in: 7200 }));
+        return res.end(JSON.stringify({ access_token: token, expires_in: 7200 }));
       }
       if (req.url.includes('/v2/users/')) {
-        if (opts.failMessage) {
-          res.writeHead(opts.failMessage.status, { 'Content-Type': 'application/json' });
-          return res.end(JSON.stringify({ code: opts.failMessage.code, message: opts.failMessage.message }));
+        // failSequence: 按顺序消耗每次失败规格(测"先 429 后成功"等); 用尽后按 failMessage/成功
+        const fail = (opts.failSequence && opts.failSequence.length) ? opts.failSequence.shift() : (opts.failMessage || null);
+        if (fail) {
+          res.writeHead(fail.status, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ code: fail.code, message: fail.message }));
         }
         res.writeHead(200, { 'Content-Type': 'application/json' });
         return res.end(JSON.stringify({ id: 'msg_ok', timestamp: '2026-08-06T10:00:00+08:00' }));
@@ -447,6 +450,103 @@ test('status: 未配置返回 configured=false; 已配置带绑定信息', async
     assert.equal(st.configured, true);
     assert.equal(st.connected, true);
     assert.equal(st.bound.nickname, '老王');
+    qq.stopAll();
+  } finally { await platform.close(); }
+});
+
+test('并发通知按入队顺序串行发送且全部送达(每绑定一条队列)', async () => {
+  const platform = await startQqPlatform({ appId: 'app1', clientSecret: 'sec1', token: 'tok1' });
+  const db = createDb(':memory:');
+  db.upsertQqBinding(1, { appId: 'app1', openid: 'openid_x', nickname: '', at: 1 });
+  let t = 1000000;
+  const qq = createQqManager({
+    db, logger: silent, fetchImpl: async (u, i) => fetch(u, i),
+    now: () => t,
+    config: { tokenUrl: platform.base + '/app/getAppAccessToken', apiBase: platform.base, wsUrl: platform.wsUrl, qqMinSpacingMs: 50 }
+  });
+  try {
+    qq.sync(1, { qq_enabled: 1, qq_app_id: 'app1', qq_app_secret: 'sec1' });
+    // 三条同时触发(模拟多个好友同时变动) → 必须按入队顺序、不丢失、不交叉
+    const [r1, r2, r3] = await Promise.all([
+      qq.sendText(1, '消息A'),
+      qq.sendText(1, '消息B'),
+      qq.sendText(1, '消息C')
+    ]);
+    assert.ok(r1.ok && r2.ok && r3.ok, '三条全部发送成功');
+    const msgs = platform.state.httpCalls
+      .filter((c) => c.url.includes('/v2/users/openid_x/messages'))
+      .map((c) => JSON.parse(c.body).content);
+    assert.deepEqual(msgs, ['消息A', '消息B', '消息C'], '按入队顺序串行发送');
+    qq.stopAll();
+  } finally { await platform.close(); }
+});
+
+test('429 限流: 有界重试后成功, 不刷新 token', async () => {
+  const platform = await startQqPlatform({
+    appId: 'app1', clientSecret: 'sec1', token: 'tok1',
+    failSequence: [{ status: 429, code: 4005, message: 'frequency limit' }]
+  });
+  const db = createDb(':memory:');
+  db.upsertQqBinding(1, { appId: 'app1', openid: 'openid_x', nickname: '', at: 1 });
+  const qq = createQqManager({
+    db, logger: silent, fetchImpl: async (u, i) => fetch(u, i), now: () => Date.now(),
+    config: { tokenUrl: platform.base + '/app/getAppAccessToken', apiBase: platform.base, wsUrl: platform.wsUrl, qqMinSpacingMs: 0 }
+  });
+  try {
+    qq.sync(1, { qq_enabled: 1, qq_app_id: 'app1', qq_app_secret: 'sec1' });
+    const r = await qq.sendText(1, '限流后成功');
+    assert.equal(r.ok, true, '429 应退避重试后成功');
+    const msgs = platform.state.httpCalls.filter((c) => c.url.includes('/v2/users/'));
+    assert.equal(msgs.length, 2, '第一次 429 + 第二次成功');
+    const tokenCalls = platform.state.httpCalls.filter((c) => c.url.includes('/app/getAppAccessToken'));
+    assert.equal(tokenCalls.length, 1, '429 不是 token 问题, 不刷新');
+    qq.stopAll();
+  } finally { await platform.close(); }
+});
+
+test('401 token 失效: 强制刷新 token 后重试成功', async () => {
+  const platform = await startQqPlatform({
+    appId: 'app1', clientSecret: 'sec1', token: 'tok1', tokenSeq: true,
+    failSequence: [{ status: 401, code: 40014, message: 'invalid token' }]
+  });
+  const db = createDb(':memory:');
+  db.upsertQqBinding(1, { appId: 'app1', openid: 'openid_x', nickname: '', at: 1 });
+  const qq = createQqManager({
+    db, logger: silent, fetchImpl: async (u, i) => fetch(u, i), now: () => Date.now(),
+    config: { tokenUrl: platform.base + '/app/getAppAccessToken', apiBase: platform.base, wsUrl: platform.wsUrl, qqMinSpacingMs: 0 }
+  });
+  try {
+    qq.sync(1, { qq_enabled: 1, qq_app_id: 'app1', qq_app_secret: 'sec1' });
+    const r = await qq.sendText(1, '换 token 后成功');
+    assert.equal(r.ok, true, '401 应刷新 token 后重试');
+    const tokenCalls = platform.state.httpCalls.filter((c) => c.url.includes('/app/getAppAccessToken'));
+    assert.equal(tokenCalls.length, 2, '初始 1 次 + 401 后强制刷新 1 次');
+    const auths = platform.state.httpCalls
+      .filter((c) => c.url.includes('/v2/users/'))
+      .map((c) => c.headers.authorization);
+    assert.equal(auths.length, 2);
+    assert.notEqual(auths[0], auths[1], '重试必须携带新 token');
+    qq.stopAll();
+  } finally { await platform.close(); }
+});
+
+test('400 业务错误: 立即失败不重试', async () => {
+  const platform = await startQqPlatform({
+    appId: 'app1', clientSecret: 'sec1', token: 'tok1',
+    failSequence: [{ status: 400, code: 1, message: 'bad request' }]
+  });
+  const db = createDb(':memory:');
+  db.upsertQqBinding(1, { appId: 'app1', openid: 'openid_x', nickname: '', at: 1 });
+  const qq = createQqManager({
+    db, logger: silent, fetchImpl: async (u, i) => fetch(u, i), now: () => Date.now(),
+    config: { tokenUrl: platform.base + '/app/getAppAccessToken', apiBase: platform.base, wsUrl: platform.wsUrl, qqMinSpacingMs: 0 }
+  });
+  try {
+    qq.sync(1, { qq_enabled: 1, qq_app_id: 'app1', qq_app_secret: 'sec1' });
+    const r = await qq.sendText(1, '400 不重试');
+    assert.equal(r.ok, false);
+    assert.ok(r.reason.includes('400'), '错误信息含 HTTP 状态');
+    assert.equal(platform.state.httpCalls.filter((c) => c.url.includes('/v2/users/')).length, 1, '非重试状态码只调一次');
     qq.stopAll();
   } finally { await platform.close(); }
 });

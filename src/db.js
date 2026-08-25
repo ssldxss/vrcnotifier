@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS friends (
   display_name TEXT, avatar_url TEXT, avatar_thumb_url TEXT,
   state TEXT DEFAULT 'offline',
   status TEXT,
-  world_id TEXT, world_name TEXT,
+  world_id TEXT, world_name TEXT, instance_id TEXT,
   status_description TEXT,
   platform TEXT,
   trust_level TEXT,
@@ -133,6 +133,8 @@ function createDb(location = ':memory:', opts = {}) {
   try { db.exec('ALTER TABLE users ADD COLUMN password TEXT'); } catch (e) { /* 已存在 */ }
   // 旧库补充: friends 补 trust_level 列(信任等级, 已存在则忽略)
   try { db.exec('ALTER TABLE friends ADD COLUMN trust_level TEXT'); } catch (e) { /* 已存在 */ }
+  // 旧库补充: friends 补 instance_id 列(所在实例号, 来自 location 的 worldId:instanceId 解析)
+  try { db.exec('ALTER TABLE friends ADD COLUMN instance_id TEXT'); } catch (e) { /* 已存在 */ }
   const stmt = {
     upsertUser: db.prepare(`INSERT INTO users (vrchat_user_id, username, display_name, avatar_url, avatar_thumb_url, status, status_description, platform, state)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active')
@@ -168,8 +170,8 @@ function createDb(location = ':memory:', opts = {}) {
     clearAllBindings: db.prepare('DELETE FROM qq_bindings'),
     clearAllUsers: db.prepare('DELETE FROM users'),
     clearWorldCache: db.prepare('DELETE FROM world_cache'),
-    upsertFriend: db.prepare(`INSERT INTO friends (user_id, friend_vrchat_id, display_name, avatar_url, avatar_thumb_url, state, status, world_id, world_name, status_description, platform, trust_level, last_seen)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    upsertFriend: db.prepare(`INSERT INTO friends (user_id, friend_vrchat_id, display_name, avatar_url, avatar_thumb_url, state, status, world_id, world_name, instance_id, status_description, platform, trust_level, last_seen)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(user_id, friend_vrchat_id) DO UPDATE SET
         display_name = COALESCE(excluded.display_name, friends.display_name),
         avatar_url = COALESCE(excluded.avatar_url, friends.avatar_url),
@@ -178,6 +180,7 @@ function createDb(location = ':memory:', opts = {}) {
         status = excluded.status,
         world_id = excluded.world_id,
         world_name = excluded.world_name,
+        instance_id = excluded.instance_id,
         status_description = excluded.status_description,
         platform = excluded.platform,
         trust_level = COALESCE(excluded.trust_level, friends.trust_level),
@@ -194,7 +197,7 @@ function createDb(location = ':memory:', opts = {}) {
         updated_at = datetime('now')
         WHERE id = ?`),
     updateFriendState: db.prepare(`UPDATE friends SET
-        state = ?, status = ?, world_id = ?, world_name = ?, status_description = ?, platform = ?,
+        state = ?, status = ?, world_id = ?, world_name = ?, instance_id = ?, status_description = ?, platform = ?,
         pending_state = ?, pending_at = ?, last_seen = ?, updated_at = datetime('now')
       WHERE id = ?`),
     upsertConfig: db.prepare(`INSERT INTO monitor_config (user_id, friend_vrchat_id, favorite, notify_online, notify_offline, notify_status_change, notify_world_change)
@@ -368,6 +371,7 @@ function createDb(location = ':memory:', opts = {}) {
         fields.displayName ?? null, fields.avatarUrl ?? null, fields.avatarThumbUrl ?? null,
         fields.state ?? (existing ? existing.state : 'offline'),
         fields.status ?? null, fields.worldId ?? null, fields.worldName ?? null,
+        fields.instanceId ?? null,
         fields.statusDescription ?? null, fields.platform ?? null,
         fields.trustLevel ?? null,
         fields.lastSeen ?? Date.now()
@@ -383,6 +387,7 @@ function createDb(location = ':memory:', opts = {}) {
     updateFriendState(id, fields) {
       stmt.updateFriendState.run(
         fields.state, fields.status ?? null, fields.world_id ?? null, fields.world_name ?? null,
+        fields.instance_id ?? null,
         fields.status_description ?? null, fields.platform ?? null,
         fields.pending_state ?? null, fields.pending_at ?? null, fields.last_seen ?? Date.now(), id
       );

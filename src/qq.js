@@ -23,8 +23,31 @@ function createQqManager(opts = {}) {
   const reconnectMaxMs = config.reconnectMaxMs ?? 3600000;
   const jitterMs = config.jitterMs ?? 1000;
   const tokenSafetyMs = (config.tokenSafetyMs ?? 60) * 1000;
+  // 主动消息限速: 同一绑定(机器人+用户)串行发送 + 最小间隔, 失败有界重试(官方: 触发频率限制会限流/封禁)
+  const minSpacingMs = config.qqMinSpacingMs ?? 1000;
+  const sendRetries = config.qqSendRetries ?? 2;
 
   const bots = new Map(); // dbId -> bot
+
+  function sleep(ms) {
+    return new Promise((r) => { const t = setTimeout(r, ms); if (t.unref) t.unref(); });
+  }
+
+  // 每绑定一条串行链: 多条通知同时触发时排队, 相邻两条至少间隔 minSpacingMs
+  const sendTails = new Map();   // dbId:appId:openid -> 链尾 promise
+  const lastSentAt = new Map();  // dbId:appId:openid -> 上次实际发出时间
+  function enqueueSend(bindingKey, task) {
+    const prev = sendTails.get(bindingKey) || Promise.resolve();
+    const next = prev.then(async () => {
+      const wait = minSpacingMs - (now() - (lastSentAt.get(bindingKey) || 0));
+      if (wait > 0) await sleep(wait);
+      const result = await task();
+      lastSentAt.set(bindingKey, now());
+      return result;
+    });
+    sendTails.set(bindingKey, next.then(() => {}, () => {})); // 链上不留未处理拒绝
+    return next;
+  }
 
   function notifyStatus(dbId, appId, connected) {
     if (!onStatusChange) return;
@@ -76,30 +99,58 @@ function createQqManager(opts = {}) {
   }
 
   // ---------- 发送 ----------
+  // 失败重试: 429/5xx/网络错误可重试(最多 sendRetries 次, 退避); 401/403 视为 token 失效,
+  // 强制刷新 token 后重试(每次尝试一次); 其他 4xx 立即失败。
+  function isRetryableStatus(status) {
+    return status === 429 || (status >= 500 && status < 600);
+  }
+
   async function postMessage(bot, openid, payload, endpoint = 'messages') {
-    const token = await ensureToken(bot);
     const url = `${apiBase}/v2/users/${encodeURIComponent(openid)}/${endpoint}`;
-    log.info(`[qq] 调用端点: POST /v2/users/{openid}/${endpoint} appId=${bot.appId}`);
-    const doPost = () => fetchImpl(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `QQBot ${token}` },
-      body: JSON.stringify(payload)
+    const bindingKey = `${bot.dbId}:${bot.appId}:${openid}`;
+    return enqueueSend(bindingKey, async () => {
+      for (let attempt = 0; ; attempt++) {
+        const token = await ensureToken(bot);
+        log.info(`[qq] 调用端点: POST /v2/users/{openid}/${endpoint}${attempt ? `(重试${attempt})` : ''} appId=${bot.appId}`);
+        let res = null;
+        let netError = null;
+        try {
+          res = await fetchImpl(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `QQBot ${token}` },
+            body: JSON.stringify(payload)
+          });
+        } catch (e) {
+          netError = e;
+        }
+        if (netError) {
+          if (attempt < sendRetries) {
+            const wait = 1000 * (attempt + 1);
+            log.warn(`[qq] 网络错误(${netError.message}), ${wait}ms 后重试 appId=${bot.appId} (第${attempt + 1}/${sendRetries}次)`);
+            await sleep(wait);
+            continue;
+          }
+          throw new Error(`QQ推送失败(网络): ${netError.message}`);
+        }
+        if (!res.ok) {
+          let data = null;
+          try { data = await res.json(); } catch (e) { /* 忽略 */ }
+          const code = data && data.code;
+          const msg = data && data.message;
+          const detail = `HTTP ${res.status}${code ? ` code=${code}` : ''}${msg ? ` ${msg}` : ''}`;
+          const tokenStale = res.status === 401 || res.status === 403;
+          if (attempt < sendRetries && (isRetryableStatus(res.status) || tokenStale)) {
+            if (tokenStale) await ensureToken(bot, true); // token 失效: 强制刷新
+            const wait = Math.min(5000, 1000 * (attempt + 1));
+            log.warn(`[qq] ${detail}, ${wait}ms 后重试 appId=${bot.appId} (第${attempt + 1}/${sendRetries}次)`);
+            await sleep(wait);
+            continue;
+          }
+          throw new Error(detail);
+        }
+        return res;
+      }
     });
-    let res = await doPost();
-    if (res.status === 401 || res.status === 403) {
-      // token 失效: 强制刷新后重试一次
-      await ensureToken(bot, true);
-      log.info(`[qq] 调用端点: POST /v2/users/{openid}/${endpoint}(重试) appId=${bot.appId}`);
-      res = await doPost();
-    }
-    if (!res.ok) {
-      let data = null;
-      try { data = await res.json(); } catch (e) { /* 忽略 */ }
-      const code = data && data.code;
-      const msg = data && data.message;
-      throw new Error(`HTTP ${res.status}${code ? ` code=${code}` : ''}${msg ? ` ${msg}` : ''}`);
-    }
-    return res;
   }
 
   async function sendText(dbId, text, opts = {}) {

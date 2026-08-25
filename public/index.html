@@ -1933,8 +1933,10 @@ function renderSelf() {
   box.innerHTML = p.avatarWrap + "<div class='name" + p.nameCls + "'>" + p.name + p.stateHtml + '</div>';
 }
 
-// 好友分组折叠状态: 保存在浏览器 localStorage, 刷新/快照重渲染后恢复; 首次默认全开
+// 好友分组折叠状态: 保存在浏览器 localStorage, 刷新/快照重渲染后恢复
+// 离线组默认收起(大好友列表降噪; 用户手动展开/收起后以其选择为准并持久化)
 const COLLAPSE_KEY = 'vrcn_groupCollapsed';
+const COLLAPSE_DEFAULTS = { offline: true };
 let groupCollapsed = {};
 try { groupCollapsed = JSON.parse(localStorage.getItem(COLLAPSE_KEY) || '{}') || {}; } catch (e) { groupCollapsed = {}; }
 // 按 DOM 顺序(从上到下)给分组标题和每一行好友编号, 依次淡入; 底部文字跟在最后。
@@ -1999,7 +2001,8 @@ function renderFriends() {
     const btn = document.createElement('button');
     btn.className = 'group-toggle';
     btn.type = 'button';
-    const collapsed = !!groupCollapsed[key]; // 恢复浏览器保存的折叠状态(未保存过 = 全开)
+    // 恢复浏览器保存的折叠状态; 未保存过则用默认值(离线组默认收起, 其余全开)
+    const collapsed = groupCollapsed[key] !== undefined ? !!groupCollapsed[key] : !!COLLAPSE_DEFAULTS[key];
     btn.title = collapsed ? '展开' : '收起';
     btn.setAttribute('aria-label', btn.title);
     btn.innerHTML = '<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"m6 9 6 6 6-6\"/></svg>';

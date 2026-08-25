@@ -11,13 +11,29 @@ class ApiError extends Error {
   }
 }
 
-function createVrcApi({ baseUrl = 'https://api.vrchat.cloud/api/1', userAgent = 'vrcnotifier/1.0', cookieJar = null, fetchImpl = fetch, logger = null, retryBaseMs = 5000, retryMaxMs = 3600000, jitterMs = 1000 } = {}) {
+function createVrcApi({ baseUrl = 'https://api.vrchat.cloud/api/1', userAgent = 'vrcnotifier/1.0', cookieJar = null, fetchImpl = fetch, logger = null, retryBaseMs = 5000, retryMaxMs = 3600000, jitterMs = 1000, maxRetries = 5, ratePerMinute = 60, now = Date.now, sleep = null } = {}) {
   const jar = cookieJar || new CookieJar();
   const log = logger || { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
   let cookiesChanged = null;
 
-  // 401/429/网络错误/5xx 都按指数退避 + jitter 重试(与 WS 重连一致, 默认 5s 起、1h 封顶)。
-  // 登录/2FA/authToken 以及前端手动操作传 noRetry: true, 立即失败交给上层处理。
+  const sleepFn = sleep || ((ms) => new Promise((r) => { const t = setTimeout(r, ms); if (t.unref) t.unref(); }));
+
+  // 节流: 滑动窗口内最多 ratePerMinute 个请求(官方 FAQ: 429 立即退避, 不要持续压)。
+  // ratePerMinute <= 0 时关闭(测试用)。
+  const rateStamps = [];
+  async function acquireRateSlot() {
+    if (ratePerMinute <= 0) return;
+    for (;;) {
+      const t = now();
+      while (rateStamps.length && t - rateStamps[0] >= 60000) rateStamps.shift();
+      if (rateStamps.length < ratePerMinute) { rateStamps.push(t); return; }
+      await sleepFn(Math.max(1, 60000 - (t - rateStamps[0])));
+    }
+  }
+
+  // 429/网络错误/5xx 按指数退避 + jitter 重试, 次数有界(默认 5 次, 5s 起、1h 封顶)。
+  // 401 不是临时错误: 会话状态问题(重登/2FA/停用), 立即失败交给上层处理。
+  // 登录/2FA/authToken 以及前端手动操作传 noRetry: true, 立即失败。
   function backoffMs(attempt) {
     const base = Math.min(retryBaseMs * Math.pow(2, attempt), retryMaxMs);
     return base + Math.floor(Math.random() * jitterMs);
@@ -26,22 +42,23 @@ function createVrcApi({ baseUrl = 'https://api.vrchat.cloud/api/1', userAgent = 
   function isTransient(e) {
     if (!(e instanceof ApiError)) return false;
     if (e.status === -1) return true;             // 网络错误
-    if (e.status === 401 || e.status === 429) return true; // 会话/限流: 与 WS 一样退避重试
+    if (e.status === 429) return true;            // 限流: 退避重试
     return e.status >= 500 && e.status < 600;     // 5xx 服务端临时故障
   }
 
   async function request(path, opts = {}) {
     const endpoint = '/' + String(path).replace(/^\/+/, '');
+    const limit = opts.maxRetries ?? maxRetries;
     let attempt = 0;
     for (;;) {
       try {
         return await attemptRequest(path, opts);
       } catch (e) {
-        if (opts.noRetry || !isTransient(e) || attempt >= (opts.maxRetries ?? Infinity)) throw e;
+        if (opts.noRetry || !isTransient(e) || attempt >= limit) throw e;
         const delay = backoffMs(attempt);
         attempt++;
         log.warn(`[vrcapi] ${opts.method || 'GET'} ${endpoint} 失败(${e.message}), ${delay}ms 后重试(第 ${attempt} 次)`);
-        await new Promise((r) => setTimeout(r, delay));
+        await sleepFn(delay);
       }
     }
   }
@@ -60,6 +77,7 @@ function createVrcApi({ baseUrl = 'https://api.vrchat.cloud/api/1', userAgent = 
     if (auth) headers.Authorization = `Basic ${auth}`;
     if (body !== undefined) headers['Content-Type'] = 'application/json;charset=utf-8';
 
+    await acquireRateSlot();
     let res;
     try {
       res = await fetchImpl(url, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined });

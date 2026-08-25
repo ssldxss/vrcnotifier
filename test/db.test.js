@@ -115,6 +115,67 @@ test('friends: upsert new/update, list, delete', () => {
   assert.equal(db.listFriends(uid).length, 0);
 });
 
+test('friends: instance_id 落库, 状态更新可清空/保留', () => {
+  const db = newDb();
+  const uid = db.upsertUser('usr_1', { username: 'u1', displayName: 'n', avatarUrl: null });
+  // upsert 写入实例
+  db.upsertFriend(uid, 'usr_f1', { displayName: '朋友', state: 'online', worldId: 'wrld_a', worldName: 'A', instanceId: '1234~region(us)' });
+  let f = db.getFriend(uid, 'usr_f1');
+  assert.equal(f.instance_id, '1234~region(us)', 'upsert 写入 instance_id');
+  // 状态更新清空实例(下线)
+  db.updateFriendState(f.id, { state: 'offline', world_id: null, world_name: null, instance_id: null });
+  f = db.getFriend(uid, 'usr_f1');
+  assert.equal(f.state, 'offline');
+  assert.equal(f.instance_id, null, '下线清空 instance_id');
+  // 状态更新显式传实例 → 覆盖; 显式传 null → 清空(保留旧值由 monitor 层显式传入旧值实现)
+  db.upsertFriend(uid, 'usr_f2', { displayName: 'F2', state: 'online', worldId: 'wrld_b', worldName: 'B', instanceId: '99~region(jp)' });
+  const f2 = db.getFriend(uid, 'usr_f2');
+  db.updateFriendState(f2.id, { state: 'online', world_id: 'wrld_b', world_name: 'B', instance_id: '88~region(us)' });
+  assert.equal(db.getFriend(uid, 'usr_f2').instance_id, '88~region(us)', '显式传入即覆盖');
+});
+
+test('friends: instance_id 旧库迁移补列不报错', () => {
+  // 模拟旧 schema: 先在文件库里建一张没有 instance_id 的 friends 表, 再让 createDb 迁移
+  const { DatabaseSync } = require('node:sqlite');
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'vrcnt-db-')), 'old.sqlite');
+  const legacy = new DatabaseSync(file);
+  legacy.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, vrchat_user_id TEXT UNIQUE, username TEXT, saved_username TEXT,
+      display_name TEXT, avatar_url TEXT, avatar_thumb_url TEXT, status TEXT, status_description TEXT,
+      platform TEXT, state TEXT DEFAULT 'offline', world_id TEXT, world_name TEXT, last_seen INTEGER,
+      remember_me INTEGER DEFAULT 0, cookie_data TEXT, password TEXT,
+      created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS friends (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, friend_vrchat_id TEXT NOT NULL,
+      display_name TEXT,
+      state TEXT, status TEXT, world_id TEXT, world_name TEXT,
+      status_description TEXT, platform TEXT, avatar_url TEXT, avatar_thumb_url TEXT,
+      trust_level TEXT, pending_state TEXT, pending_at INTEGER,
+      last_seen INTEGER, created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now')),
+      UNIQUE(user_id, friend_vrchat_id)
+    );
+  `);
+  legacy.exec(`INSERT INTO users (vrchat_user_id, username, display_name) VALUES ('usr_1', 'u1', 'n');
+               INSERT INTO friends (user_id, friend_vrchat_id, state, status) VALUES (1, 'usr_f1', 'offline', 'active');`);
+  legacy.close();
+  const db = createDb(file);
+  const uid = db.getUserByVrcId('usr_1').id;
+  // 迁移后旧行可读, instance_id 为 null
+  let f = db.getFriend(uid, 'usr_f1');
+  assert.equal(f.instance_id, null, '旧行 instance_id 为 null');
+  // 迁移后可正常写入/更新
+  db.upsertFriend(uid, 'usr_f1', { displayName: 'F', state: 'online', instanceId: '1~region(us)' });
+  f = db.getFriend(uid, 'usr_f1');
+  assert.equal(f.instance_id, '1~region(us)', '迁移后 instance_id 可写');
+  db.close?.();
+});
+
 test('friends: avatar_thumb_url stored and updated via profile', () => {
   const db = newDb();
   const uid = db.upsertUser('usr_1', { username: 'u1', displayName: 'n', avatarUrl: null });

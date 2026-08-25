@@ -20,9 +20,23 @@ function setup(opts = {}) {
     sendAll: async (user, change) => { notifications.push({ user, change }); return { qq: { ok: true } }; },
     sendQqText: async (dbId, text) => { qqTexts.push({ dbId, text }); return { ok: true }; }
   };
+  // 新模型: me() 返回状态数组 + 好友名册(friends) + 自己的 presence;
+  // friends({offline:false}) 只返回在线+活动好友的详情(离线好友 0 请求)。
+  const onlineList = opts.onlineFriends || [];
+  const activeList = opts.activeFriends || [];
+  const offlineList = opts.offlineFriends || [];
   const vrcapi = {
-    me: async () => opts.currentUser || { id: 'usr_me', onlineFriends: [], activeFriends: [], offlineFriends: [] },
-    friends: async ({ offline }) => (offline ? (opts.offlineFriends || []) : (opts.onlineFriends || [])),
+    me: async () => (opts.currentUser !== undefined)
+      ? opts.currentUser
+      : {
+          id: 'usr_me',
+          state: 'offline', status: 'offline', statusDescription: null,
+          friends: [...new Set([...onlineList, ...activeList, ...offlineList].map((f) => f.id))],
+          onlineFriends: onlineList.map((f) => f.id),
+          activeFriends: activeList.map((f) => f.id),
+          offlineFriends: offlineList.map((f) => f.id)
+        },
+    friends: async ({ offline }) => (offline ? offlineList : [...onlineList, ...activeList]),
     world: async (id) => ({ id, name: `世界_${id}` }),
     user: async (id) => {
       vrcapi.userCalls.push(id);
@@ -199,6 +213,112 @@ test('pending 到期自动调 API 验证并确认下线', async () => {
   assert.equal(t.notifications[0].change.changeType, '下线');
   const f = t.db.getFriend(user.id, 'usr_f1');
   assert.equal(f.pending_state, null);
+});
+
+test('instance_id: WS 在线写入实例, traveling 保留, 下线清空', async () => {
+  const t = setup({ confirmDelayMs: 100000 });
+  const user = addUser(t.db);
+  addConfig(t.db, user.id, 'usr_f1');
+  await t.monitor.activateUser(user, t.vrcapi);
+  // 首见(带完整实例)
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '1', { type: 'friend-online', content: { userId: 'usr_f1', location: 'wrld_a:12345~region(us)~nonce(xyz)', user: { id: 'usr_f1', displayName: 'F1', status: 'active' } } });
+  let f = t.db.getFriend(user.id, 'usr_f1');
+  assert.equal(f.instance_id, '12345~region(us)~nonce(xyz)', '在线写入完整实例 id');
+  // traveling: 世界与实例都保留
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '2', { type: 'friend-location', content: { userId: 'usr_f1', location: 'traveling', user: { id: 'usr_f1', displayName: 'F1', status: 'active' } } });
+  f = t.db.getFriend(user.id, 'usr_f1');
+  assert.equal(f.world_id, 'wrld_a', 'traveling 保留世界');
+  assert.equal(f.instance_id, '12345~region(us)~nonce(xyz)', 'traveling 保留实例');
+  // 下线: 实例清空
+  t.notifications.length = 0;
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '3', { type: 'friend-offline', content: { userId: 'usr_f1', platform: '' } });
+  f = t.db.getFriend(user.id, 'usr_f1');
+  assert.equal(f.pending_state, 'offline');
+  assert.equal(f.instance_id, null, '下线清空实例');
+});
+
+test('instance_id: 快照在线好友从 friends 列表落库, 离线清空', async () => {
+  const t = setup({
+    onlineFriends: [onlineFriend('usr_f1', { location: 'wrld_a:999~region(jp)' })]
+  });
+  const user = addUser(t.db);
+  addConfig(t.db, user.id, 'usr_f1');
+  await t.monitor.activateUser(user, t.vrcapi);
+  let f = t.db.getFriend(user.id, 'usr_f1');
+  assert.equal(f.state, 'online');
+  assert.equal(f.instance_id, '999~region(jp)', '快照路径落库实例');
+  // 好友离线 → 快照清空实例
+  const origMe = t.vrcapi.me;
+  t.vrcapi.me = async () => {
+    const m = await origMe();
+    return { ...m, onlineFriends: [], activeFriends: [], offlineFriends: ['usr_f1'] };
+  };
+  t.notifications.length = 0;
+  await t.monitor.runSnapshot(user.vrchat_user_id);
+  f = t.db.getFriend(user.id, 'usr_f1');
+  assert.equal(f.state, 'offline');
+  assert.equal(f.instance_id, null, '离线清空实例');
+});
+
+test('pending 合并: 多个好友同时 pending, 到期只调一次 me()', async () => {
+  const t = setup({ confirmDelayMs: 30, now: () => Date.now() });
+  const user = addUser(t.db);
+  addConfig(t.db, user.id, 'usr_f1');
+  addConfig(t.db, user.id, 'usr_f2');
+  await t.monitor.activateUser(user, t.vrcapi);
+  // 两个好友都上线建基线
+  for (const id of ['usr_f1', 'usr_f2']) {
+    await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'up' + id, { type: 'friend-online', content: { userId: id, location: 'wrld_a:1', user: { id, displayName: id, status: 'active' } } });
+  }
+  t.notifications.length = 0;
+  // 两个都下线 → 各自进入 pending
+  for (const id of ['usr_f1', 'usr_f2']) {
+    await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'dn' + id, { type: 'friend-offline', content: { userId: id, platform: '' } });
+  }
+  assert.equal(t.notifications.length, 0, 'pending 期间不通知');
+  // 到期: 一次 me() 同时裁定两个好友
+  let meCalls = 0;
+  const origMe = t.vrcapi.me;
+  t.vrcapi.me = async () => { meCalls++; return { id: 'usr_me', friends: ['usr_f1', 'usr_f2'], onlineFriends: [], activeFriends: [], offlineFriends: ['usr_f1', 'usr_f2'] }; };
+  await new Promise((r) => setTimeout(r, 200));
+  assert.equal(meCalls, 1, '两个好友的 pending 合并为一次 me() 验证');
+  assert.equal(t.notifications.length, 2, '两个好友都确认下线');
+  const f1 = t.db.getFriend(user.id, 'usr_f1');
+  const f2 = t.db.getFriend(user.id, 'usr_f2');
+  assert.equal(f1.pending_state, null);
+  assert.equal(f2.pending_state, null);
+});
+
+test('me() 缺少状态数组: 不翻转任何好友状态(防误杀)', async () => {
+  const t = setup({ onlineFriends: [onlineFriend('usr_f1')] });
+  const user = addUser(t.db);
+  addConfig(t.db, user.id, 'usr_f1');
+  await t.monitor.activateUser(user, t.vrcapi);
+  const f0 = t.db.getFriend(user.id, 'usr_f1');
+  assert.equal(f0.state, 'online');
+  // me() 异常: 完全没有三个状态数组
+  t.vrcapi.me = async () => ({ id: 'usr_me', displayName: '我', friends: ['usr_f1'] });
+  t.notifications.length = 0;
+  const r = await t.monitor.runSnapshot(user.vrchat_user_id);
+  assert.equal(r.ok, true, '缺少数组时快照本身仍成功(自己信息正常落地)');
+  const f = t.db.getFriend(user.id, 'usr_f1');
+  assert.equal(f.state, 'online', '在线好友不得被误判离线');
+  assert.equal(t.notifications.length, 0);
+});
+
+test('状态数组裁定: activeFriends 中的好友为活动态并取详情', async () => {
+  const t = setup({
+    activeFriends: [onlineFriend('usr_f1', { location: 'wrld_a:7~region(us)', status: 'join me', statusDescription: '活动中' })]
+  });
+  const user = addUser(t.db);
+  addConfig(t.db, user.id, 'usr_f1');
+  await t.monitor.activateUser(user, t.vrcapi);
+  const f = t.db.getFriend(user.id, 'usr_f1');
+  assert.equal(f.state, 'active', 'activeFriends 数组裁定为活动');
+  assert.equal(f.world_id, 'wrld_a', '活动好友的详情来自在线列表');
+  assert.equal(f.instance_id, '7~region(us)');
+  // 在线列表只调一次(含活动好友)
+  assert.equal(t.vrcapi.userCalls.length, 0, '不再调 users/{id}');
 });
 
 test('standard mode monitors all enabled friends without limit', async () => {
@@ -532,7 +652,7 @@ test('concurrent snapshot triggers are ignored; auto reconcile slides after any 
     assert.ok(r2.error.includes('快照进行中'));
     release();
     await p1;
-    assert.equal(friendCalls, 2, '并发触发不应重复调 API(一次快照 = 在线+离线 两次 friends 调用)');
+    assert.equal(friendCalls, 1, '并发触发不应重复调 API(一次快照 = 一次 friends 在线列表调用)');
   } finally {
     t.monitor.stopTimers();
   }
@@ -559,8 +679,8 @@ test('snapshot keeps social/custom status when friend offline via API list', asy
   await t.monitor.activateUser(user, t.vrcapi);
   // 设置社交状态与自定义状态
   await t.monitor.handlePipelineEvent(user.vrchat_user_id, '1', { type: 'friend-online', content: { userId: 'usr_f1', location: 'wrld_a:1', user: { id: 'usr_f1', displayName: 'F1', status: 'join me', statusDescription: '摸鱼中' } } });
-  // 快照: API 把好友放入 offline 列表(status 返回 null)
-  t.vrcapi.friends = async ({ offline }) => (offline ? [{ id: 'usr_f1', displayName: 'F1', location: 'offline', status: null, statusDescription: null }] : []);
+  // 快照: me() 把好友放入 offlineFriends 数组(离线 0 请求, status 不覆盖)
+  t.vrcapi.me = async () => ({ id: 'usr_me', friends: ['usr_f1'], onlineFriends: [], activeFriends: [], offlineFriends: ['usr_f1'] });
   await t.monitor.runSnapshot(user.vrchat_user_id);
   const f = t.db.getFriend(user.id, 'usr_f1');
   assert.equal(f.state, 'offline');
@@ -900,19 +1020,21 @@ test('system: sendShutdownNotice pushes 服务已停止 to active users', async 
   assert.ok(t.qqTexts[0].text.includes('时间:'));
 });
 
-// ---------- 自己的信息 ----------
-const selfInfoOnline = () => ({
+// ---------- 自己的信息(新模型: 直接来自 me() 的 presence, 不再请求 users/{id}) ----------
+const currentUserOnline = () => ({
   id: 'usr_me', state: 'online', status: 'join me', statusDescription: '摸鱼中',
-  location: 'wrld_self:1~region(jp)', last_platform: 'standalonewindows',
+  displayName: '我',
   currentAvatarImageUrl: 'https://x/me.png',
-  currentAvatarThumbnailImageUrl: 'https://api.vrchat.cloud/api/1/image/file_me/1/256'
+  currentAvatarThumbnailImageUrl: 'https://api.vrchat.cloud/api/1/image/file_me/1/256',
+  presence: { world: 'wrld_self', instance: '1~region(jp)', platform: 'standalonewindows' },
+  friends: [], onlineFriends: [], activeFriends: [], offlineFriends: []
 });
 
-test('self: snapshot stores own info from GET /users/{id} without notification', async () => {
-  const t = setup({ selfInfo: selfInfoOnline() });
+test('self: snapshot stores own info from me() presence without notification', async () => {
+  const t = setup({ currentUser: currentUserOnline() });
   const user = addUser(t.db);
   await t.monitor.activateUser(user, t.vrcapi);
-  assert.deepEqual(t.vrcapi.userCalls, ['usr_me']);
+  assert.deepEqual(t.vrcapi.userCalls, [], '快照不再额外请求 users/{id}');
   const me = t.db.getUserByVrcId('usr_me');
   assert.equal(me.state, 'online');
   assert.equal(me.status, 'join me');
@@ -926,8 +1048,8 @@ test('self: snapshot stores own info from GET /users/{id} without notification',
   assert.ok(t.events.some((e) => e.kind === 'self-state'));
 });
 
-test('self: snapshot offline/empty location derives active (web session alive)', async () => {
-  const t = setup({ selfInfo: { id: 'usr_me', state: 'offline', status: 'offline', location: '' } });
+test('self: me() without presence derives active (session alive, not in a world)', async () => {
+  const t = setup({ currentUser: { id: 'usr_me', state: 'offline', status: 'offline', presence: {}, friends: [], onlineFriends: [], activeFriends: [], offlineFriends: [] } });
   const user = addUser(t.db);
   await t.monitor.activateUser(user, t.vrcapi);
   const me = t.db.getUserByVrcId('usr_me');
@@ -937,14 +1059,14 @@ test('self: snapshot offline/empty location derives active (web session alive)',
   assert.equal(t.notifications.length, 0);
 });
 
-test('self: snapshot keeps existing row when GET /users/{id} fails', async () => {
-  const t = setup({ selfInfo: selfInfoOnline() });
+test('self: me() failure aborts snapshot, keeps existing row', async () => {
+  const t = setup({ currentUser: currentUserOnline() });
   const user = addUser(t.db);
   await t.monitor.activateUser(user, t.vrcapi);
   const before = t.db.getUserByVrcId('usr_me');
-  t.vrcapi.user = async () => { throw new Error('network down'); };
+  t.vrcapi.me = async () => { throw Object.assign(new Error('network down'), { status: -1 }); };
   const result = await t.monitor.runSnapshot(user.vrchat_user_id);
-  assert.equal(result.ok, true, '/users/{id} 失败不影响好友对账');
+  assert.equal(result.ok, false, 'me() 失败则本轮快照中止');
   const after = t.db.getUserByVrcId('usr_me');
   assert.equal(after.state, before.state);
   assert.equal(after.world_id, before.world_id);
@@ -952,7 +1074,7 @@ test('self: snapshot keeps existing row when GET /users/{id} fails', async () =>
 });
 
 test('self: WS user-update updates profile/status, keeps state and world', async () => {
-  const t = setup({ selfInfo: selfInfoOnline() });
+  const t = setup({ currentUser: currentUserOnline() });
   const user = addUser(t.db);
   await t.monitor.activateUser(user, t.vrcapi);
   t.events.length = 0;
@@ -981,7 +1103,7 @@ test('self: WS user-update updates profile/status, keeps state and world', async
 });
 
 test('self: WS user-location real location updates own world', async () => {
-  const t = setup({ selfInfo: selfInfoOnline() });
+  const t = setup({ currentUser: currentUserOnline() });
   const user = addUser(t.db);
   await t.monitor.activateUser(user, t.vrcapi);
   t.events.length = 0;
@@ -1001,7 +1123,7 @@ test('self: WS user-location real location updates own world', async () => {
 });
 
 test('self: WS user-location offline fills active and clears world', async () => {
-  const t = setup({ selfInfo: selfInfoOnline() });
+  const t = setup({ currentUser: currentUserOnline() });
   const user = addUser(t.db);
   await t.monitor.activateUser(user, t.vrcapi);
   t.events.length = 0;
@@ -1017,7 +1139,7 @@ test('self: WS user-location offline fills active and clears world', async () =>
 });
 
 test('self: WS user-location private fills online + 私密世界', async () => {
-  const t = setup({ selfInfo: selfInfoOnline() });
+  const t = setup({ currentUser: currentUserOnline() });
   const user = addUser(t.db);
   await t.monitor.activateUser(user, t.vrcapi);
   await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'x', {
@@ -1031,7 +1153,7 @@ test('self: WS user-location private fills online + 私密世界', async () => {
 });
 
 test('self: WS user-location traveling keeps existing world', async () => {
-  const t = setup({ selfInfo: selfInfoOnline() });
+  const t = setup({ currentUser: currentUserOnline() });
   const user = addUser(t.db);
   await t.monitor.activateUser(user, t.vrcapi);
   await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'x', {

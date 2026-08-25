@@ -24,10 +24,16 @@ function setup(opts = {}) {
       return opts.loginResult !== undefined ? opts.loginResult : { id: 'usr_me', displayName: '我', currentAvatarImageUrl: null };
     },
     verify2fa: async (kind, code) => { vrcapi.verifyCalls = vrcapi.verifyCalls || []; vrcapi.verifyCalls.push({ kind, code }); return { verified: true }; },
-    me: async () => (opts.currentUser !== undefined ? opts.currentUser : { id: 'usr_me', displayName: '我', onlineFriends: [], activeFriends: [], offlineFriends: [] }),
+    me: async () => (opts.currentUser !== undefined) ? opts.currentUser : {
+      id: 'usr_me', displayName: '我',
+      friends: [...new Set([...(opts.onlineFriends || []), ...(opts.activeFriends || []), ...(opts.offlineFriends || [])].map((f) => f.id))],
+      onlineFriends: (opts.onlineFriends || []).map((f) => f.id),
+      activeFriends: (opts.activeFriends || []).map((f) => f.id),
+      offlineFriends: (opts.offlineFriends || []).map((f) => f.id)
+    },
     authToken: async () => ({ token: 'authcookie_test' }),
     setCookiesChanged: (fn) => { vrcapi._cookiesChanged = fn; },
-    friends: async ({ offline }) => (offline ? (opts.offlineFriends || []) : (opts.onlineFriends || [])),
+    friends: async ({ offline }) => (offline ? (opts.offlineFriends || []) : [...(opts.onlineFriends || []), ...(opts.activeFriends || [])]),
     world: async (id) => ({ id, name: '世界_' + id }),
     user: async (id) => {
       vrcapi.userCalls.push(id);
@@ -159,24 +165,22 @@ test('login/session expose own presence fields and avatarKey', async (t) => {
   const meThumb = 'https://api.vrchat.cloud/api/1/image/file_me-111/1/256';
   const ctx = setup({
     loginResult: {
-      id: 'usr_me', displayName: '我', status: 'active', statusDescription: '摸鱼',
-      last_platform: 'web',
-      currentAvatarImageUrl: 'https://api.vrchat.cloud/api/1/file/file_me-111/1/file',
-      profilePicOverrideThumbnail: meThumb,
-      onlineFriends: [], activeFriends: [], offlineFriends: []
+      id: 'usr_me', displayName: '我', currentAvatarImageUrl: 'https://api.vrchat.cloud/api/1/file/file_me-111/1/file',
+      profilePicOverrideThumbnail: meThumb
     },
-    selfInfo: {
-      id: 'usr_me', state: 'online', status: 'join me', statusDescription: '摸鱼',
-      location: 'wrld_me:1', last_platform: 'standalonewindows',
+    currentUser: {
+      id: 'usr_me', displayName: '我', state: 'online', status: 'join me', statusDescription: '摸鱼',
       currentAvatarImageUrl: 'https://api.vrchat.cloud/api/1/file/file_me-111/1/file',
-      currentAvatarThumbnailImageUrl: meThumb
+      currentAvatarThumbnailImageUrl: meThumb,
+      presence: { world: 'wrld_me', instance: '1~region(us)', platform: 'standalonewindows' },
+      friends: [], onlineFriends: [], activeFriends: [], offlineFriends: []
     }
   });
   t.after(() => close(ctx));
   const r = await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: false });
   assert.equal(r.status, 200);
   assert.equal(r.data.user.avatarKey, 'file_me-111_1_256');
-  assert.deepEqual(ctx.vrcapi.userCalls, ['usr_me']);
+  assert.deepEqual(ctx.vrcapi.userCalls, [], '新模型: 自己的信息来自 me() presence, 不再调 users/{me}');
   const row = ctx.db.getUserByVrcId('usr_me');
   assert.equal(row.avatar_thumb_url, meThumb);
   assert.equal(row.status_description, '摸鱼');

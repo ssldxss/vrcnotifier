@@ -1,4 +1,4 @@
-﻿const test = require('node:test');
+const test = require('node:test');
 const assert = require('node:assert');
 const http = require('node:http');
 const { createVrcApi } = require('../src/vrcapi');
@@ -197,12 +197,11 @@ test('429 is retried with backoff then succeeds', async () => {
   assert.equal(calls.n, 2, '429 应退避重试');
 });
 
-test('401 is retried with backoff then succeeds', async () => {
+test('401 is NOT transient: fails fast so the relogin/2FA branch is reachable', async () => {
   const { impl, calls } = fakeFetch({ badStatuses: [401], body: JSON.stringify({ id: 'usr_1' }) });
   const v = createVrcApi({ baseUrl: 'https://api.vrchat.cloud/api/1', userAgent: 't/1', cookieJar: null, fetchImpl: impl, retryBaseMs: 1, jitterMs: 0 });
-  const me = await v.me();
-  assert.equal(me.id, 'usr_1');
-  assert.equal(calls.n, 2, '401 应退避重试');
+  await assert.rejects(() => v.me(), (err) => err.status === 401, '401 是会话状态问题, 不当临时错误重试');
+  assert.equal(calls.n, 1, '401 不重试, 立即失败交给上层处理');
 });
 
 test('401 with noRetry throws immediately (login/auth flows)', async () => {
@@ -213,10 +212,49 @@ test('401 with noRetry throws immediately (login/auth flows)', async () => {
 });
 
 test('retries respect maxRetries then throw', async () => {
-  const { impl, calls } = fakeFetch({ badStatuses: [401, 429, 503], body: JSON.stringify({ error: { message: 'x', status_code: 401 } }) });
+  const { impl, calls } = fakeFetch({ badStatuses: [429, 503, 503], body: JSON.stringify({ error: { message: 'x', status_code: 503 } }) });
   const v = createVrcApi({ baseUrl: 'https://api.vrchat.cloud/api/1', userAgent: 't/1', cookieJar: null, fetchImpl: impl, retryBaseMs: 1, jitterMs: 0 });
   await assert.rejects(() => v.me({ maxRetries: 2 }), (err) => err.status === 503);
   assert.equal(calls.n, 3);
+});
+
+test('default retry count is bounded (maxRetries=5 default)', async () => {
+  const { impl, calls } = fakeFetch({ badStatuses: [503, 503, 503, 503, 503, 503, 503], body: JSON.stringify({ error: { message: 'down', status_code: 503 } }) });
+  const v = createVrcApi({ baseUrl: 'https://api.vrchat.cloud/api/1', userAgent: 't/1', cookieJar: null, fetchImpl: impl, retryBaseMs: 1, jitterMs: 0 });
+  await assert.rejects(() => v.me(), (err) => err.status === 503);
+  assert.equal(calls.n, 6, '默认 5 次重试 + 1 次初始 = 6 次请求后放弃');
+});
+
+test('rate limiter: sliding window of ratePerMinute per minute', async () => {
+  let fakeT = 1000000;
+  const slept = [];
+  const { impl, calls } = fakeFetch({ body: JSON.stringify({ id: 'usr_1' }) });
+  const v = createVrcApi({
+    baseUrl: 'https://api.vrchat.cloud/api/1', userAgent: 't/1', cookieJar: null, fetchImpl: impl,
+    retryBaseMs: 1, jitterMs: 0, ratePerMinute: 2,
+    now: () => fakeT,
+    sleep: (ms) => { slept.push(ms); fakeT += ms; return Promise.resolve(); }
+  });
+  await v.me(); // 窗口内第 1 个
+  await v.me(); // 窗口内第 2 个
+  await v.me(); // 窗口满 → 必须等到窗口滑动才放行
+  assert.equal(calls.n, 3);
+  assert.ok(slept.length >= 1 && slept[0] >= 59000, `第 3 个请求应节流到窗口滑动(实际 slept=${JSON.stringify(slept)})`);
+});
+
+test('rate limiter: window slides after 60s and allows more requests', async () => {
+  let fakeT = 1000000;
+  const { impl, calls } = fakeFetch({ body: JSON.stringify({ id: 'usr_1' }) });
+  const v = createVrcApi({
+    baseUrl: 'https://api.vrchat.cloud/api/1', userAgent: 't/1', cookieJar: null, fetchImpl: impl,
+    retryBaseMs: 1, jitterMs: 0, ratePerMinute: 1,
+    now: () => fakeT,
+    sleep: (ms) => { fakeT += ms; return Promise.resolve(); }
+  });
+  await v.me(); // t=1e6
+  fakeT += 61000; // 61 秒后, 窗口已滑动
+  await v.me(); // 放行
+  assert.equal(calls.n, 2);
 });
 
 test('onCookiesChanged fires when response sets cookies', async () => {
