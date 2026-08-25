@@ -273,20 +273,27 @@ async function main() {
     logger.info(`[启动] 代码版本: ${process.env.VRCN_BRANCH || 'main'} @ ${process.env.VRCN_COMMIT_SHORT || String(process.env.VRCN_COMMIT).slice(0, 12)} — ${process.env.VRCN_COMMIT_SUBJECT || '(无主题)'} (${process.env.VRCN_COMMIT_DATE || ''})`);
   }
 
-  // 数据加密: 主密钥只有三种方式(不自动生成) — 1) Docker Secret(生产) 2) env MASTER_KEY(手动启动) 3) 研发模式不加密
+  // 数据加密主密钥 3 种方式: 1) Docker Secret(生产) 2) env MASTER_KEY(手动启动, 跳过自动生成)
+  // 3) 研发模式不加密(手动 --no-encrypt; 非容器无密钥时自动降级)
+  // 容器内首次启动无密钥 → 自动生成并存到 ./secrets(docker secrets), 未挂载则兜底数据卷
   let crypt = null;
   let encryptionMode = 'none';
   if (dbPath !== ':memory:') {
+    const inDocker = process.env.VRCN_IN_DOCKER === '1' || fs.existsSync('/.dockerenv');
     const resolved = resolveMasterKey({
       envKey: env('MASTER_KEY'),
-      devNoEncrypt: process.argv.includes('--no-encrypt')
+      devNoEncrypt: process.argv.includes('--no-encrypt'),
+      inDocker,
+      secretsDir: inDocker ? '/secrets' : null,
+      keyFile: path.join(path.dirname(dbPath), 'master_key')
     });
-    encryptionMode = resolved.mode === 'missing' ? 'none' : resolved.mode;
+    encryptionMode = (resolved.mode === 'missing' || resolved.mode === 'none') ? 'none' : resolved.mode;
     if (resolved.mode === 'docker-secret') logger.info('[启动] 数据加密方式: Docker Secret');
-    else if (resolved.mode === 'env') logger.info('[启动] 数据加密方式: 环境变量 MASTER_KEY(手动启动)');
-    else logger.warn(resolved.mode === 'missing'
-      ? '[启动] 未提供加密密钥(Docker Secret 或 MASTER_KEY), 研发模式: 不加密, 敏感数据明文保存'
-      : '[启动] 数据加密方式: 无(--no-encrypt 研发模式, 所有数据明文存储)');
+    else if (resolved.mode === 'env') logger.info('[启动] 数据加密方式: 环境变量 MASTER_KEY(手动启动, 跳过自动生成)');
+    else if (resolved.mode === 'saved') logger.info(`[启动] 数据加密方式: 复用首次启动自动生成的密钥 (${resolved.savedTo})`);
+    else if (resolved.mode === 'generated') logger.info(`[启动] 首次启动: 已自动生成主密钥并保存 (${resolved.savedTo}), 下次启动自动复用`);
+    else if (resolved.mode === 'none') logger.warn('[启动] 研发模式(--no-encrypt 手动启动): 不加密, 所有数据明文存储');
+    else logger.warn('[启动] 未提供加密密钥(非容器环境, Windows/本地测试): 研发模式不加密, 敏感数据明文保存');
     crypt = resolved.key ? createCrypto({ masterKey: resolved.key }) : null;
   }
 

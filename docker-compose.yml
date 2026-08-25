@@ -16,10 +16,10 @@ services:
       # ---- 启动时拉取的源码(默认见 Dockerfile, 可覆盖) ----
       # VRCN_REPO: "https://github.com/ssldxss/vrcnotifier.git"
       # VRCN_BRANCH: "main"
-      # ---- 密钥: 主密钥 3 种方式(不自动生成), 见文件末尾与 README「密钥与加密」 ----
-      #   生产: 下方 Docker Secret vrcnotifier_master_key(推荐)
-      #   手动启动: 环境变量 MASTER_KEY(64位hex)
-      #   研发模式: 两者都无 → 不加密启动(warn + 前端未加密提示)
+      # ---- 密钥: 主密钥 3 种方式, 见文件末尾与 README「密钥与加密」 ----
+      #   生产: Docker Secret(首次启动自动生成并保存到 ./secrets/master_key, 之后自动复用)
+      #   手动启动: 环境变量 MASTER_KEY(64位hex; 提供时跳过自动生成)
+      #   研发模式: --no-encrypt 手动不加密; 非容器环境(Windows 测试)无密钥时自动不加密启动
       # 访问令牌无需配置: 只存数据库(首次启动自动生成, 日志打印一次)
       # VRCN_TOKEN: "GitHub PAT(未提供 secrets/git_token 时; 私有仓库/匿名限流才需要)"
       # ---- 可选调参(默认值见 src/index.js) ----
@@ -32,19 +32,20 @@ services:
       # VRC_STATUS_URL: ""
     volumes:
       - vrcnotifier-data:/app/data    # 数据库 / 头像缓存 / vrcnotifier.log(源码在容器内, 每次启动重建, 无需卷)
+      - ./secrets:/secrets           # Docker secrets 目录: 首次启动自动生成主密钥写回 ./secrets/master_key(之后作为 Docker Secret 复用)
       # 改用宿主机目录备份(需保证 uid 1000 可写, entrypoint 会自动 chown):
       # - ./data:/app/data
     secrets:
       - vrcnotifier_master_key        # 数据加密主密钥(AES-256-GCM)
       - vrcnotifier_git_token         # GitHub PAT(可选: 私有仓库/匿名限流)
 
-# 主密钥 3 种方式(不自动生成): 1) 下方 Docker Secret(生产) 2) 环境变量 MASTER_KEY(手动启动)
-# 3) 研发模式不加密(两者都未提供时自动降级); 访问令牌只存数据库, 无需配置。
-# 文件放 ./secrets/ (已在 .gitignore, 永不进镜像/仓库), 挂载到容器 /run/secrets/<name>;
-# required: false → 文件缺失不阻塞启动(降级到下一方式)。
-# 生成(首次部署前):
+# 主密钥 3 种方式: 1) Docker Secret(生产: 首次启动自动生成 → 写入 ./secrets/master_key → 之后自动复用)
+# 2) 环境变量 MASTER_KEY(手动启动, 提供时跳过自动生成) 3) 研发模式不加密(--no-encrypt 手动;
+# 非容器环境 Windows/本地无密钥时自动不加密启动)。访问令牌只存数据库, 无需配置。
+# ./secrets/ 已在 .gitignore(永不进镜像/仓库); required: false → 文件缺失不阻塞首次启动。
+# 首次部署后自动出现: ./secrets/master_key(容器生成, 0600)。也可手动预置:
 #   mkdir -p secrets
-#   openssl rand -hex 32 > secrets/master_key     # 数据加密主密钥
+#   openssl rand -hex 32 > secrets/master_key     # 数据加密主密钥(预置则直接用, 不再生成)
 #   printf '%s' 'ghp_你的PAT' > secrets/git_token # GitHub PAT(可选)
 #   chmod 600 secrets/*
 # 主密钥丢失/更换环境(密文解不开): 后端会在启动时静默清空数据(保留访问令牌)并重启。

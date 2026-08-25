@@ -17,6 +17,10 @@ UI_PORT="${FRONTEND_PORT:-8080}"
 VERSION_FILE="${VRCN_VERSION_FILE:-/app/.vrcn-version}"
 log() { printf '[vrcn-bootstrap] %s\n' "$*"; }
 
+# 容器内环境标识: 主密钥首次启动无密钥时 → 自动生成并持久化
+# (./secrets 挂载目录优先 → 落宿主机成为 Docker Secret 文件; 未挂载则兜底数据卷)
+export VRCN_IN_DOCKER=1
+
 # ---------- 1) 可选 git 凭据: Docker Secret 优先, 环境变量兜底; token 只经 askpass 传给 git, 不进 argv / remote URL / 日志 ----------
 GIT_TOKEN_FILE="${VRCN_GIT_TOKEN_FILE:-/run/secrets/vrcnotifier_git_token}"
 cleanup_askpass() { rm -f /tmp/.vrcn-askpass 2>/dev/null || true; }

@@ -1,13 +1,17 @@
 'use strict';
 // 数据加密: AES-256-GCM + AAD 绑定(字段:行ID, 防密文跨行/跨字段置换)。
-// 主密钥只有三种方式(不自动生成):
-//   1) Docker Secrets(/run/secrets/vrcnotifier_master_key) —— 生产
-//   2) 环境变量 MASTER_KEY —— 手动启动(本地开发)
-//   3) 研发模式不加密(--no-encrypt, 或未提供以上两者时降级)
+// 主密钥只有三种方式:
+//   1) Docker Secrets(生产): /run/secrets/vrcnotifier_master_key;
+//      容器内首次启动无密钥 → 自动生成并存到 Docker secrets 目录(./secrets/master_key,
+//      经 ./secrets:/secrets 挂载落宿主机; 未挂载时兜底存数据卷), 下次启动自动复用
+//   2) 环境变量 MASTER_KEY —— 手动启动(本地开发), 提供时跳过自动生成
+//   3) 研发模式不加密 —— 手动 --no-encrypt 强制; 非容器环境(Windows 测试/本地)无密钥时自动降级不加密启动
 // 密钥不符/密文损坏 → 由启动流程静默清库重启(见 index.js)。
 // 密文格式: v1:<base64(iv|tag|cipher)>; 无前缀的旧值按明文直通(尚未上线, 无需迁移)。
 
 const crypto = require('node:crypto');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const PREFIX = 'v1:';
 
@@ -28,12 +32,50 @@ function loadMasterKeyFromSecret(file = '/run/secrets/vrcnotifier_master_key') {
   return decodeKey(fs.readFileSync(file, 'utf8'));
 }
 
+/** 读取已保存的密钥文件(首次启动自动生成后落盘的), 不可用 → null */
+function readSavedKey(file) {
+  try {
+    const s = String(fs.readFileSync(file, 'utf8')).trim();
+    if (!s) return null;
+    return decodeKey(s);
+  } catch (e) {
+    return null;
+  }
+}
+
+function dirWritable(dir) {
+  try {
+    if (!fs.statSync(dir).isDirectory()) return false;
+    fs.accessSync(dir, fs.constants.W_OK);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+function saveKey(file, hexKey) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const fd = fs.openSync(file, 'w', 0o600);
+  fs.writeSync(fd, hexKey + '\n');
+  fs.closeSync(fd);
+}
+
 /**
- * 主密钥只有三种方式(不自动生成):
- *   1) Docker Secret(生产) 2) 环境变量 MASTER_KEY(手动启动) 3) 研发模式不加密;
- * 返回 { key, mode }(mode: docker-secret | env | none | missing)。
+ * 主密钥三种方式(按优先级):
+ *   1) Docker Secret(生产) 2) 环境变量 MASTER_KEY(手动启动)
+ *   3) 研发模式不加密(手动 --no-encrypt; 非容器无密钥时自动降级)
+ * 容器内首次启动且以上均无 → 自动生成密钥并保存(docker secrets 目录优先, 数据卷兜底), 下次启动自动复用;
+ * 非容器环境(Windows 测试/本地)从不自动生成, 无密钥即不加密启动。
+ * 返回 { key, mode, savedTo? }(mode: docker-secret | env | saved | generated | none | missing)。
  */
-function resolveMasterKey({ secretFile = '/run/secrets/vrcnotifier_master_key', envKey = null, devNoEncrypt = false } = {}) {
+function resolveMasterKey({
+  secretFile = '/run/secrets/vrcnotifier_master_key',
+  envKey = null,
+  devNoEncrypt = false,
+  inDocker = false,
+  secretsDir = null, // Docker secrets 目录(生产: ./secrets 挂载)
+  keyFile = null     // 数据卷兜底位置(dbPath 目录内)
+} = {}) {
   if (devNoEncrypt) return { key: null, mode: 'none' };
   try {
     return { key: loadMasterKeyFromSecret(secretFile), mode: 'docker-secret' };
@@ -41,6 +83,23 @@ function resolveMasterKey({ secretFile = '/run/secrets/vrcnotifier_master_key', 
   if (envKey) {
     return { key: decodeKey(envKey), mode: 'env' };
   }
+  // 之前首次启动自动生成过的密钥: 复用
+  for (const f of [secretsDir && path.join(secretsDir, 'master_key'), keyFile].filter(Boolean)) {
+    const saved = readSavedKey(f);
+    if (saved) return { key: saved, mode: 'saved', savedTo: f };
+  }
+  // 容器内首次启动: 自动生成并保存(env/研发模式已提前返回, 不会走到这里)
+  if (inDocker) {
+    const hex = crypto.randomBytes(32).toString('hex');
+    const target = (secretsDir && dirWritable(secretsDir)) ? path.join(secretsDir, 'master_key') : keyFile;
+    if (target) {
+      try {
+        saveKey(target, hex);
+        return { key: Buffer.from(hex, 'hex'), mode: 'generated', savedTo: target };
+      } catch (e) { /* 无可写位置: 降级不加密 */ }
+    }
+  }
+  // 非容器(Windows 测试/本地)或无可写位置: 不加密启动
   return { key: null, mode: 'missing' };
 }
 
