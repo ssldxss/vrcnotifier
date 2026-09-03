@@ -1,0 +1,48 @@
+# vrcnotifier 前端站点: 静态页面 + /api 反向代理到后端。
+# ${BACKEND_HOST} / ${BACKEND_PORT} 由官方 nginx entrypoint 的 envsubst 渲染为实际值。
+# 注意: nginx 自身变量($host/$remote_addr 等)不在环境变量中, envsubst 不会改动它们。
+server {
+    listen 80;
+    server_name _;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # 基础安全头(仅作用于未自带 add_header 的 location)
+    add_header X-Content-Type-Options nosniff always;
+    add_header X-Frame-Options SAMEORIGIN always;
+    add_header Referrer-Policy strict-origin-when-cross-origin always;
+
+    # 压缩(文本类静态资源)
+    gzip on;
+    gzip_min_length 1024;
+    gzip_vary on;
+    gzip_types text/plain text/css application/javascript application/json image/svg+xml;
+
+    # 单页应用: 命中文件则返回, 否则回退 index.html(由前端 JS 路由)
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # 后端 API 反向代理(同源 → 浏览器无需 CORS)。
+    # 覆盖: REST /api/*、SSE /api/events、头像 /api/avatar/:key
+    location /api/ {
+        proxy_pass http://${BACKEND_HOST}:${BACKEND_PORT};
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Connection        "";
+
+        # SSE 长连接: 关闭缓冲与缓存, 拉长读写超时, 允许分块
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+        chunked_transfer_encoding on;
+
+        # 代理层不追加安全头, 继承 server 级配置
+        add_header X-Content-Type-Options nosniff always;
+    }
+}

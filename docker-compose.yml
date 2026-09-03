@@ -1,44 +1,71 @@
-# vrcnotifier 生产部署(Docker Desktop / WSL2 / Linux 服务器通用)
-# 启动: docker compose up -d --build
-# 查看日志(首次启动会打印访问令牌): docker compose logs -f
+# ============================================================
+#  vrcnotifier 一键部署(两容器: 前端 nginx + 后端 Node API)
+#
+#  镜像(已发布到 Docker Hub):
+#    sihenglu/vrcnotifier-frontend:latest   前端(nginx, 静态页 + /api 反代)
+#    sihenglu/vrcnotifier-backend :latest   后端(API, 敏感数据 AES-256-GCM 加密)
+#
+#  使用(一键):
+#    1) 放置主密钥文件(64 位十六进制 或 32 字节 base64, 行尾换行无碍):
+#         cp <你的主密钥> secrets/master_key
+#    2) docker compose up -d
+#    3) 浏览器访问  http://<主机>:80     (端口可用 FRONTEND_PORT 覆盖)
+#    停止:  docker compose down
+#
+#  说明:
+#    - 前端对外 80 端口, 同源反代 /api 到后端(免 CORS); SSE 已关闭缓冲。
+#    - 后端 SERVE_STATIC 关闭, 仅 API; 主密钥经 Docker Secret 注入
+#      /run/secrets/vrcnotifier_master_key, 不写入镜像, 也不进环境变量(仅由 entrypoint 读文件后交给进程)。
+#    - 主密钥必须与数据加密所用密钥一致: 若旧数据曾以密钥 X 加密, 这里必须用 X,
+#      否则后端检测到"无法解密"会清空敏感数据(访问令牌保留)后退出重启。
+# ============================================================
+name: vrcnotifier
+
 services:
-  vrcnotifier:
-    build: .
-    image: vrcnotifier:latest
-    container_name: vrcnotifier
+  vrcnotifier-frontend:
+    image: sihenglu/vrcnotifier-frontend:latest
+    container_name: vrcnotifier-frontend
     restart: unless-stopped
+    depends_on:
+      vrcnotifier-backend:
+        condition: service_healthy
+    environment:
+      BACKEND_HOST: vrcnotifier-backend   # compose 服务名, 同网络内直接解析
+      BACKEND_PORT: "3000"
+      TZ: Asia/Shanghai
     ports:
-      - "3000:3000"
+      - "${FRONTEND_PORT:-80}:80"
+    networks: [vrcnet]
+
+  vrcnotifier-backend:
+    image: sihenglu/vrcnotifier-backend:latest
+    container_name: vrcnotifier-backend
+    restart: unless-stopped
     environment:
       PORT: "3000"
-      SERVE_STATIC: "1"      # 后端同源托管前端页面(单容器开箱即用)
-      TZ: Asia/Shanghai      # 日志/通知时间使用本地时区
-      # 固定访问令牌(强烈建议): 不设置则首次启动自动生成, 从日志获取
-      # ACCESS_TOKEN: "换成你自己的长随机串"
-      # 加密主密钥备选(优先级低于 Docker Secret): 取消注释并填 64 位 hex
-      # MASTER_KEY: "换成64位hex随机串"
-      # 未配置 Docker Secret / MASTER_KEY 时默认不加密启动; 也可手动强制明文: docker compose run --rm vrcnotifier node src/index.js --no-encrypt
-      # 可选调参(默认值见 src/index.js):
-      # SNAPSHOT_INTERVAL_MS: "3600000"   # 周期对账间隔
-      # WATCHDOG_MS: "3600000"            # 无消息强制重连阈值
-      # WS_PING_INTERVAL_MS: "10000"
-      # RECONNECT_MAX_MS: "3600000"
-      # QQ_API_BASE: ""                   # QQ 接口地址覆盖
-      # QQ_WS_URL: ""                     # QQ 网关地址覆盖
-      # VRC_STATUS_URL: ""                # VRChat 状态页地址覆盖
+      SERVE_STATIC: ""        # API-only; 静态页由前端容器提供
+      TZ: Asia/Shanghai
     volumes:
-      - vrcnotifier-data:/app/data      # 数据库 / 头像缓存 / vrcnotifier.log
-      # 改用宿主机目录备份(需保证 uid 1000 可写, entrypoint 会自动 chown):
+      - vrcn-data:/app/data
+      # —— 可选: 复用已有数据目录(替代上行命名卷)——
+      #   仅当确认 secrets/master_key 与该数据加密所用密钥一致时启用, 否则数据会被清空:
       # - ./data:/app/data
     secrets:
-      - vrcnotifier_master_key         # 数据加密主密钥(仅 Docker Secrets, 不备份)
+      - vrcnotifier_master_key
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/api/config').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks: [vrcnet]
 
-# 主密钥: 首次部署前生成(openssl rand -hex 32 > secrets/master_key, chmod 600);
-# 永不备份、不进 git —— 丢失/更换环境后敏感数据(密码/cookie/AppSecret)无法解密,
-# 后端会在启动时静默清空数据(保留访问令牌)并重启。
 secrets:
   vrcnotifier_master_key:
-    file: ./secrets/master_key
+    file: ${MASTER_KEY_FILE:-secrets/master_key}
 
 volumes:
-  vrcnotifier-data:
+  vrcn-data:
+
+networks:
+  vrcnet:

@@ -3,10 +3,12 @@
 # 构建: docker build -t vrcnotifier .
 
 # ---------- 依赖构建阶段 ----------
+# 依赖为纯 JS(express/ws, 无原生模块), 直接复用本地已安装的 node_modules,
+# 避免构建容器内 `npm ci` 依赖外网/代理。若需从零安装: 移除 `COPY node_modules` 行并改回 `RUN npm ci --omit=dev`。
 FROM node:22-bookworm-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
+COPY node_modules ./node_modules
 
 # ---------- 运行阶段 ----------
 FROM node:22-bookworm-slim

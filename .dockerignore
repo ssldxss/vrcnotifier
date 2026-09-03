@@ -1,4 +1,4 @@
-node_modules
+# node_modules 保留(后端镜像直接 COPY, 纯 JS 依赖无需在构建容器内 npm install)
 data
 test
 .verify
@@ -14,3 +14,4 @@ Dockerfile
 docker-compose.yml
 .dockerignore
 README.md
+secrets

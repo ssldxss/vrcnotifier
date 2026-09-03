@@ -1,0 +1,44 @@
+# 本地联调: 前端(nginx) + 后端(API) 两容器, 使用已构建的本地镜像。
+# 运行: docker compose -f docker-compose.test.yml up -d
+# 停止: docker compose -f docker-compose.test.yml down
+services:
+  vrcnotifier-frontend:
+    image: sihenglu/vrcnotifier-frontend:latest
+    container_name: vrcn-test-frontend
+    restart: no
+    depends_on:
+      vrcnotifier-backend:
+        condition: service_healthy
+    environment:
+      BACKEND_HOST: vrcnotifier-backend
+      BACKEND_PORT: "3000"
+      TZ: Asia/Shanghai
+    ports:
+      - "8090:80"
+    networks: [vrcn-test]
+
+  vrcnotifier-backend:
+    image: sihenglu/vrcnotifier-backend:latest
+    container_name: vrcn-test-backend
+    restart: no
+    environment:
+      PORT: "3000"
+      SERVE_STATIC: ""          # API-only(静态页由前端容器提供)
+      TZ: Asia/Shanghai
+    volumes:
+      - vrcn-test-data:/app/data
+    secrets:
+      - vrcnotifier_master_key
+    ports:
+      - "127.0.0.1:3001:3000"   # 调试: 直接访问后端 API
+    networks: [vrcn-test]
+
+secrets:
+  vrcnotifier_master_key:
+    file: ./secrets/master_key
+
+volumes:
+  vrcn-test-data:
+
+networks:
+  vrcn-test:
