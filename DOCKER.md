@@ -15,13 +15,16 @@
 ## 一键启动
 
 ```bash
-docker compose up -d                 # 默认端口 80
-# 或指定端口:
-FRONTEND_PORT=8080 docker compose up -d
+docker compose up -d                 # 默认: 前端 80 + 后端 API 3001
+# 或指定端口(两个都可覆盖):
+FRONTEND_PORT=8080 API_PORT=3002 docker compose up -d
 ```
 
 - 首次启动：`vrcn-keygen` 自动生成主密钥 → 后端带加密启动(healthy) → 前端上线。
-- 访问：`http://<主机>:80`（或你指定的 `FRONTEND_PORT`）。
+- 访问：页面 `http://<主机>:80`（`FRONTEND_PORT` 可覆盖）；后端 API 默认也暴露在 `:3001`（`API_PORT` 可覆盖）。
+- **连接方式（二选一，令牌相同）**：
+  - **A 同源反代（推荐，单端口）**：门禁"后端地址"留自动预填（= 你打开页面用的那个地址）。
+  - **B 直连后端（备用）**：门禁"后端地址"填 `http://<主机>:3001`（`API_PORT` 的值）。后端已开 CORS，跨端口直连可用。
 - 停止：`docker compose down`（**保留** 密钥卷与数据卷）。
 - 日志：`docker compose logs -f`。
 
@@ -97,7 +100,7 @@ docker push sihenglu/vrcnotifier-backend:latest sihenglu/vrcnotifier-frontend:la
 - 后端以非 root(`node`)用户运行；数据目录 `/app/data` 由 entrypoint 修正属主。
 - 主密钥不落 yaml、不落 host 文件；仅存在于命名卷 `vrcn-key`，经 `/run/secrets/...` 路径 + entrypoint(root 读)注入进程。
 - `vrcn-keygen` 为 `network_mode: none`、`restart: no`，一次性生成后即退出。
-- 前端与后端同 compose 网络，前端是唯一对外端口(80)。
+- 前端与后端同 compose 网络。对外端口：前端 `80`（`FRONTEND_PORT`）+ 后端 API `3001`（`API_PORT`）；后端默认也暴露，供浏览器直连 / 调试。
 
 ## 常用排查
 
@@ -105,5 +108,6 @@ docker push sihenglu/vrcnotifier-backend:latest sihenglu/vrcnotifier-frontend:la
 docker compose ps
 docker compose logs -f vrcnotifier-backend
 docker compose logs -f vrcnotifier-frontend
-curl http://127.0.0.1:80/api/config    # {"ok":true,...,"encryptionEnabled":true,...}
+curl http://127.0.0.1:80/api/config     # 同源反代路径(A) -> {"ok":true,...}
+curl http://127.0.0.1:3001/api/config   # 直连后端路径(B) -> {"ok":true,...}
 ```

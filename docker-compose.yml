@@ -2,7 +2,7 @@
 #  vrcnotifier 一键部署(单文件自举版, 无需任何额外文件/命令)
 #
 #    docker compose up -d     # 一条命令: 首启自动生成主密钥 -> 起后端(AES-256-GCM 加密) -> 起前端(静态 + /api 反代)
-#    默认端口 80, 可用 FRONTEND_PORT 覆盖;  停止: docker compose down
+#    默认端口: 前端 80 (FRONTEND_PORT 可覆盖) + 后端 API 3001 (API_PORT 可覆盖);  停止: docker compose down
 #
 #  镜像(已发布到 Docker Hub, 本机已缓存):
 #    sihenglu/vrcnotifier-frontend:latest   前端(nginx: 静态页 + /api 同源反代)
@@ -20,9 +20,14 @@
 #       否则后端检测到"无法解密"会清空敏感数据(仅访问令牌保留)后退出重启。
 #
 #  使用:
-#    docker compose up -d            # 启动(端口默认 80, FRONTEND_PORT 可覆盖)
+#    docker compose up -d            # 启动(前端默认 80 / 后端 API 默认 3001, 均可用环境变量覆盖)
 #    docker compose logs -f          # 看日志
 #    docker compose down             # 停止(保留 vrcn-key / vrcn-data 卷)
+#
+#  连接方式(二选一, 令牌相同):
+#    A. 同源反代(推荐, 单端口): 浏览器开 http://<IP>:<前端端口>, 门禁"后端地址"留自动预填即可
+#    B. 直连后端(备用):        页面仍开 http://<IP>:<前端端口>, 门禁"后端地址"填 http://<IP>:<API_PORT>(默认3001)
+#       (后端已开 CORS Access-Control-Allow-Origin:*, 跨端口直连可用)
 # ============================================================
 name: vrcnotifier
 
@@ -65,6 +70,8 @@ services:
       # —— 可选: 复用已有数据目录(替代上行命名卷)——
       #   仅当确认 vrcn-key 内密钥与该数据加密所用密钥一致时启用, 否则数据会被清空:
       # - ./data:/app/data
+    ports:
+      - "${API_PORT:-3001}:3000"   # 默认对外暴露后端 API(API_PORT 可覆盖): 浏览器/调试可直连 http://<IP>:3001
     healthcheck:
       test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/api/config').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
       interval: 20s
