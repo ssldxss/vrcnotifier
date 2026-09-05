@@ -1,30 +1,81 @@
 # ============================================================
-#  vrcnotifier 一键部署(两容器: 前端 nginx + 后端 Node API)
+#  vrcnotifier 一键部署(单文件自举版, 无需任何额外文件/命令)
 #
-#  镜像(已发布到 Docker Hub):
-#    sihenglu/vrcnotifier-frontend:latest   前端(nginx, 静态页 + /api 反代)
-#    sihenglu/vrcnotifier-backend :latest   后端(API, 敏感数据 AES-256-GCM 加密)
+#    docker compose up -d     # 一条命令: 首启自动生成主密钥 -> 起后端(AES-256-GCM 加密) -> 起前端(静态 + /api 反代)
+#    默认端口 80, 可用 FRONTEND_PORT 覆盖;  停止: docker compose down
 #
-#  使用(一键):
-#    1) 放置主密钥文件(64 位十六进制 或 32 字节 base64, 行尾换行无碍):
-#         cp <你的主密钥> secrets/master_key
-#    2) docker compose up -d
-#    3) 浏览器访问  http://<主机>:80     (端口可用 FRONTEND_PORT 覆盖)
-#    停止:  docker compose down
+#  镜像(已发布到 Docker Hub, 本机已缓存):
+#    sihenglu/vrcnotifier-frontend:latest   前端(nginx: 静态页 + /api 同源反代)
+#    sihenglu/vrcnotifier-backend :latest   后端(API; 一次性 keygen 也复用此镜像, 不额外拉取)
 #
-#  说明:
-#    - 前端对外 80 端口, 同源反代 /api 到后端(免 CORS); SSE 已关闭缓冲。
-#    - 后端 SERVE_STATIC 关闭, 仅 API; 主密钥经 Docker Secret 注入
-#      /run/secrets/vrcnotifier_master_key, 不写入镜像, 也不进环境变量(仅由 entrypoint 读文件后交给进程)。
-#    - 主密钥必须与数据加密所用密钥一致: 若旧数据曾以密钥 X 加密, 这里必须用 X,
-#      否则后端检测到"无法解密"会清空敏感数据(访问令牌保留)后退出重启。
+#  主密钥(单文件方案如何做到"不交付密钥文件"):
+#    - 首启由一次性容器 vrcn-keygen 在命名卷 vrcn-key 内随机生成 32 字节密钥, 不落 yaml、不落 host 文件。
+#    - 密钥经卷挂载到后端 /run/secrets/vrcnotifier_master_key, entrypoint 以 root 读取后注入 MASTER_KEY 环境变量。
+#    - vrcn-keygen 仅在卷内无密钥时生成; 之后每次启动复用同一把 -> 数据可正常解密。
+#
+#  ⚠️ 重要(务必知悉):
+#    1) 停服勿用 `docker compose down -v`: 会连同删除 vrcn-key(密钥) 与 vrcn-data(数据) 两个卷。
+#       密钥一旦丢失, 下次 up 会生成新密钥, 旧数据解不开 -> 被清空(仅访问令牌保留)。
+#    2) 迁移"已有且已加密"的数据: 必须先把原密钥预置进 vrcn-key 卷、并改用原数据卷(见 DOCKER.md),
+#       否则后端检测到"无法解密"会清空敏感数据(仅访问令牌保留)后退出重启。
+#
+#  使用:
+#    docker compose up -d            # 启动(端口默认 80, FRONTEND_PORT 可覆盖)
+#    docker compose logs -f          # 看日志
+#    docker compose down             # 停止(保留 vrcn-key / vrcn-data 卷)
 # ============================================================
 name: vrcnotifier
 
 services:
+  # ── 一次性主密钥生成: 仅首启生成, 之后复用; 密钥写入命名卷 vrcn-key ──
+  vrcn-keygen:
+    image: sihenglu/vrcnotifier-backend:latest   # 复用后端镜像(自带 node crypto), 无需额外拉取
+    entrypoint: []
+    command:
+      - sh
+      - -c
+      - |
+        K=/data/vrcnotifier_master_key
+        if [ ! -s "$$K" ]; then
+          node -e 'process.stdout.write(require("crypto").randomBytes(32).toString("hex"))' > "$$K"
+          chmod 600 "$$K"
+          echo "vrcn-keygen: 已生成新的主密钥(32 字节)"
+        else
+          echo "vrcn-keygen: 检测到已有主密钥, 保持不变"
+        fi
+    volumes:
+      - vrcn-key:/data
+    network_mode: "none"
+    restart: "no"
+
+  # ── 后端 API(Node.js)──
+  vrcnotifier-backend:
+    image: sihenglu/vrcnotifier-backend:latest
+    restart: unless-stopped
+    depends_on:
+      vrcn-keygen:
+        condition: service_completed_successfully
+    environment:
+      PORT: "3000"
+      SERVE_STATIC: ""        # API-only; 静态页由前端容器提供
+      TZ: Asia/Shanghai
+    volumes:
+      - vrcn-key:/run/secrets   # 主密钥卷(来自 keygen): 落在 /run/secrets/vrcnotifier_master_key, entrypoint 以 root 读取
+      - vrcn-data:/app/data     # 业务数据卷
+      # —— 可选: 复用已有数据目录(替代上行命名卷)——
+      #   仅当确认 vrcn-key 内密钥与该数据加密所用密钥一致时启用, 否则数据会被清空:
+      # - ./data:/app/data
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/api/config').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks: [vrcnet]
+
+  # ── 前端(nginx: 静态 + /api 反代)──
   vrcnotifier-frontend:
     image: sihenglu/vrcnotifier-frontend:latest
-    container_name: vrcnotifier-frontend
     restart: unless-stopped
     depends_on:
       vrcnotifier-backend:
@@ -37,34 +88,8 @@ services:
       - "${FRONTEND_PORT:-80}:80"
     networks: [vrcnet]
 
-  vrcnotifier-backend:
-    image: sihenglu/vrcnotifier-backend:latest
-    container_name: vrcnotifier-backend
-    restart: unless-stopped
-    environment:
-      PORT: "3000"
-      SERVE_STATIC: ""        # API-only; 静态页由前端容器提供
-      TZ: Asia/Shanghai
-    volumes:
-      - vrcn-data:/app/data
-      # —— 可选: 复用已有数据目录(替代上行命名卷)——
-      #   仅当确认 secrets/master_key 与该数据加密所用密钥一致时启用, 否则数据会被清空:
-      # - ./data:/app/data
-    secrets:
-      - vrcnotifier_master_key
-    healthcheck:
-      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/api/config').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
-      interval: 20s
-      timeout: 5s
-      retries: 5
-      start_period: 15s
-    networks: [vrcnet]
-
-secrets:
-  vrcnotifier_master_key:
-    file: ${MASTER_KEY_FILE:-secrets/master_key}
-
 volumes:
+  vrcn-key:
   vrcn-data:
 
 networks:
