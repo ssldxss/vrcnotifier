@@ -12,17 +12,89 @@ VRChat 好友监控与通知器(v0.1.0)——实时监听好友**上线 / 下线
 ## 快速开始(Docker,推荐)
 
 镜像已发布到 Docker Hub:`sihenglu/vrcnotifier-backend` / `sihenglu/vrcnotifier-frontend`(`latest` 与 `v0.1.0`)。
-`docker-compose.yml` 完全自举:首启自动生成主密钥 → 起后端(AES-256-GCM 加密)→ 起前端(静态页 + `/api` 同源反代),**无需任何额外文件或命令**。
+完全自举:首启自动生成主密钥 → 起后端(AES-256-GCM 加密)→ 起前端(静态页 + `/api` 同源反代),**无需任何额外文件或命令**。
+
+起来后是三个容器:`vrcn-keygen`(一次性,首启生成主密钥后立即退出)/ `vrcnotifier-backend`(业务与日志都在这)/ `vrcnotifier-frontend`(nginx 反代)。访问令牌在**后端容器**的日志里。
+
+**第 1 步**:把下面内容保存为 `docker-compose.yml`(单文件,完整可用):
+
+```yaml
+name: vrcnotifier
+
+services:
+  # 一次性主密钥生成: 仅首启生成, 之后复用; 密钥写入命名卷 vrcn-key
+  vrcn-keygen:
+    image: sihenglu/vrcnotifier-backend:latest
+    entrypoint: []
+    command:
+      - sh
+      - -c
+      - |
+        K=/data/vrcnotifier_master_key
+        if [ ! -s "$$K" ]; then
+          node -e 'process.stdout.write(require("crypto").randomBytes(32).toString("hex"))' > "$$K"
+          chmod 600 "$$K"
+          echo "vrcn-keygen: 已生成新的主密钥(32 字节)"
+        else
+          echo "vrcn-keygen: 检测到已有主密钥, 保持不变"
+        fi
+    volumes:
+      - vrcn-key:/data
+    network_mode: "none"
+    restart: "no"
+
+  # 后端 API(Node.js)
+  vrcnotifier-backend:
+    image: sihenglu/vrcnotifier-backend:latest
+    restart: unless-stopped
+    depends_on:
+      vrcn-keygen:
+        condition: service_completed_successfully
+    environment:
+      PORT: "3000"
+      SERVE_STATIC: ""
+      TZ: Asia/Shanghai
+    volumes:
+      - vrcn-key:/run/secrets
+      - vrcn-data:/app/data
+    ports:
+      - "${API_PORT:-3001}:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/api/config').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks: [vrcnet]
+
+  # 前端(nginx: 静态 + /api 反代)
+  vrcnotifier-frontend:
+    image: sihenglu/vrcnotifier-frontend:latest
+    restart: unless-stopped
+    depends_on:
+      vrcnotifier-backend:
+        condition: service_healthy
+    environment:
+      BACKEND_HOST: vrcnotifier-backend
+      BACKEND_PORT: "3000"
+      TZ: Asia/Shanghai
+    ports:
+      - "${FRONTEND_PORT:-80}:80"
+    networks: [vrcnet]
+
+volumes:
+  vrcn-key:
+  vrcn-data:
+
+networks:
+  vrcnet:
+```
+
+**第 2 步**:一条命令启动,然后看**后端容器**的日志(首次启动自动生成访问令牌并只打印一次,注意保存):
 
 ```bash
-# 1. 获取 docker-compose.yml(整仓克隆,或只拷这一个文件)
-git clone https://github.com/ssldxss/vrcnotifier.git && cd vrcnotifier
-
-# 2. 一条命令启动
 docker compose up -d
-
-# 3. 查看日志(首次启动会打印访问令牌,注意保存)
-docker compose logs -f
+docker compose logs -f vrcnotifier-backend
 ```
 
 | 入口 | 默认地址 | 覆盖方式 |
@@ -39,7 +111,7 @@ FRONTEND_PORT=8080 API_PORT=3002 docker compose up -d
 **首次使用流程**:
 
 1. 浏览器打开 `http://<主机>:80`(同源反代,门禁"后端地址"留自动预填即可;备用方式:直连后端 `http://<主机>:3001`)。
-2. 门禁页填入**访问令牌**——首次启动自动生成并**只在日志里打印一次**(`docker compose logs vrcnotifier-backend` 里找"访问令牌");也可用环境变量 `ACCESS_TOKEN` 预置。
+2. 门禁页填入**访问令牌**——首次启动自动生成并**只打印一次**,在后端容器日志里:`docker compose logs vrcnotifier-backend | grep 访问令牌`。
 3. 登录 VRChat 账号;开启 2FA 的账号会要求输入邮箱验证码。
 4. 在"设置"里配置 QQ 机器人的 **AppID / AppSecret**,启动后在 QQ 里给机器人**发任意一条消息**完成绑定。
 5. 在好友列表里打开需要监控的好友开关,完成。
