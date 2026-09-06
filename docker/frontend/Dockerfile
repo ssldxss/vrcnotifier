@@ -5,7 +5,7 @@
 # 构建(上下文为仓库根目录): docker build -f docker/frontend/Dockerfile -t vrcnotifier-frontend .
 FROM nginx:1.27-alpine
 
-# 静态资源(单页应用: index.html + sdk.js)。Google 字体由浏览器直连, 无需在此托管。
+# 静态资源(单页应用: index.html + app.css + app.js + sdk.js)。Google 字体由浏览器直连, 无需在此托管。
 COPY public/ /usr/share/nginx/html/
 
 # 站点配置模板 → 渲染为 /etc/nginx/conf.d/default.conf
