@@ -118,11 +118,13 @@ npm run frontend   # 前端  http://localhost:8080
 npm test           # 全量测试
 ```
 
-## 数据加密
+## 数据与安全
 
 - 敏感数据(VRChat 用户名/密码/cookie、QQ AppSecret)以 **AES-256-GCM** 加密落库(密文前缀 `v1:`)。
 - 密钥来源优先级:Docker Secret(compose 自举默认)→ 环境变量 `MASTER_KEY`(64 位 hex)→ 不加密启动(日志与前端提示)。
 - 密钥丢失/不匹配时,已加密数据解不开会被清空(访问令牌保留);明文旧数据原样直通。
+- 为什么要存储用户名和密码：在ip发生变化等情况可无需f2a重新登录，减少人工干预（使用过期的cookies加用户加名密码可无需f2a重新登录）
+
 
 ## 环境变量
 
