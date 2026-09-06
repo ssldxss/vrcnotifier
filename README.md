@@ -94,7 +94,9 @@ docker compose up -d
 docker compose logs vrcnotifier-backend | grep 访问令牌
 ```
 
-**第 3 步**:浏览器打开 `http://<主机>:80`(页面默认端口,可用 `FRONTEND_PORT` 改)→ 门禁页填访问令牌 → 登录 VRChat(开 2FA 的账号需邮箱验证码)→ 设置里填 QQ 机器人 AppID/AppSecret → QQ 里给机器人**发任意一条消息**完成绑定 → 好友列表打开要监控的开关,完成。
+**第 3 步**:浏览器打开 `http://<主机>:80`(页面默认端口,可用 `FRONTEND_PORT` 改)→ 门禁页填访问令牌 → 登录 VRChat(开 2FA 的账号需邮箱验证码)→ 设置里填 QQ 机器人 AppID/AppSecret → QQ 里给机器人**发任意一条消息**完成绑定 → 好友列表打开要监控的开关
+
+- 强烈建议绑定QQbot，这是项目使用体验的核心
 
 > ⚠️ 停服用 `docker compose down`(保留卷);**勿用 `down -v`**——会删除密钥卷与数据卷,旧数据将被清空(仅访问令牌保留)。备份、迁移详见 [DOCKER.md](./DOCKER.md)。
 
@@ -107,7 +109,9 @@ docker compose logs vrcnotifier-backend | grep 访问令牌
 - Web 面板:好友列表(头像/信任等级/收藏/搜索)、逐好友通知开关、实时日志、WS 流量图、VRChat 健康状态
 - 世界名:无 Cookie 公共接口解析,一年缓存
 
-## 本地运行(不用 Docker)
+## 开发与从源码运行
+
+git clone 本项目后
 
 Node.js **≥ 22.13.0**(推荐 24.x,依赖 `node:sqlite`):
 
@@ -115,7 +119,6 @@ Node.js **≥ 22.13.0**(推荐 24.x,依赖 `node:sqlite`):
 npm install
 npm start          # 后端  http://localhost:3000
 npm run frontend   # 前端  http://localhost:8080
-npm test           # 全量测试
 ```
 
 ## 数据与安全
@@ -135,6 +138,11 @@ npm test           # 全量测试
 - [DOCKER.md](./DOCKER.md) — Docker 详解:密钥自举、卷备份、数据迁移、镜像重建
 - `docker-compose.test.yml` — 自带密钥文件的联调 compose(前端 8090 / 后端 127.0.0.1:3001)
 
-灵感来自 [shanyaojinjn/VRC-Notifier](https://github.com/shanyaojinjn/VRC-Notifier):改用 WebSocket 实时事件 + 数据加密 + QQ 机器人集成。
+灵感来自
+ [shanyaojinjn/VRC-Notifier](https://github.com/shanyaojinjn/VRC-Notifier):改用 WebSocket 实时事件 + 数据加密 + QQ 机器人集成。
+
+鉴定为玩vrc玩的
 
 <img width="1254" height="1254" alt="psc" src="https://github.com/user-attachments/assets/43077f4e-4fc1-4b8d-bd18-499edef84a52" />
+
+也就只能写写readme了
