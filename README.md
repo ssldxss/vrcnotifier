@@ -4,7 +4,7 @@ VRChat 好友监控与通知器(v0.1.0):WebSocket 实时好友**上线 / 下线 
 
 ## 快速开始(Docker)
 
-docker-compose.yml
+将以下内容保存为 `docker-compose.yml`:
 
 ```yaml
 name: vrcnotifier
@@ -100,9 +100,9 @@ Node.js ≥ 22.13.0(推荐 24.x,依赖node:sqlite): \
 
 ## 数据与安全
 
-本项目将存储vrchat的用户名/密码和cookies信息，存储密码可在ip变化等场景下重新登录，可实现无F2A无需人工干预自动重新登录
+本项目将存储 VRChat 的用户名/密码和 cookies 信息;存储的密码可在 IP 变化等场景下重新登录,实现免 2FA、无需人工干预的自动重登
 
-此项目非vrchat官方无关
+本项目与 VRChat 官方无关
 
 ## 环境变量
 
@@ -113,8 +113,7 @@ Node.js ≥ 22.13.0(推荐 24.x,依赖node:sqlite): \
 - [DOCKER.md](./DOCKER.md) — Docker 详解:密钥自举、卷备份、数据迁移、镜像重建
 - `docker-compose.test.yml` — 自带密钥文件的联调 compose(前端 8090 / 后端 127.0.0.1:3001)
 
-灵感来自
- [shanyaojinjn/VRC-Notifier](https://github.com/shanyaojinjn/VRC-Notifier):改用 WebSocket 实时事件 + 数据加密 + QQ 机器人集成。
+灵感来自 [shanyaojinjn/VRC-Notifier](https://github.com/shanyaojinjn/VRC-Notifier):改用 WebSocket 实时事件 + 数据加密 + QQ 机器人集成。
 
 鉴定为玩vrc玩的
 
