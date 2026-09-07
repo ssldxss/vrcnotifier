@@ -12,6 +12,7 @@ function baseUrl() {
 
 // 首次打开(未保存过后端地址)时自动探测后端: 同源(Docker 单容器/同域反代) → 本机 3000(独立前端开发)。
 // /api/config 无需 token, 探测成功即以此为默认地址, 门禁页无需手动填写。
+// 注意: 只认「JSON 且 ok:true」的响应 —— SPA 兜底路由/CDN 错误页同样会回 200+HTML, 不能当作后端存在。
 async function discoverBase() {
   const candidates = [];
   if (window.location.protocol === 'http:' || window.location.protocol === 'https:') {
@@ -21,7 +22,10 @@ async function discoverBase() {
   for (const c of candidates) {
     try {
       const r = await fetch(c + '/api/config', { signal: AbortSignal.timeout(2000) });
-      if (r.ok) { discoveredBase = c; break; }
+      if (!r.ok) continue;
+      if (!/json/i.test(r.headers.get('content-type') || '')) continue;
+      const body = await r.json();
+      if (body && body.ok === true) { discoveredBase = c; break; }
     } catch (e) { /* 下一个候选 */ }
   }
   if (currentView === 'gate') fillGateForm(); // 探测完成后刷新门禁卡预填
@@ -102,8 +106,14 @@ async function api(method, path, body, opts = {}) {
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   if (!opts.noAuth && accessToken()) headers['Authorization'] = 'Bearer ' + accessToken();
   const res = await fetch(url, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal: opts.signal, cache: 'no-store' });
-  let data = {};
-  try { data = await res.json(); } catch (e) { data = {}; }
+  let data;
+  try {
+    data = await res.json();
+  } catch (e) {
+    // 非 JSON 响应(SPA 兜底路由回 index.html / 代理错误页): 按「未正确连接后端」抛出,
+    // 不能吞成空数据 —— 否则 /api/session 200+HTML 会被误判为「未登录」而跳过门禁页
+    throw new Error(res.ok ? '后端响应不是 JSON (可能 /api 反代配置错误或命中 SPA 兜底路由)' : '后端响应不是 JSON (HTTP ' + res.status + ')');
+  }
   if (res.status === 401 && !opts.noAuth && headers['Authorization'] && path !== '/api/login' && path !== '/api/login/2fa') {
     const errMsg = String((data && data.error) || '');
     if (errMsg.includes('未登录')) {
@@ -318,12 +328,11 @@ async function loadConfig() {
       showView('gate');
       return;
     }
+    await checkSession(); // 置于 try 内: 会话请求失败(含非 JSON 响应)统一回落门禁页, 不留未捕获异常
   } catch (e) {
     showView('gate');
     $('#gateMsg').textContent = '\u65e0\u6cd5\u8fde\u63a5\u540e\u7aef: ' + (e && e.name === 'TimeoutError' ? '连接超时' : e.message);
-    return;
   }
-  await checkSession();
 }
 
 $('#connectBtn').addEventListener('click', async () => {
@@ -1068,10 +1077,13 @@ function applyLatency(lat, d) {
 }
 
 async function loadHealth() {
-  const [r, s] = await Promise.all([
-    api('GET', '/api/health'),
-    api('GET', '/api/vrc-status')
-  ]);
+  let r, s;
+  try {
+    [r, s] = await Promise.all([
+      api('GET', '/api/health'),
+      api('GET', '/api/vrc-status')
+    ]);
+  } catch (e) { return; } // 后端未正确连接时由门禁/心跳弹窗兜底, 此处不抛未捕获异常
   const d = r.data || {};
   applyLatency($('#stHealthLatency'), d);
   applyLatency($('#lgHealthLatency'), d);
