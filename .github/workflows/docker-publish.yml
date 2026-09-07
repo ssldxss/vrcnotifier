@@ -1,0 +1,97 @@
+# ============================================================
+#  vrcnotifier CI: 自动构建并推送 Docker 镜像到 Docker Hub
+#
+#  触发: push 到 main / 打 tag(v*) / 手动(Actions 页面)
+#  产物(推送):
+#    sihenglu/vrcnotifier-backend :latest | <版本> | sha-<前12位>
+#    sihenglu/vrcnotifier-frontend:latest | <版本> | sha-<前12位>
+#
+#  需要仓库 Secrets:
+#    DOCKERHUB_TOKEN  Docker Hub 访问令牌(个人访问令牌即可)
+#  用户名固定为 sihenglu(如需更换, 改 DOCKERHUB_USER 并同步 tag 前缀)
+# ============================================================
+name: Build & Push Docker Images
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Build & push to Docker Hub
+    runs-on: ubuntu-latest
+    env:
+      REGISTRY: docker.io
+      DOCKERHUB_USER: sihenglu
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # 后端 Dockerfile 直接 COPY node_modules(依赖为纯 JS, 无原生模块);
+      # node_modules 被 gitignore, 故在构建上下文里先安装一份。
+      - name: Install JS dependencies
+        run: npm ci --omit=dev
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ env.DOCKERHUB_USER }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Compute image tags
+        id: meta
+        run: |
+          set -euo pipefail
+          SHA12="${GITHUB_SHA:0:12}"
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            VER="${GITHUB_REF#refs/tags/}"
+            VER="${VER#v}"
+          else
+            VER="$(node -p "require('./package.json').version")"
+          fi
+          echo "sha=${SHA12}" >> "$GITHUB_OUTPUT"
+          echo "ver=${VER}" >> "$GITHUB_OUTPUT"
+          echo "tags: latest, ${VER}, sha-${SHA12}"
+
+      - name: Build & push backend
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            sihenglu/vrcnotifier-backend:latest
+            sihenglu/vrcnotifier-backend:${{ steps.meta.outputs.ver }}
+            sihenglu/vrcnotifier-backend:sha-${{ steps.meta.outputs.sha }}
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
+
+      - name: Build & push frontend
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/frontend/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            sihenglu/vrcnotifier-frontend:latest
+            sihenglu/vrcnotifier-frontend:${{ steps.meta.outputs.ver }}
+            sihenglu/vrcnotifier-frontend:sha-${{ steps.meta.outputs.sha }}
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
