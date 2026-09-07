@@ -4,6 +4,10 @@ VRChat 好友监控与通知器(v0.1.0):WebSocket 实时好友**上线 / 下线 
 
 ## 快速开始(Docker)
 
+- 仅后端(使用本项目统一前端) \
+  [Cloudflare1](https://vrcn.pages.dev/)
+  [Cloudflare2](https://vrcnotifier.pages.dev/)
+  
 将以下内容保存为 `docker-compose.yml`:
 
 ```yaml
@@ -47,6 +51,65 @@ services:
       - vrcn-data:/app/data      # 数据文件
     ports:
       - "${API_PORT:-3000}:3000" # API 端口
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/api/config').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+volumes:
+  vrcn-key:
+  vrcn-data:
+
+networks:
+  vrcnet:
+```
+
+
+- 前端+后端 /
+  (不直接暴露后端端口,使用docker内部网络连接)
+
+将以下内容保存为 `docker-compose.yml`:
+
+```yaml
+name: vrcnotifier
+
+services:
+  # 一次性主密钥生成器，密钥写入命名卷 vrcn-key
+  vrcn-keygen:
+    image: sihenglu/vrcnotifier-backend:latest
+    entrypoint: []
+    command:
+      - sh
+      - -c
+      - |
+        K=/data/vrcnotifier_master_key
+        if [ ! -s "$$K" ]; then
+          node -e 'process.stdout.write(require("crypto").randomBytes(32).toString("hex"))' > "$$K"
+          chmod 600 "$$K"
+          echo "vrcn-keygen: 已生成新的主密钥(32 字节)"
+        else
+          echo "vrcn-keygen: 检测到已有主密钥, 保持不变"
+        fi
+    volumes:
+      - vrcn-key:/data
+    network_mode: "none"
+    restart: "no"
+
+  # 后端 API(Node.js)
+  vrcnotifier-backend:
+    image: sihenglu/vrcnotifier-backend:latest
+    restart: unless-stopped
+    depends_on:
+      vrcn-keygen:
+        condition: service_completed_successfully
+    environment:
+      PORT: "3000"
+      SERVE_STATIC: ""
+      TZ: Asia/Shanghai
+    volumes:
+      - vrcn-key:/run/secrets    # 主密钥
+      - vrcn-data:/app/data      # 数据文件
     healthcheck:
       test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/api/config').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
       interval: 20s
