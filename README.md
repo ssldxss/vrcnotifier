@@ -12,7 +12,7 @@ VRChat 好友监控与通知器(v0.1.0):WebSocket 实时好友**上线 / 下线 
 name: vrcnotifier
 
 services:
-  # 一次性主密钥生成: 仅首启生成, 之后复用; 密钥写入命名卷 vrcn-key
+  # 一次性主密钥生成器，密钥写入命名卷 vrcn-key
   vrcn-keygen:
     image: sihenglu/vrcnotifier-backend:latest
     entrypoint: []
