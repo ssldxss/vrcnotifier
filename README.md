@@ -1,19 +1,12 @@
 # vrcnotifier
 
-VRChat 好友监控与通知器(v0.1.0):WebSocket 实时监听好友**上线 / 下线 / 切换世界 / 状态变化**及站内通知(好友请求、邀请、私信),通过 **QQ 官方机器人**推送到手机;附 Web 面板、REST 对账、日志与健康监控。
-
-- 实时优先:WebSocket 事件驱动,不做 API 轮询;每小时 REST 快照对账 + 看门狗兜底
-- QQ 机器人还能**回复 2FA 验证码**、重发验证码、查询在线好友列表
-- 自动恢复:cookie 失效自动重登、会话挂起自动 2FA、WS 断线自动重连
-- 敏感数据(VRChat 用户名/密码/cookie、QQ AppSecret)AES-256-GCM 加密落库
-- Docker 一条命令起全栈,官方镜像已发布,密钥首启自动自举
+VRChat 好友监控与通知器(v0.1.0):WebSocket 实时好友**上线 / 下线 / 切换世界 / 状态变化**+ 站内通知(好友请求、邀请、私信),经 **QQ 官方机器人**推送到手机(机器人还可回复 2FA 验证码、查在线好友列表);自动恢复(cookie 失效自动重登、会话挂起自动 2FA、WS 自动重连);Web 面板、REST 对账、日志监控。敏感数据(VRChat 用户名/密码/cookie、QQ AppSecret)AES-256-GCM 加密落库。
 
 ## 快速开始(Docker)
 
-镜像:Docker Hub `sihenglu/vrcnotifier-backend` / `sihenglu/vrcnotifier-frontend`(`latest` / `v0.1.0`)。
-起来后三个容器:`vrcn-keygen`(一次性,首启生成主密钥即退出)/ `vrcnotifier-backend`(业务与日志)/ `vrcnotifier-frontend`(nginx 反代)。
+镜像:Docker Hub `sihenglu/vrcnotifier-backend` / `sihenglu/vrcnotifier-frontend`。
 
-**第 1 步**:把下面内容保存为 `docker-compose.yml`(单文件,完整可用):
+下面内容存为 `docker-compose.yml`(注释含改端口、数据持久化):
 
 ```yaml
 name: vrcnotifier
@@ -87,47 +80,22 @@ networks:
   vrcnet:
 ```
 
-**第 2 步**:启动,并从**后端容器**日志取访问令牌(首次启动自动生成,只打印一次):
-
 ```bash
 docker compose up -d
-docker compose logs vrcnotifier-backend | grep 访问令牌
+docker compose logs vrcnotifier-backend | grep 访问令牌   # 访问令牌: 首启自动生成, 只打印一次
 ```
 
-**第 3 步**:浏览器打开 `http://<主机>:80`(页面默认端口,可用 `FRONTEND_PORT` 改)→ 门禁页填访问令牌 → 登录 VRChat(开 2FA 的账号需邮箱验证码)→ 设置里填 QQ 机器人 AppID/AppSecret → QQ 里给机器人**发任意一条消息**完成绑定 → 好友列表打开要监控的开关
+打开 `http://<主机>:80`:填访问令牌 → 登录 VRChat(2FA 需邮箱验证码)→ 设置填 QQ AppID/AppSecret、QQ 里给机器人发任意一条消息完成绑定 → 好友列表开监控开关,完成。
 
-- 强烈建议绑定QQbot，这是项目使用体验的核心
+> 停服用 `docker compose down`;**勿用 `down -v`**(删密钥+数据卷,旧数据不可恢复)。备份/迁移/镜像重建见 [DOCKER.md](./DOCKER.md)。
 
-> ⚠️ 停服用 `docker compose down`(保留卷);**勿用 `down -v`**——会删除密钥卷与数据卷,旧数据将被清空(仅访问令牌保留)。备份、迁移详见 [DOCKER.md](./DOCKER.md)。
+## 本地运行
 
-## 功能
+Node.js ≥ 22.13.0(推荐 24.x,依赖 `node:sqlite`):`npm install` → `npm start`(后端 :3000)/ `npm run frontend`(前端 :8080)/ `npm test`。
 
-- 实时状态:上线 / 下线 / 网页端活跃 / 切换世界 / 状态变化(下线 30 秒防抖动)
-- 站内通知:好友请求、世界邀请(解析世界名)、私信、社交互动
-- QQ 推送:Markdown;机器人可回复 `验证码` / `重发验证码` / 任意消息查在线好友列表
-- 自动恢复:WS 断线指数退避重连、cookie 失效自动重登、会话挂起自动 2FA、5 分钟未恢复才推故障通知
-- Web 面板:好友列表(头像/信任等级/收藏/搜索)、逐好友通知开关、实时日志、WS 流量图、VRChat 健康状态
-- 世界名:无 Cookie 公共接口解析,一年缓存
+## 加密与密钥
 
-## 开发与从源码运行
-
-git clone 本项目后
-
-Node.js **≥ 22.13.0**(推荐 24.x,依赖 `node:sqlite`):
-
-```bash
-npm install
-npm start          # 后端  http://localhost:3000
-npm run frontend   # 前端  http://localhost:8080
-```
-
-## 数据与安全
-
-- 敏感数据(VRChat 用户名/密码/cookie、QQ AppSecret)以 **AES-256-GCM** 加密落库(密文前缀 `v1:`)。
-- 密钥来源优先级:Docker Secret(compose 自举默认)→ 环境变量 `MASTER_KEY`(64 位 hex)→ 不加密启动(日志与前端提示)。
-- 密钥丢失/不匹配时,已加密数据解不开会被清空(访问令牌保留);明文旧数据原样直通。
-- 为什么要存储用户名和密码：在ip发生变化等情况可无需f2a重新登录，减少人工干预（使用过期的cookies加用户加名密码可无需f2a重新登录）
-
+密钥优先级:Docker Secret(首启自动生成,存 `vrcn-key` 卷)→ 环境变量 `MASTER_KEY`(64 位 hex)→ 不加密启动(有提示)。密钥丢失/不匹配时已加密数据被清空(访问令牌保留);明文旧数据直通。
 
 ## 环境变量
 
