@@ -89,10 +89,10 @@ docker compose logs vrcnotifier-backend | grep 访问令牌   # 访问令牌: �
 
 ## 本地运行
 
-Node.js ≥ 22.13.0(推荐 24.x,依赖 `node:sqlite`):
+Node.js ≥ 22.13.0(推荐 24.x,依赖 `node:sqlite`): \
 `npm install` \
 `npm start`(后端 :3000) \
-`npm run frontend`(前端 :8080) \
+`npm run frontend`(前端 :8080)
 
 ## 加密与密钥
 
