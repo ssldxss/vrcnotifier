@@ -7,6 +7,7 @@ VRChat 好友监控与通知器(v0.1.0):WebSocket 实时好友**上线 / 下线 
 - 仅后端(使用本项目统一前端) \
   [Cloudflare1](https://vrcn.pages.dev/)
   [Cloudflare2](https://vrcnotifier.pages.dev/)
+  [GitHub Pages](https://ssldxss.github.io/vrcnotifier/)
   
 将以下内容保存为 `docker-compose.yml`:
 

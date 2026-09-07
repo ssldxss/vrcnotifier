@@ -1,0 +1,23 @@
+# GitHub Pages 构建配置
+#
+# 前端静态文件在 public/(Jekyll 默认静态资源目录, 会被发布到站点根路径)。
+# 其余后端源码/文档对 Pages 站点没有意义, 用 exclude 挡掉,
+# 保证 Pages 上只发布 public/ 里的内容(与 Cloudflare Pages 部署内容一致)。
+exclude:
+  - src
+  - test
+  - docker
+  - docs
+  - .github
+  - node_modules
+  - Dockerfile
+  - docker-compose.yml
+  - docker-compose.test.yml
+  - serve.js
+  - package.json
+  - package-lock.json
+  - README.md
+  - DOCKER.md
+  - .gitignore
+  - .gitattributes
+  - .dockerignore

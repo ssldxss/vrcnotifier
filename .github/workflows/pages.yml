@@ -1,0 +1,54 @@
+# ============================================================
+#  vrcnotifier: 前端静态页发布到 GitHub Pages
+#
+#  站点: https://ssldxss.github.io/vrcnotifier/
+#  内容: public/ 目录原样发布(与 Cloudflare Pages 部署一致),
+#        供「仅后端」部署方案使用 —— 打开页面后在门禁里
+#        填写自己的后端地址 + 访问令牌即可。
+#
+#  触发: public/ 或本文件变更时的 push(main) / 手动
+#  需要: 仓库 Settings → Pages 的 source 为 "GitHub Actions"
+# ============================================================
+name: Deploy frontend to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "public/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Upload frontend artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v5
