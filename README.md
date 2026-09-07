@@ -98,6 +98,12 @@ Node.js ≥ 22.13.0(推荐 24.x,依赖node:sqlite): \
 
 密钥优先级:Docker Secret(首启自动生成,存 `vrcn-key` 卷)→ 环境变量 `MASTER_KEY`(64 位 hex)→ 不加密启动(有提示)。密钥丢失/不匹配时已加密数据被清空(访问令牌保留);明文旧数据直通。
 
+## 数据与安全
+
+本项目将存储vrchat的用户名/密码和cookies信息，存储密码可在ip变化等场景下重新登录，可实现无F2A无需人工干预自动重新登录
+
+此项目非vrchat官方无关
+
 ## 环境变量
 
 `PORT` `ACCESS_TOKEN` `MASTER_KEY` `VRC_API_URL` `VRC_WS_URL` `QQ_API_BASE` `QQ_WS_URL` `VRC_STATUS_URL` `USER_AGENT` `SNAPSHOT_INTERVAL_MS` `DEDUPE_WINDOW_MS` `WATCHDOG_MS` `WATCHDOG_CHECK_MS` `WS_PING_INTERVAL_MS` `WS_PONG_TIMEOUT_MS` `RECONNECT_MAX_MS` `SERVE_STATIC`
