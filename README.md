@@ -45,10 +45,10 @@ services:
       SERVE_STATIC: ""
       TZ: Asia/Shanghai
     volumes:
-      - vrcn-key:/run/secrets    # 持久化: 主密钥(首启自动生成)
-      - vrcn-data:/app/data      # 持久化: 数据文件(SQLite 数据库、头像缓存、日志), 备份/迁移就是这两个卷
+      - vrcn-key:/run/secrets    # 主密钥
+      - vrcn-data:/app/data      # 数据文件
     ports:
-      - "${API_PORT:-3001}:3000" # 对外 API 端口, 默认 3001; 改端口: API_PORT=3002 docker compose up -d
+      - "${API_PORT:-3001}:3000" # API 端口
     healthcheck:
       test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/api/config').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
       interval: 20s
@@ -69,7 +69,7 @@ services:
       BACKEND_PORT: "3000"
       TZ: Asia/Shanghai
     ports:
-      - "${FRONTEND_PORT:-80}:80"  # 对外页面端口, 默认 80; 改端口: FRONTEND_PORT=8080 docker compose up -d
+      - "${FRONTEND_PORT:-8080}:80"  # 前端端口
     networks: [vrcnet]
 
 volumes:
