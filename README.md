@@ -4,9 +4,7 @@ VRChat 好友监控与通知器(v0.1.0):WebSocket 实时好友**上线 / 下线 
 
 ## 快速开始(Docker)
 
-镜像:Docker Hub `sihenglu/vrcnotifier-backend` / `sihenglu/vrcnotifier-frontend`。
-
-下面内容存为 `docker-compose.yml`(注释含改端口、数据持久化):
+docker-compose.yml
 
 ```yaml
 name: vrcnotifier
@@ -91,7 +89,10 @@ docker compose logs vrcnotifier-backend | grep 访问令牌   # 访问令牌: �
 
 ## 本地运行
 
-Node.js ≥ 22.13.0(推荐 24.x,依赖 `node:sqlite`):`npm install` → `npm start`(后端 :3000)/ `npm run frontend`(前端 :8080)/ `npm test`。
+Node.js ≥ 22.13.0(推荐 24.x,依赖 `node:sqlite`):
+`npm install`
+`npm start`(后端 :3000)
+`npm run frontend`(前端 :8080)
 
 ## 加密与密钥
 
