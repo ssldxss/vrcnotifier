@@ -66,7 +66,7 @@ networks:
 ```
 
 
-- 前端+后端 /
+- 前端+后端 \
   (不直接暴露后端端口,使用docker内部网络连接)
 
 将以下内容保存为 `docker-compose.yml`:
