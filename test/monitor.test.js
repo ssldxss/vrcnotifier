@@ -1340,3 +1340,98 @@ test('self: WS user-location traveling keeps existing world', async () => {
   assert.equal(me.world_id, 'wrld_self');
   assert.equal(me.world_name, '世界_wrld_self');
 });
+
+// ---------- 已删除好友判定: 快照对账 / pending 验证 / WS 事件三种途径 ----------
+
+const meSnapshot = (over = {}) => ({
+  id: 'usr_me', state: 'offline', status: 'offline', statusDescription: null,
+  displayName: '我', currentAvatarImageUrl: null,
+  ...over
+});
+
+test('快照对账: 名册中消失的好友视为已删除, 移除记录且不误推下线', async () => {
+  const t = setup({ onlineFriends: [onlineFriend('usr_f1')], offlineFriends: [offlineFriend('usr_f2')] });
+  const user = addUser(t.db);
+  addConfig(t.db, user.id, 'usr_f1');
+  addConfig(t.db, user.id, 'usr_f2');
+  await t.monitor.activateUser(user, t.vrcapi); // 基线: f1 online, f2 offline
+  assert.ok(t.db.getFriend(user.id, 'usr_f2'), '基线建库');
+  // 名册只剩 f1: f2 已被删除
+  t.vrcapi.me = async () => meSnapshot({ friends: ['usr_f1'], onlineFriends: ['usr_f1'], activeFriends: [], offlineFriends: [] });
+  await t.monitor.runSnapshot(user.vrchat_user_id);
+  assert.equal(t.db.getFriend(user.id, 'usr_f2'), null, '名册中消失 → 记录移除');
+  assert.equal(t.notifications.length, 0, '删除不发下线通知');
+  assert.equal(t.db.getFriend(user.id, 'usr_f1').state, 'online', '在册好友不受影响');
+});
+
+test('快照对账: 名册缺失(仅状态数组)时保持旧逻辑置离线, 不删除', async () => {
+  const t = setup({ onlineFriends: [onlineFriend('usr_f1')], offlineFriends: [offlineFriend('usr_f2')] });
+  const user = addUser(t.db);
+  addConfig(t.db, user.id, 'usr_f1');
+  addConfig(t.db, user.id, 'usr_f2');
+  await t.monitor.activateUser(user, t.vrcapi);
+  // 无 friends 名册, 数组并集只有 f1 → f2 置离线, 行保留(数据不全不判删)
+  t.vrcapi.me = async () => meSnapshot({ onlineFriends: ['usr_f1'], activeFriends: [], offlineFriends: [] });
+  await t.monitor.runSnapshot(user.vrchat_user_id);
+  const f2 = t.db.getFriend(user.id, 'usr_f2');
+  assert.ok(f2, '无名册不删除记录');
+  assert.equal(f2.state, 'offline');
+});
+
+test('pending 验证: 好友不在名册 → 视为已删除, 移除记录且不推下线', async () => {
+  const t = setup({ confirmDelayMs: 20, now: () => Date.now(), onlineFriends: [onlineFriend('usr_f1')] });
+  const user = addUser(t.db);
+  addConfig(t.db, user.id, 'usr_f1');
+  await t.monitor.activateUser(user, t.vrcapi);
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '1', { type: 'friend-online', content: { userId: 'usr_f1', location: 'wrld_a:1', user: { id: 'usr_f1', displayName: 'F1', status: 'active' } } });
+  t.notifications.length = 0;
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '2', { type: 'friend-offline', content: { userId: 'usr_f1', platform: '' } });
+  assert.equal(t.db.getFriend(user.id, 'usr_f1').pending_state, 'offline', '进入 pending');
+  // 到期验证: 名册为空(好友已删)
+  t.vrcapi.me = async () => meSnapshot({ friends: [], onlineFriends: [], activeFriends: [], offlineFriends: [] });
+  await new Promise((r) => setTimeout(r, 120));
+  assert.equal(t.db.getFriend(user.id, 'usr_f1'), null, '验证发现不在名册 → 记录移除');
+  assert.equal(t.notifications.length, 0, '不发下线通知');
+});
+
+test('pending 验证: 无名册但不在任何状态数组 → 视为已删除', async () => {
+  const t = setup({ confirmDelayMs: 20, now: () => Date.now(), onlineFriends: [onlineFriend('usr_f1')] });
+  const user = addUser(t.db);
+  addConfig(t.db, user.id, 'usr_f1');
+  await t.monitor.activateUser(user, t.vrcapi);
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '1', { type: 'friend-online', content: { userId: 'usr_f1', location: 'wrld_a:1', user: { id: 'usr_f1', displayName: 'F1', status: 'active' } } });
+  t.notifications.length = 0;
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '2', { type: 'friend-offline', content: { userId: 'usr_f1', platform: '' } });
+  // 无 friends 名册, 三个数组都不含 f1
+  t.vrcapi.me = async () => meSnapshot({ onlineFriends: [], activeFriends: [], offlineFriends: [] });
+  await new Promise((r) => setTimeout(r, 120));
+  assert.equal(t.db.getFriend(user.id, 'usr_f1'), null, '任一数组都没有 → 记录移除');
+  assert.equal(t.notifications.length, 0);
+});
+
+test('pending 验证: 数据不全(无名册无数组) → 保持现状不误删', async () => {
+  const t = setup({ confirmDelayMs: 20, now: () => Date.now(), onlineFriends: [onlineFriend('usr_f1')] });
+  const user = addUser(t.db);
+  addConfig(t.db, user.id, 'usr_f1');
+  await t.monitor.activateUser(user, t.vrcapi);
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '1', { type: 'friend-online', content: { userId: 'usr_f1', location: 'wrld_a:1', user: { id: 'usr_f1', displayName: 'F1', status: 'active' } } });
+  t.notifications.length = 0;
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '2', { type: 'friend-offline', content: { userId: 'usr_f1', platform: '' } });
+  t.vrcapi.me = async () => ({ id: 'usr_me' }); // 名册与数组都缺失
+  await new Promise((r) => setTimeout(r, 120));
+  const f = t.db.getFriend(user.id, 'usr_f1');
+  assert.ok(f, '数据不全不判定删除');
+  assert.equal(f.pending_state, 'offline', 'pending 保持, 等下轮快照');
+  assert.equal(t.notifications.length, 0);
+});
+
+test('WS friend-delete: 直接移除记录', async () => {
+  const t = setup({ onlineFriends: [onlineFriend('usr_f1')] });
+  const user = addUser(t.db);
+  addConfig(t.db, user.id, 'usr_f1');
+  await t.monitor.activateUser(user, t.vrcapi);
+  assert.ok(t.db.getFriend(user.id, 'usr_f1'));
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'x', { type: 'friend-delete', content: { userId: 'usr_f1' } });
+  assert.equal(t.db.getFriend(user.id, 'usr_f1'), null, 'WS 删除事件移除记录');
+  assert.equal(t.notifications.length, 0, '删除不通知');
+});

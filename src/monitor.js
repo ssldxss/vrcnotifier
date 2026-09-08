@@ -537,13 +537,31 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
       log.warn(`[monitor] pending 到期验证失败(${friendIds.length} 人, 下轮快照再定): ${e.message}`);
       return;
     }
+    const arraysOk = Array.isArray(cu && cu.onlineFriends)
+      && Array.isArray(cu && cu.activeFriends)
+      && Array.isArray(cu && cu.offlineFriends);
+    const rosterOk = Array.isArray(cu && cu.friends);
     const stateOf = (id) => {
       if (Array.isArray(cu && cu.onlineFriends) && cu.onlineFriends.includes(id)) return 'online';
       if (Array.isArray(cu && cu.activeFriends) && cu.activeFriends.includes(id)) return 'active';
       if (Array.isArray(cu && cu.offlineFriends) && cu.offlineFriends.includes(id)) return 'offline';
       return null;
     };
+    // 已删除好友判定: 名册(me().friends)可用时以名册为准; 名册缺失退化为三个状态数组;
+    // 数据不全(名册与数组都缺)时不判定, 保持现状等下轮快照。
+    const isDeleted = (id) => {
+      if (rosterOk) return !cu.friends.includes(id);
+      if (arraysOk) return !(cu.onlineFriends.includes(id) || cu.activeFriends.includes(id) || cu.offlineFriends.includes(id));
+      return false;
+    };
     for (const id of friendIds) {
+      if (isDeleted(id)) {
+        const f = db.getFriend(user.id, id);
+        db.deleteFriend(user.id, id);
+        clearPendingCheck(user, id);
+        log.info(`[monitor] pending 验证 ${id}${f && f.display_name ? `(${f.display_name})` : ''}: 不在好友名册, 视为已删除好友, 已移除记录`);
+        continue;
+      }
       const state = stateOf(id);
       if (!state) {
         log.warn(`[monitor] pending 到期验证 ${id}: me() 数组中未出现, 保持现状`);
@@ -788,8 +806,10 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
         }
         case 'friend-delete': {
           const id = content.userId;
+          const f = db.getFriend(user.id, id);
           db.deleteFriend(user.id, id);
-          log.info(`[monitor] 好友 ${id} 已删除`);
+          clearPendingCheck(user, id); // 已删好友不再参与 pending 到期验证
+          log.info(`[monitor] 好友 ${f && f.display_name ? `${f.display_name}(${id})` : id} 已删除, 已移除记录`);
           break;
         }
         case 'notification-v2':
@@ -995,14 +1015,22 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
         processed++;
       }
 
-      // 已入库但不在本轮名单中的好友 → 离线(与旧逻辑一致; 状态判定不可用时不翻转)
+      // 已入库但不在本轮名单中的好友:
+      // 名册(me().friends)可用 → 确定已不是好友, 直接移除记录(区分"下线"与"已删除", 不再误推下线);
+      // 名册缺失(名单为三个状态数组并集) → 沿用旧逻辑置离线(数据不全不判删); 状态判定不可用时不翻转。
       if (arraysOk) {
         const known = new Set(friendIds);
+        const rosterOk = Array.isArray(currentUser.friends);
         for (const f of db.listFriends(user.id)) {
-          if (!known.has(f.friend_vrchat_id)) {
+          if (known.has(f.friend_vrchat_id)) continue;
+          if (rosterOk) {
+            db.deleteFriend(user.id, f.friend_vrchat_id);
+            clearPendingCheck(user, f.friend_vrchat_id);
+            log.info(`[monitor] 快照对账 ${f.friend_vrchat_id}${f.display_name ? `(${f.display_name})` : ''} 不在好友名册, 视为已删除好友, 已移除记录`);
+          } else {
             await applyFriendInput(user, f.friend_vrchat_id, { state: 'offline', worldId: null, worldName: null, instanceId: null, platform: null }, applyOpts);
-            processed++;
           }
+          processed++;
         }
       }
 
