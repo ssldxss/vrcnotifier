@@ -152,6 +152,35 @@
       <p class='muted hint hidden' id='qqDisabledHint'>QQ 机器人已关闭, 开启后才会发送好友动态推送。</p>
     </div>
     <div class='card' style='--i:8'>
+      <h2>通知设置</h2>
+      <div style='display:grid;gap:12px'>
+        <div class='row'>
+          <label class='switch' title='群组公告推送'>
+            <input type='checkbox' id='sNotifyGroupAnnouncement'>
+            <span class='slider'></span>
+          </label>
+          <span>群组公告</span>
+        </div>
+        <div class='row'>
+          <label class='switch' title='戳一戳(Boop)推送'>
+            <input type='checkbox' id='sNotifyBoop'>
+            <span class='slider'></span>
+          </label>
+          <span>戳一戳(Boop)</span>
+        </div>
+        <div class='row'>
+          <label class='switch' title='世界邀请 / 请求邀请推送'>
+            <input type='checkbox' id='sNotifyInvite'>
+            <span class='slider'></span>
+          </label>
+          <span>世界邀请</span>
+        </div>
+      </div>
+      <div class='row actions'>
+        <span class='muted' id='notifyMsg'></span>
+      </div>
+    </div>
+    <div class='card' style='--i:9'>
       <h2>后端日志
         <span class='log-tools'>
           <select id='logLevelSel' title='等级筛选(多选)' aria-label='等级筛选'>

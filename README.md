@@ -1,6 +1,6 @@
 # vrcnotifier
 
-VRChat 好友监控与通知器(v0.1.0):WebSocket 实时好友**上线 / 下线 / 切换世界 / 状态变化**+ 站内通知(好友请求、邀请、私信),经 **QQ bot**推送到手机(机器人还可回复 2FA 验证码、查在线好友列表);自动恢复(cookie 失效自动重登、会话挂起自动 2FA、WS 自动重连);Web 面板、REST 对账、日志监控。敏感数据(VRChat 用户名/密码/cookie、QQ AppSecret)AES-256-GCM 加密落库。
+VRChat 好友监控与通知器(v0.1.0):WebSocket 实时好友**上线 / 下线 / 切换世界 / 状态变化**+ 站内通知(仅推送邀请、戳一戳、群组公告,可在设置页分别开关,公告自动解析群组名),经 **QQ bot**推送到手机(机器人还可回复 2FA 验证码、查在线好友列表);自动恢复(cookie 失效自动重登、会话挂起自动 2FA、WS 自动重连);Web 面板、REST 对账、日志监控。敏感数据(VRChat 用户名/密码/cookie、QQ AppSecret)AES-256-GCM 加密落库。
 
 ## 快速开始(Docker)
 

@@ -71,11 +71,20 @@ CREATE TABLE IF NOT EXISTS world_cache (
   fail_count INTEGER NOT NULL DEFAULT 0,
   retry_at INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS group_cache (
+  group_id TEXT PRIMARY KEY,
+  group_name TEXT NOT NULL,
+  updated_at INTEGER NOT NULL,
+  fail_count INTEGER NOT NULL DEFAULT 0,
+  retry_at INTEGER NOT NULL DEFAULT 0
+);
 `;
 
 /** 设置字段白名单: 列名 -> 类型(int|str); 当前仅 QQ 通知渠道 */
 const SETTING_COLUMNS = {
-  qq_enabled: 'int', qq_app_id: 'str', qq_app_secret: 'str'
+  qq_enabled: 'int', qq_app_id: 'str', qq_app_secret: 'str',
+  // 站内通知类型开关(0=关, 缺省/1=开): 群组公告 / 戳一戳(boop) / 世界邀请
+  notify_group_announcement: 'int', notify_boop: 'int', notify_invite: 'int'
 };
 
 // 已移除渠道的历史通知列(仅旧库 users 表迁移/删除用, 与当前白名单分离)
@@ -170,6 +179,7 @@ function createDb(location = ':memory:', opts = {}) {
     clearAllBindings: db.prepare('DELETE FROM qq_bindings'),
     clearAllUsers: db.prepare('DELETE FROM users'),
     clearWorldCache: db.prepare('DELETE FROM world_cache'),
+    clearGroupCache: db.prepare('DELETE FROM group_cache'),
     upsertFriend: db.prepare(`INSERT INTO friends (user_id, friend_vrchat_id, display_name, avatar_url, avatar_thumb_url, state, status, world_id, world_name, instance_id, status_description, platform, trust_level, last_seen)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(user_id, friend_vrchat_id) DO UPDATE SET
@@ -224,6 +234,12 @@ function createDb(location = ':memory:', opts = {}) {
       VALUES (?, ?, ?, ?, ?)
       ON CONFLICT(world_id) DO UPDATE SET
         world_name = excluded.world_name, updated_at = excluded.updated_at,
+        fail_count = excluded.fail_count, retry_at = excluded.retry_at`),
+    getGroupCache: db.prepare('SELECT group_id, group_name, updated_at, fail_count, retry_at FROM group_cache WHERE group_id = ?'),
+    upsertGroupCache: db.prepare(`INSERT INTO group_cache (group_id, group_name, updated_at, fail_count, retry_at)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(group_id) DO UPDATE SET
+        group_name = excluded.group_name, updated_at = excluded.updated_at,
         fail_count = excluded.fail_count, retry_at = excluded.retry_at`),
     isDuplicate: db.prepare('SELECT created_at FROM notif_dedupe WHERE key = ?'),
     upsertQqBinding: db.prepare('INSERT INTO qq_bindings (user_id, app_id, openid, nickname, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(user_id, app_id) DO UPDATE SET openid = excluded.openid, nickname = excluded.nickname, updated_at = excluded.updated_at'),
@@ -350,7 +366,7 @@ function createDb(location = ':memory:', opts = {}) {
     wipeAllExceptToken() {
       db.exec('BEGIN');
       try {
-        for (const t of ['users', 'friends', 'monitor_config', 'qq_bindings', 'notif_dedupe', 'world_cache']) {
+        for (const t of ['users', 'friends', 'monitor_config', 'qq_bindings', 'notif_dedupe', 'world_cache', 'group_cache']) {
           db.prepare('DELETE FROM ' + t).run();
         }
         const token = stmt.getSetting.get('access_token');
@@ -411,6 +427,9 @@ function createDb(location = ':memory:', opts = {}) {
       };
     },
     clearWorldCache() { return stmt.clearWorldCache.run().changes; },
+    clearGroupCache() { return stmt.clearGroupCache.run().changes; },
+    getGroupCache(groupId) { const r = stmt.getGroupCache.get(groupId); return r || null; },
+    upsertGroupCache(groupId, groupName, atMs = Date.now(), failCount = 0, retryAt = 0) { stmt.upsertGroupCache.run(groupId, groupName, atMs, failCount, retryAt); },
     // settings
     getSetting(key) { const r = stmt.getSetting.get(key); return r ? r.value : null; },
     setSetting(key, value) { stmt.setSetting.run(key, value); },

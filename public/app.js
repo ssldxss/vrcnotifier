@@ -972,6 +972,10 @@ async function loadSettings() {
   $('#sQqEnabled').checked = !!s.qq_enabled;
   $('#sQqAppId').value = s.qq_app_id || '';
   $('#sQqAppSecret').placeholder = s.qq_app_secret ? '已配置(留空保持不变)' : '未配置';
+  // 站内通知类型开关: 缺省视为开(后端仅显式 0 关闭)
+  $('#sNotifyGroupAnnouncement').checked = s.notify_group_announcement !== 0;
+  $('#sNotifyBoop').checked = s.notify_boop !== 0;
+  $('#sNotifyInvite').checked = s.notify_invite !== 0;
   syncQqFields();
 }
 
@@ -989,6 +993,25 @@ $('#saveSettings').addEventListener('click', async () => {
     loadSettings();
   }
 });
+
+// 通知设置: 切换即时保存(无保存按钮); 失败时回滚开关 UI 并提示
+function bindNotifyToggle(id, key) {
+  $(id).addEventListener('change', async () => {
+    const input = $(id);
+    const want = input.checked ? 1 : 0;
+    const r = await api('PUT', '/api/settings', { [key]: want });
+    if (r.data.ok) {
+      $('#notifyMsg').textContent = '已保存';
+      setTimeout(() => { $('#notifyMsg').textContent = ''; }, 2000);
+    } else {
+      input.checked = want !== 1; // 回滚本次提交的开关值
+      $('#notifyMsg').textContent = r.data.error || '保存失败';
+    }
+  });
+}
+bindNotifyToggle('#sNotifyGroupAnnouncement', 'notify_group_announcement');
+bindNotifyToggle('#sNotifyBoop', 'notify_boop');
+bindNotifyToggle('#sNotifyInvite', 'notify_invite');
 
 function bindTest(kind, btnId) {
   $(btnId).addEventListener('click', async () => {
