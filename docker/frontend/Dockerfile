@@ -3,7 +3,9 @@
 # 后端地址通过 BACKEND_HOST / BACKEND_PORT 注入, 由官方 nginx 镜像的
 # /docker-entrypoint.d/20-envsubst-on-templates.sh 自动渲染 /etc/nginx/templates/*.template。
 # 构建(上下文为仓库根目录): docker build -f docker/frontend/Dockerfile -t vrcnotifier-frontend .
-FROM nginx:1.27-alpine
+# alpine-slim 变体(约为 alpine 的 1/4): 不含 perl 与额外动态模块,
+# 但保留 /docker-entrypoint.d 脚本(含 20-envsubst-on-templates.sh, BACKEND_HOST/PORT 模板渲染依赖它)。
+FROM nginx:1.27-alpine-slim
 
 # 静态资源(单页应用: index.html + app.css + app.js + sdk.js + fonts/ 自托管字体)。
 COPY public/ /usr/share/nginx/html/
