@@ -60,6 +60,26 @@ function createQqManager(opts = {}) {
   }
 
   // ---------- 凭证 ----------
+  // 凭证无效(appid/secret 错误, 官方返回如 code=100016 "invalid appid or secret"): 重试无意义
+  function isInvalidCredentials(data) {
+    if (!data) return false;
+    const text = String(data.message || data.msg || '').toLowerCase();
+    if (!/appid|secret|appkey/.test(text)) return false;
+    return /invalid|error|错误|无效|不正确|不存在/.test(text);
+  }
+
+  // 凭证无效: 不再退避重试, 清空 QQ 配置(等待用户重新输入)并停止全部机器人(全局共享同一组凭证)
+  function handleInvalidCredentials(bot, detail) {
+    if (bot.stopped) return; // 并发触发时只处理一次
+    log.error(`[qq] 无效的 AppID 或 Secret, 请重新输入 appId=${bot.appId}${detail ? ` (${detail})` : ''}`);
+    try {
+      db.updateGlobalSettings({ qq_enabled: 0, qq_app_id: null, qq_app_secret: null });
+    } catch (e) {
+      log.warn(`[qq] 清空QQ机器人配置失败: ${e.message}`);
+    }
+    stopAll();
+  }
+
   async function ensureToken(bot, force = false) {
     if (!force && bot.token && bot.tokenExpiresAt && bot.tokenExpiresAt - tokenSafetyMs > now()) {
       return bot.token;
@@ -83,7 +103,12 @@ function createQqManager(opts = {}) {
       if (!res.ok || !data || !data.access_token) {
         const code = data && data.code;
         const msg = data && data.message;
-        throw new Error(`获取QQ access_token失败: HTTP ${res.status}${code ? ` code=${code}` : ''}${msg ? ` ${msg}` : ''}`);
+        const detail = `HTTP ${res.status}${code ? ` code=${code}` : ''}${msg ? ` ${msg}` : ''}`;
+        if (isInvalidCredentials(data)) {
+          handleInvalidCredentials(bot, detail);
+          throw new Error('无效的 AppID 或 Secret, 请重新输入');
+        }
+        throw new Error(`获取QQ access_token失败: ${detail}`);
       }
       const expiresIn = parseInt(data.expires_in, 10) || 7200;
       bot.token = data.access_token;

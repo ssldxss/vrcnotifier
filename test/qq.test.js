@@ -155,6 +155,33 @@ test('token 接近过期时自动刷新', async () => {
   } finally { await platform.close(); }
 });
 
+test('凭证无效: 不退避重试, 清空配置并提示重新输入', async () => {
+  const platform = await startQqPlatform({ appId: 'app1', clientSecret: 'sec1' }); // 平台只认 app1/sec1
+  const db = createDb(':memory:');
+  db.updateGlobalSettings({ qq_enabled: 1, qq_app_id: 'bad_app', qq_app_secret: 'bad_sec' });
+  const logs = [];
+  const logger = { info: (m) => logs.push(m), warn: (m) => logs.push(m), error: (m) => logs.push(m) };
+  const qq = createQqManager({
+    db, logger, fetchImpl: async (u, i) => fetch(u, i),
+    config: { tokenUrl: platform.base + '/app/getAppAccessToken', apiBase: platform.base, wsUrl: platform.wsUrl, reconnectBaseMs: 20, reconnectMaxMs: 100, jitterMs: 5 }
+  });
+  try {
+    qq.sync(1, { qq_enabled: 1, qq_app_id: 'bad_app', qq_app_secret: 'bad_sec' });
+    await sleep(250); // 首次取凭证即失败; 若仍退避重试, 20ms 起步早已再次调用
+    assert.ok(logs.some((m) => m.includes('无效的 AppID 或 Secret') && m.includes('重新输入')));
+    // 配置已清空, 等待重新输入
+    const s = db.getGlobalSettings();
+    assert.equal(s.qq_enabled, 0);
+    assert.equal(s.qq_app_id, null);
+    assert.equal(s.qq_app_secret, null);
+    // token 端点只调用一次, 无退避重试
+    const tokenCalls = platform.state.httpCalls.filter((c) => c.url.includes('/app/getAppAccessToken'));
+    assert.equal(tokenCalls.length, 1);
+    assert.equal(qq.status(1).configured, false);
+    qq.stopAll();
+  } finally { await platform.close(); }
+});
+
 test('WS: hello → identify(intents=1<<25) → READY → 状态已连接', async () => {
   const platform = await startQqPlatform({ appId: 'app1', clientSecret: 'sec1', token: 'tok1' });
   const db = createDb(':memory:');
@@ -551,16 +578,23 @@ test('400 业务错误: 立即失败不重试', async () => {
   } finally { await platform.close(); }
 });
 
-test('凭证错误: appid/secret 无效时发送失败并给出原因', async () => {
+test('凭证错误: appid/secret 无效时发送失败并清空配置', async () => {
   const platform = await startQqPlatform({ appId: 'app1', clientSecret: 'sec1', token: 'tok1' });
   const db = createDb(':memory:');
+  db.updateGlobalSettings({ qq_enabled: 1, qq_app_id: 'app1', qq_app_secret: 'bad' });
   db.upsertQqBinding(1, { appId: 'app1', openid: 'openid_x', nickname: '', at: 1 });
   const qq = createQqManager({ db, logger: silent, fetchImpl: async (u, i) => fetch(u, i), config: { tokenUrl: platform.base + '/app/getAppAccessToken', apiBase: platform.base, wsUrl: platform.wsUrl } });
   try {
     qq.sync(1, { qq_enabled: 1, qq_app_id: 'app1', qq_app_secret: 'bad' });
     const r = await qq.sendText(1, 'hi');
     assert.equal(r.ok, false);
-    assert.ok(r.reason.includes('100016'));
+    assert.ok(r.reason.includes('无效的 AppID 或 Secret'));
+    // 配置已清空, 机器人已停止等待重新输入
+    const s = db.getGlobalSettings();
+    assert.equal(s.qq_enabled, 0);
+    assert.equal(s.qq_app_id, null);
+    assert.equal(s.qq_app_secret, null);
+    assert.equal(qq.status(1).configured, false);
     qq.stopAll();
   } finally { await platform.close(); }
 });
