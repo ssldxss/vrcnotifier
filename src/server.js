@@ -14,7 +14,8 @@ const { formatLocalTime, getLogStream } = require('./util');
 const MASK = '••••••••';
 const SECRET_FIELDS = new Set(['qq_app_secret']);
 const SETTING_MAP = {
-  qqEnabled: 'qq_enabled', qqAppId: 'qq_app_id', qqAppSecret: 'qq_app_secret'
+  qqEnabled: 'qq_enabled', qqAppId: 'qq_app_id', qqAppSecret: 'qq_app_secret',
+  notifyGroupAnnouncement: 'notify_group_announcement', notifyBoop: 'notify_boop', notifyInvite: 'notify_invite'
 };
 
 // 日志筛选(服务端): 多选集合语义 — 选中集合=匹配集合(选一个只显示一个);
@@ -739,9 +740,10 @@ function createApp({
     }
     if (clearCache) {
       const worlds = db.clearWorldCache();
+      const groups = db.clearGroupCache();
       let avatars = 0;
       try { if (avatarCache) avatars = avatarCache.clear(); } catch (e) { log.warn(`[server] 头像缓存清理失败: ${e.message}`); }
-      log.info(`[server] 登出清除缓存: 世界名 ${worlds} 条, 头像 ${avatars} 个`);
+      log.info(`[server] 登出清除缓存: 世界名 ${worlds} 条, 群组名 ${groups} 条, 头像 ${avatars} 个`);
     }
     log.info(`[server] 登出: ${userId}`);
     current = null;

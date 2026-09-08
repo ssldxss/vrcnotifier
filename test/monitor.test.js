@@ -38,6 +38,8 @@ function setup(opts = {}) {
         },
     friends: async ({ offline }) => (offline ? offlineList : [...onlineList, ...activeList]),
     world: async (id) => ({ id, name: `世界_${id}` }),
+    group: async (id) => ({ id, name: `群组_${id}` }),
+    userGroups: async () => [],
     user: async (id) => {
       vrcapi.userCalls.push(id);
       if (opts.userError) throw opts.userError;
@@ -856,35 +858,112 @@ test('world name backoff caps at 1h and stays there until success', async () => 
   assert.equal(c2.retry_at - cur, 3600 * 1000, '封顶后每次仍为 1h');
 });
 
-test('WS notification-v2 pushes to channels; update/delete only log; same id dedupes', async () => {
+test('WS notification-v2 only pushes invite/boop/group.announcement; update/delete only log; same id dedupes', async () => {
   const t = setup();
   const user = addUser(t.db);
   await t.monitor.activateUser(user, t.vrcapi);
   t.notifications.length = 0;
-  const n1 = { type: 'notification-v2', content: { id: 'notif_1', version: 2, type: 'notification', category: 'friendRequest', senderUserId: 'usr_f1', title: '好友请求', message: 'hi' } };
+  // 邀请(带发送者)推送, 好友显示名优先
+  t.db.upsertFriend(user.id, 'usr_f9', { displayName: '好友九', state: 'offline' });
+  const n1 = { type: 'notification-v2', content: { id: 'notif_1', version: 2, type: 'invite', senderUserId: 'usr_f9', title: 'inv', message: 'come' } };
   await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'x', n1);
   assert.equal(t.notifications.length, 1);
   assert.equal(t.notifications[0].change.changeType, 'VRChat通知');
-  assert.equal(t.notifications[0].change.friendName, 'usr_f1');
-  assert.ok(t.notifications[0].change.newStatusDescription.includes('hi'));
+  assert.equal(t.notifications[0].change.friendName, '好友九');
+  assert.ok(t.notifications[0].change.newStatusDescription.includes('come'));
   // same id within window -> dedupe
   await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'y', n1);
   assert.equal(t.notifications.length, 1);
-  // new id with sender -> pushes
-  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'z', { type: 'notification-v2', content: { id: 'notif_2', category: 'invite', senderUserId: 'usr_f2', title: 'inv', message: 'come' } });
+  // boop 推送
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'z', { type: 'notification-v2', content: { id: 'notif_2', version: 2, type: 'boop', senderUserId: 'usr_f2', title: 'boop', message: '戳' } });
   assert.equal(t.notifications.length, 2);
-  assert.equal(t.notifications[1].change.friendName, 'usr_f2');
-  // no sender (订阅频道公告) -> 不推送
-  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'a1', { type: 'notification-v2', content: { id: 'notif_announce', category: 'system', title: 'Succubus Club: 大酒店开门啦', message: '今日大营业' } });
-  assert.equal(t.notifications.length, 2, '无发送者的公告不推送');
-  // friend display name preferred when known
-  t.db.upsertFriend(user.id, 'usr_f9', { displayName: '好友九', state: 'offline' });
-  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 't', { type: 'notification-v2', content: { id: 'notif_3', category: 'message', senderUserId: 'usr_f9', title: 'msg', message: 'yo' } });
-  assert.equal(t.notifications[2].change.friendName, '好友九');
+  // 群组公告(无发送者)默认推送, 群名从 link 提取并解析为发送者
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'a1', { type: 'notification-v2', content: { id: 'notif_announce', version: 2, type: 'group.announcement', title: '大酒店开门啦', message: '今日大营业', link: 'group:grp_announce1' } });
+  assert.equal(t.notifications.length, 3, '群组公告默认推送');
+  assert.equal(t.notifications[2].change.friendName, '群组_grp_announce1');
+  assert.equal(t.notifications[2].change.notificationCategoryLabel, '群组公告');
+  // 推送范围外: 好友请求/私信/无发送者系统通知一律不推送
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'a2', { type: 'notification-v2', content: { id: 'notif_fr', version: 2, type: 'friendRequest', senderUserId: 'usr_f1', title: '好友请求', message: 'hi' } });
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'a3', { type: 'notification-v2', content: { id: 'notif_msg', version: 2, type: 'message', senderUserId: 'usr_f9', title: 'msg', message: 'yo' } });
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'a4', { type: 'notification-v2', content: { id: 'notif_sys', version: 2, type: 'system', title: '频道公告', message: 'hello' } });
+  assert.equal(t.notifications.length, 3, '非白名单类型不推送');
   // update/delete do not push
-  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'w', { type: 'notification-v2-update', content: { id: 'notif_3', status: 'seen' } });
-  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'v', { type: 'notification-v2-delete', content: { id: 'notif_3' } });
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'w', { type: 'notification-v2-update', content: { id: 'notif_1', status: 'seen' } });
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'v', { type: 'notification-v2-delete', content: { id: 'notif_1' } });
   assert.equal(t.notifications.length, 3);
+});
+
+test('站内通知类型开关: 显式关闭后邀请/戳一戳/群组公告不推送, 重开后恢复', async () => {
+  const t = setup();
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+  t.notifications.length = 0;
+  t.db.updateGlobalSettings({ notify_group_announcement: 0, notify_boop: 0, notify_invite: 0 });
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'a', { type: 'notification-v2', content: { id: 'notif_ga', version: 2, type: 'group.announcement', title: '公告', message: '关门了', link: 'group:grp_g1' } });
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'b', { type: 'notification-v2', content: { id: 'notif_boop', version: 2, type: 'boop', senderUserId: 'usr_f1', message: 'boop!' } });
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'c', { type: 'notification', content: { id: 'notif_inv', type: 'invite', senderUserId: 'usr_f2', message: 'come' } });
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'd', { type: 'notification-v2', content: { id: 'notif_fr', version: 2, type: 'friendRequest', senderUserId: 'usr_f1', title: '好友请求', message: 'hi' } });
+  assert.equal(t.notifications.length, 0, '关闭的三个类型与白名单外类型均不推送');
+  // 重新开启后群组公告恢复推送
+  t.db.updateGlobalSettings({ notify_group_announcement: 1 });
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'e', { type: 'notification-v2', content: { id: 'notif_ga2', version: 2, type: 'group.announcement', title: '公告2', message: '又开门了', link: 'group:grp_g1' } });
+  assert.equal(t.notifications.length, 1, '开关重开后恢复推送');
+});
+
+test('群组公告优先批量获取全部群组名, 未命中才单查', async () => {
+  const t = setup();
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+  t.notifications.length = 0;
+  let batchCalls = 0;
+  let groupCalls = 0;
+  t.vrcapi.userGroups = async () => { batchCalls += 1; return [{ id: 'grp_a', name: '群组A' }, { id: 'grp_b', name: '群组B' }]; };
+  t.vrcapi.group = async (id) => { groupCalls += 1; return { id, name: '单查群' }; };
+  const evt = (id, gid) => ({ type: 'notification-v2', content: { id, version: 2, type: 'group.announcement', title: `公告${id}`, message: 'hi', link: `group:${gid}` } });
+  // 公告来自已加入群组: 批量命中, 不单查
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'b1', evt('n_b1', 'grp_a'));
+  assert.equal(t.notifications.length, 1);
+  assert.equal(t.notifications[0].change.friendName, '群组A');
+  assert.equal(batchCalls, 1);
+  assert.equal(groupCalls, 0);
+  // 另一已加入群组: 首次批量时已灌入缓存, 不再发任何请求
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'b2', evt('n_b2', 'grp_b'));
+  assert.equal(t.notifications[1].change.friendName, '群组B');
+  assert.equal(batchCalls, 1);
+  assert.equal(groupCalls, 0);
+  // 未加入的群组: 缓存未命中 → 批量 → 未命中 → 单查兜底
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'b3', evt('n_b3', 'grp_x'));
+  assert.equal(t.notifications[2].change.friendName, '单查群');
+  assert.equal(batchCalls, 2);
+  assert.equal(groupCalls, 1);
+});
+
+test('群组公告群名解析: 失败兜底未知群组并退避, 成功后缓存复用', async () => {
+  let cur = 1000000;
+  const t = setup({ now: () => cur });
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+  t.notifications.length = 0;
+  let groupCalls = 0;
+  t.vrcapi.group = async (id) => {
+    groupCalls += 1;
+    if (groupCalls === 1) throw new Error('500');
+    return { id, name: '大酒店集团' };
+  };
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'g1', { type: 'notification-v2', content: { id: 'notif_ga1', version: 2, type: 'group.announcement', title: '公告', message: 'hi', link: 'group:grp_fail1' } });
+  assert.equal(t.notifications.length, 1);
+  assert.equal(t.notifications[0].change.friendName, '未知群组');
+  // 退避期内同名缓存复用, 不再发起请求
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'g2', { type: 'notification-v2', content: { id: 'notif_ga2', version: 2, type: 'group.announcement', title: '公告2', message: 'hi2', link: 'group:grp_fail1' } });
+  assert.equal(t.notifications[1].change.friendName, '未知群组');
+  assert.equal(groupCalls, 1);
+  // 退避到期(首退避 5s)后重试成功, 群名落地并缓存
+  cur += 5000 + 1;
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'g3', { type: 'notification-v2', content: { id: 'notif_ga3', version: 2, type: 'group.announcement', title: '公告3', message: 'hi3', link: 'group:grp_fail1' } });
+  assert.equal(t.notifications[2].change.friendName, '大酒店集团');
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'g4', { type: 'notification-v2', content: { id: 'notif_ga4', version: 2, type: 'group.announcement', title: '公告4', message: 'hi4', link: 'group:grp_fail1' } });
+  assert.equal(t.notifications[3].change.friendName, '大酒店集团');
+  assert.equal(groupCalls, 2, '成功后走缓存不再请求');
 });
 
 test('WS notification from self (senderUserId == own user) is not pushed', async () => {
@@ -911,13 +990,17 @@ test('WS legacy notification pushes with category label; lifecycle events only l
   const user = addUser(t.db);
   await t.monitor.activateUser(user, t.vrcapi);
   t.notifications.length = 0;
-  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'a', { type: 'notification', content: { id: 'notif_l1', type: 'friendRequest', senderUserId: 'usr_f1', message: 'add me' } });
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'a', { type: 'notification', content: { id: 'notif_l1', type: 'invite', senderUserId: 'usr_f1', message: 'join me' } });
   assert.equal(t.notifications.length, 1);
   assert.equal(t.notifications[0].change.changeType, 'VRChat通知');
   assert.equal(t.notifications[0].change.friendName, 'usr_f1');
-  assert.equal(t.notifications[0].change.notificationTitle, '好友请求');
-  assert.equal(t.notifications[0].change.notificationBody, 'add me');
-  assert.equal(t.notifications[0].change.notificationCategory, 'friendRequest');
+  // v1 无 title: 分类标签兜底为标题
+  assert.equal(t.notifications[0].change.notificationTitle, '世界邀请');
+  assert.equal(t.notifications[0].change.notificationBody, 'join me');
+  assert.equal(t.notifications[0].change.notificationCategory, 'invite');
+  // 白名单外(好友请求)不推送
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'a2', { type: 'notification', content: { id: 'notif_l2', type: 'friendRequest', senderUserId: 'usr_f2', message: 'add me' } });
+  assert.equal(t.notifications.length, 1);
   // response / see / hide / clear do not push
   await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'b', { type: 'response-notification', content: { notificationId: 'n1', receiverId: 'usr_f1', responseId: 'r1' } });
   await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'c', { type: 'see-notification', content: 'notif_l1' });
@@ -952,9 +1035,12 @@ test('notification-v2 world invite shows world name instead of category', async 
   assert.ok(t.notifications[0].change.categoryOrWorld.startsWith('世界:'));
   assert.ok(!t.notifications[0].change.categoryOrWorld.includes('分类:'));
   assert.ok(worldCalls >= 1);
-  // non-invite keeps category line
-  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'b', { type: 'notification-v2', content: { id: 'n2', category: 'friendRequest', senderUserId: 'usr_f1', title: '好友请求', message: 'hi' } });
+  // boop: 白名单内但无世界解析, 保持空 category 行
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'b', { type: 'notification-v2', content: { id: 'n2', version: 2, type: 'boop', senderUserId: 'usr_f1', title: '戳一戳', message: 'hi' } });
   assert.equal(t.notifications[1].change.categoryOrWorld, '');
+  // 白名单外(好友请求)不推送
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'c', { type: 'notification-v2', content: { id: 'n3', category: 'friendRequest', senderUserId: 'usr_f1', title: '好友请求', message: 'hi' } });
+  assert.equal(t.notifications.length, 2);
 });
 
 test('notification-v2 invite prefers details.worldName without API call', async () => {

@@ -19,6 +19,7 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
   const WORLD_NAME_RETRY_BASE_MS = config.worldNameRetryBaseMs ?? 5000; // 与 WS 重连一致的退避起步
   const WORLD_NAME_RETRY_MAX_MS = config.worldNameRetryMaxMs ?? 3600 * 1000; // 退避封顶 1h, 封顶后保持不回退
   const UNKNOWN_WORLD_NAME = '未知世界';
+  const UNKNOWN_GROUP_NAME = '未知群组';
   const RECOVERY_TEXT = '# ✅ 服务已恢复\n好友监控运行中\n输入任意消息即可查看在线列表';
   const snapshotIntervalMs = config.snapshotIntervalMs ?? 3600 * 1000;
   const watchdogMs = config.watchdogMs ?? 3600 * 1000;
@@ -258,6 +259,58 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
     return name;
   }
 
+  // ---------- 群组名 ----------
+  // 与世界名同构: 成功缓存 1 年, 失败指数退避(封顶 1h), 退避期内沿用"未知群组"
+  function groupCacheFresh(groupId) {
+    const c = db.getGroupCache(groupId);
+    if (!c) return null;
+    if (c.group_name === UNKNOWN_GROUP_NAME) {
+      return now() < (c.retry_at || 0) ? c : null;
+    }
+    return now() - c.updated_at < WORLD_CACHE_OK_TTL_MS ? c : null;
+  }
+
+  async function resolveGroupName(vrcapi, groupId, selfVrcId = null) {
+    if (!groupId) return null;
+    const cached = groupCacheFresh(groupId);
+    if (cached) return cached.group_name;
+    const rec = db.getGroupCache(groupId);
+    const failCount = rec ? (rec.fail_count || 0) : 0;
+    let name = UNKNOWN_GROUP_NAME;
+    // 优先批量拉取自己全部群组(1 次请求覆盖所有已加入群组并灌入缓存), 未命中再单查该群组
+    if (selfVrcId) {
+      try {
+        const list = await vrcapi.userGroups(selfVrcId, { noRetry: true });
+        if (Array.isArray(list)) {
+          const at = now();
+          for (const g of list) {
+            if (g && g.id && g.name) db.upsertGroupCache(g.id, g.name, at, 0, 0);
+          }
+          const hit = list.find((g) => g && g.id === groupId && g.name);
+          if (hit) name = hit.name;
+        }
+      } catch (e) {
+        log.warn(`[group] 批量群组获取失败: ${e.message}`);
+      }
+    }
+    if (name === UNKNOWN_GROUP_NAME) {
+      try {
+        const g = await vrcapi.group(groupId, { noRetry: true }); // 群名获取失败不阻塞通知, 缓存未知群组
+        if (g && g.name) name = g.name;
+      } catch (e) {
+        log.warn(`[group] 群组 ${groupId} 名称获取失败: ${e.message}`);
+      }
+    }
+    if (name === UNKNOWN_GROUP_NAME) {
+      const next = failCount + 1;
+      const interval = Math.min(WORLD_NAME_RETRY_BASE_MS * 2 ** (next - 1), WORLD_NAME_RETRY_MAX_MS);
+      db.upsertGroupCache(groupId, name, now(), next, now() + interval);
+    } else {
+      db.upsertGroupCache(groupId, name, now(), 0, 0);
+    }
+    return name;
+  }
+
   // ---------- 通知 ----------
   async function dispatchNotification(user, friendVrcId, change) {
     if (!change) return;
@@ -286,13 +339,10 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
   }
 
   const NOTIFICATION_CATEGORY_LABELS = {
-    friendRequest: '好友请求',
     requestInvite: '请求邀请',
     invite: '世界邀请',
-    message: '私信',
-    social: '社交互动',
-    response: '通知响应',
-    system: '系统通知'
+    boop: '戳一戳',
+    'group.announcement': '群组公告'
   };
 
   function categoryLabel(cat) {
@@ -318,30 +368,73 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
     return m ? { worldId: m[0], worldName: null } : null;
   }
 
+  // 从通知的 details/link/message/title 中提取群组 id。
+  // 群组通知(公告等)payload 不带群名, link 形如 "group:grp_xxxx-yyy"; details 若带 groupId 直接取。
+  function groupIdFromNotification(n) {
+    let details = n && n.details;
+    if (typeof details === 'string') {
+      try { details = JSON.parse(details); } catch (e) { details = null; }
+    }
+    if (details && typeof details === 'object') {
+      const gid = details.groupId || (details.group && details.group.groupId) || null;
+      if (gid) return gid;
+    }
+    const hay = [n && n.link, n && n.message, n && n.title].filter(Boolean).join(' ');
+    const m = hay.match(/grp_[A-Za-z0-9-]+/);
+    return m ? m[0] : null;
+  }
+
   // VRChat 站内通知(notification / notification-v2) -> 复用通知渠道推送
+  // 仅推送三类: 世界邀请(invite/requestInvite) / 戳一戳(boop) / 群组公告(group.announcement);
+  // 其余(好友请求/私信/社交/系统等)不推送。
   async function dispatchVrcNotification(user, n, vrcapi) {
     if (!n || !n.id) return;
-    // 无发送者(如订阅频道公告)或发送者是自己 -> 不推送, 只推送明确来自其他用户的通知
-    if (!n.senderUserId || n.senderUserId === user.vrchat_user_id) return;
+    // v2 的 type 是具体类型(group.announcement/boop/invite...), category 是宽泛分类; 两者都参与匹配
+    const kinds = [String(n.type || ''), String(n.category || '')];
+    const kindOf = (...keys) => keys.some((k) => kinds.includes(k));
+    // 类型开关(设置页"通知设置"卡片): 默认开启, 仅显式 0 关闭; 判定须在去重标记之前, 否则关再开会补推积压
+    const settings = db.getGlobalSettings();
+    const isAnnouncement = kindOf('group.announcement');
+    if (isAnnouncement) {
+      if (settings.notify_group_announcement === 0) return;
+    } else if (kindOf('boop')) {
+      if (settings.notify_boop === 0) return;
+    } else if (kindOf('invite', 'requestInvite')) {
+      if (settings.notify_invite === 0) return;
+    } else {
+      return; // 不在推送范围的类型
+    }
+    // 无发送者: 仅群组公告放行(公告由群组/系统生成, senderUserId 为空); 发送者是自己 -> 不推送
+    if (!n.senderUserId) {
+      if (!isAnnouncement) return;
+    } else if (n.senderUserId === user.vrchat_user_id) return;
     const key = `${user.id}|notif|${n.id}`;
     if (db.isDuplicate(key, dedupeWindowMs, now())) return;
     db.markNotified(key, now());
 
-    const sender = n.senderUserId ? (db.getFriend(user.id, n.senderUserId) || {}).display_name || n.senderUserId : 'VRChat';
-    const rawCategory = n.category || n.type || '';
+    let sender = n.senderUserId ? (db.getFriend(user.id, n.senderUserId) || {}).display_name || n.senderUserId : 'VRChat';
+    const rawCategory = kinds[0] || kinds[1] || '';
     const title = n.title || categoryLabel(rawCategory) || 'VRChat通知';
     const message = n.message || '';
     // 内容与标题相同或空时不重复展示
     const body = message && message !== title ? message : '';
     // 世界邀请类: 解析邀请到的世界名, 替代分类行
     let notificationWorld = null;
-    if (vrcapi && (rawCategory === 'invite' || rawCategory === 'requestInvite')) {
+    if (vrcapi && kindOf('invite', 'requestInvite')) {
       const worldInfo = worldInfoFromNotification(n);
       if (worldInfo && (worldInfo.worldId || worldInfo.worldName)) {
         notificationWorld = worldInfo.worldName || await resolveWorldName(vrcapi, worldInfo.worldId);
       } else if (rawCategory === 'invite') {
         log.warn(`[monitor] 邀请通知无世界信息 id=${n.id} link=${n.link || '-'} details=${JSON.stringify(n.details || null)}`);
       }
+    }
+    // 群组公告: payload 不带群名, 提取 groupId 后经 REST+缓存解析, 作为发送者展示
+    let notificationGroup = null;
+    if (isAnnouncement) {
+      const groupId = groupIdFromNotification(n);
+      if (groupId && vrcapi) notificationGroup = await resolveGroupName(vrcapi, groupId, user.vrchat_user_id);
+      else if (!groupId) log.warn(`[monitor] 群组公告无群组 id id=${n.id} link=${n.link || '-'} details=${JSON.stringify(n.details || null)}`);
+      if (notificationGroup) sender = notificationGroup;
     }
     const changeForNotify = {
       changeType: 'VRChat通知',

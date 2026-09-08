@@ -525,6 +525,22 @@ test('settings get masks secrets, put stores plaintext', async (t) => {
   assert.equal(ctx.db.getGlobalSettings().qq_app_secret, 'secret123');
 });
 
+test('settings put stores notification type toggles', async (t) => {
+  const ctx = setup();
+  t.after(() => close(ctx));
+  await post(ctx, '/api/login', { username: 'me', password: 'pw' });
+  // camelCase 与 snake_case 都接受
+  const r = await put(ctx, '/api/settings', { notifyGroupAnnouncement: 0, notify_boop: 0, notifyInvite: 1 });
+  assert.equal(r.status, 200);
+  const s = ctx.db.getGlobalSettings();
+  assert.equal(s.notify_group_announcement, 0);
+  assert.equal(s.notify_boop, 0);
+  assert.equal(s.notify_invite, 1);
+  // 白名单外的 key 不落库
+  await put(ctx, '/api/settings', { notify_hack: 1 });
+  assert.equal(ctx.db.getGlobalSettings().notify_hack, undefined);
+});
+
 test('test notification endpoint calls notifier with stored secrets', async (t) => {
   const ctx = setup();
   t.after(() => close(ctx));

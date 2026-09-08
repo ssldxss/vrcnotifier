@@ -167,7 +167,17 @@ function createVrcApi({ baseUrl = 'https://api.vrchat.cloud/api/1', userAgent = 
     return request(`/worlds/${encodeURIComponent(worldId)}`, { ...opts });
   }
 
-  return { request, login, verify2fa, me, user, authToken, friends, world, jar, setCookiesChanged: (fn) => { cookiesChanged = fn; } };
+  /** 群组信息(需登录态, 含 name) */
+  function group(groupId, opts = {}) {
+    return request(`/groups/${encodeURIComponent(groupId)}`, { ...opts });
+  }
+
+  /** 用户加入的全部群组(需登录态, 一次返回全部, 含 name) */
+  function userGroups(userId, opts = {}) {
+    return request(`/users/${encodeURIComponent(userId)}/groups`, { ...opts });
+  }
+
+  return { request, login, verify2fa, me, user, authToken, friends, world, group, userGroups, jar, setCookiesChanged: (fn) => { cookiesChanged = fn; } };
 }
 
 // VRChat 的 401 细分:
