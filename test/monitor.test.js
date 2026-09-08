@@ -261,7 +261,8 @@ test('instance_id: 快照在线好友从 friends 列表落库, 离线清空', as
 });
 
 test('pending 合并: 多个好友同时 pending, 到期只调一次 me()', async () => {
-  const t = setup({ confirmDelayMs: 30, now: () => Date.now() });
+  // D 取 150ms: 两次 await 事件间的事件循环抖动(通常 <5ms)需超过 D 才会被误判为非同时
+  const t = setup({ confirmDelayMs: 150, now: () => Date.now() });
   const user = addUser(t.db);
   addConfig(t.db, user.id, 'usr_f1');
   addConfig(t.db, user.id, 'usr_f2');
@@ -280,13 +281,101 @@ test('pending 合并: 多个好友同时 pending, 到期只调一次 me()', asyn
   let meCalls = 0;
   const origMe = t.vrcapi.me;
   t.vrcapi.me = async () => { meCalls++; return { id: 'usr_me', friends: ['usr_f1', 'usr_f2'], onlineFriends: [], activeFriends: [], offlineFriends: ['usr_f1', 'usr_f2'] }; };
-  await new Promise((r) => setTimeout(r, 200));
+  await new Promise((r) => setTimeout(r, 350));
   assert.equal(meCalls, 1, '两个好友的 pending 合并为一次 me() 验证');
   assert.equal(t.notifications.length, 2, '两个好友都确认下线');
   const f1 = t.db.getFriend(user.id, 'usr_f1');
   const f2 = t.db.getFriend(user.id, 'usr_f2');
   assert.equal(f1.pending_state, null);
   assert.equal(f2.pending_state, null);
+});
+
+// 持续下线流(事件间隔 < 确认窗口)曾会把共享定时器无限顺延, 验证被"饿死",
+// 只能等周期快照兜底。契约: 任意好友至多 2*confirmDelayMs 内被验证通知。
+test('pending 顺延上限: 持续下线流不被饿死, 最早下线 2D 内通知', async () => {
+  const t = setup({ confirmDelayMs: 200, now: () => Date.now() });
+  const ids = ['usr_f1', 'usr_f2', 'usr_f3', 'usr_f4', 'usr_f5', 'usr_f6'];
+  const user = addUser(t.db);
+  for (const id of ids) addConfig(t.db, user.id, id);
+  await t.monitor.activateUser(user, t.vrcapi);
+  // 基线: 全部经 WS 上线(首见静默)
+  for (const id of ids) {
+    await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'up' + id, { type: 'friend-online', content: { userId: id, location: 'wrld_a:1', user: { id, displayName: id, status: 'active' } } });
+  }
+  t.notifications.length = 0;
+  const meOffsets = [];
+  const notifAt = {};
+  const t0 = Date.now();
+  t.vrcapi.me = async () => { meOffsets.push(Date.now() - t0); return { id: 'usr_me', friends: ids, onlineFriends: [], activeFriends: [], offlineFriends: [...ids] }; };
+  const origSendAll = t.notifier.sendAll;
+  t.notifier.sendAll = async (u, c) => { notifAt[c.friendId] = Date.now() - t0; return origSendAll(u, c); };
+  // 每 150ms 下线一个(流跨度 750ms > 2D=400ms); 旧实现定时器被不断重置到流结束 +D,
+  // 首条通知延迟 ~950ms; 新实现到期点封顶为最早 pending_at + 2D。
+  for (let i = 0; i < ids.length; i++) {
+    await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'dn' + ids[i], { type: 'friend-offline', content: { userId: ids[i], platform: '' } });
+    if (i < ids.length - 1) await new Promise((r) => setTimeout(r, 150));
+  }
+  await new Promise((r) => setTimeout(r, 700));
+  assert.equal(t.notifications.length, ids.length, '全部好友最终确认下线');
+  for (const id of ids) {
+    assert.equal(t.db.getFriend(user.id, id).pending_state, null, `${id} pending 已消解`);
+  }
+  assert.ok(meOffsets.length >= 2, `持续流应分批验证(实际 ${meOffsets.length} 次 me(), 到期点 ${JSON.stringify(meOffsets)})`);
+  // 窗口放宽容忍事件循环抖动; 旧实现的 ~950ms(流结束 + D)仍会被判失败
+  assert.ok(notifAt.usr_f1 < 2 * 200 + 300, `最早下线应在 2D+余量内通知, 实际 ${notifAt.usr_f1}ms`);
+  assert.ok(notifAt.usr_f2 < 2 * 200 + 300, `usr_f2 应在 2D+余量内通知, 实际 ${notifAt.usr_f2}ms`);
+  assert.ok(notifAt.usr_f3 < 2 * 200 + 500, `usr_f3 应在其到期点附近通知, 实际 ${notifAt.usr_f3}ms`);
+});
+
+// 保护性契约: 到期点加上限后, 窗口内的突发下线仍合并为一次 me()(N→1 不回退)。
+test('pending 突发合并保持: 窗口内连续下线只调一次 me()', async () => {
+  const t = setup({ confirmDelayMs: 200, now: () => Date.now() });
+  const ids = ['usr_f1', 'usr_f2', 'usr_f3', 'usr_f4'];
+  const user = addUser(t.db);
+  for (const id of ids) addConfig(t.db, user.id, id);
+  await t.monitor.activateUser(user, t.vrcapi);
+  for (const id of ids) {
+    await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'up' + id, { type: 'friend-online', content: { userId: id, location: 'wrld_a:1', user: { id, displayName: id, status: 'active' } } });
+  }
+  t.notifications.length = 0;
+  let meCalls = 0;
+  t.vrcapi.me = async () => { meCalls++; return { id: 'usr_me', friends: ids, onlineFriends: [], activeFriends: [], offlineFriends: [...ids] }; };
+  // 每 30ms 下线一个(跨度 90ms < D=200ms): 全程在同一个确认窗口内
+  for (let i = 0; i < ids.length; i++) {
+    await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'dn' + ids[i], { type: 'friend-offline', content: { userId: ids[i], platform: '' } });
+    if (i < ids.length - 1) await new Promise((r) => setTimeout(r, 30));
+  }
+  await new Promise((r) => setTimeout(r, 400));
+  assert.equal(meCalls, 1, `窗口内突发应合并为一次 me()(实际 ${meCalls} 次)`);
+  assert.equal(t.notifications.length, ids.length, '全部确认下线');
+});
+
+// 保护性契约: 同桶某个好友闪烁回退(取消)后, 其余 pending 仍按期确认。
+test('pending 取消不影响同桶其他好友的到期确认', async () => {
+  // D 取 300ms: 回退事件必须先于第一次到期点到达, 留足抖动余量
+  const t = setup({ confirmDelayMs: 300, now: () => Date.now() });
+  const user = addUser(t.db);
+  addConfig(t.db, user.id, 'usr_f1');
+  addConfig(t.db, user.id, 'usr_f2');
+  await t.monitor.activateUser(user, t.vrcapi);
+  for (const id of ['usr_f1', 'usr_f2']) {
+    await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'up' + id, { type: 'friend-online', content: { userId: id, location: 'wrld_a:1', user: { id, displayName: id, status: 'active' } } });
+  }
+  t.notifications.length = 0;
+  let meCalls = 0;
+  t.vrcapi.me = async () => { meCalls++; return { id: 'usr_me', friends: ['usr_f1', 'usr_f2'], onlineFriends: [], activeFriends: [], offlineFriends: ['usr_f2'] }; };
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'dn1', { type: 'friend-offline', content: { userId: 'usr_f1', platform: '' } });
+  await new Promise((r) => setTimeout(r, 60));
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'dn2', { type: 'friend-offline', content: { userId: 'usr_f2', platform: '' } });
+  await new Promise((r) => setTimeout(r, 50));
+  // f1 闪烁回退: 取消自己的 pending, 不影响 f2
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'up1', { type: 'friend-online', content: { userId: 'usr_f1', location: 'wrld_a:1', user: { id: 'usr_f1', displayName: 'usr_f1', status: 'active' } } });
+  await new Promise((r) => setTimeout(r, 600));
+  assert.equal(meCalls, 1, `只应为 f2 调一次 me()(实际 ${meCalls} 次)`);
+  assert.equal(t.notifications.length, 1, 'f1 回退不通知, 仅 f2 确认下线');
+  assert.equal(t.notifications[0].change.friendId, 'usr_f2');
+  assert.equal(t.db.getFriend(user.id, 'usr_f1').pending_state, null);
+  assert.equal(t.db.getFriend(user.id, 'usr_f2').pending_state, null);
 });
 
 test('me() 缺少状态数组: 不翻转任何好友状态(防误杀)', async () => {

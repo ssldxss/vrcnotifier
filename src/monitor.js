@@ -402,21 +402,34 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
   // ---------- 状态落地 ----------
   // 下线 pending 到期(confirmDelayMs)后调一次 /auth/user 批量验证真实状态, 再逐个走状态机。
   // 同一账号的多个 pending 好友共享一个定时器 + 一次 me() 请求(N→1)。
+  // 到期点 = min(最后到达 + confirmDelayMs, 最早 pending_at + 2*confirmDelayMs):
+  // 新下线顺延定时器以合并突发(窗口内 N→1), 但顺延不超过最早 pending 的两倍窗口 ——
+  // 持续下线流(间隔 < 窗口)不再把验证饿死: 任意好友至多 2D 内被验证, me() 间隔 ≥ D。
+  // 触发安全余量: libuv 定时器按缓存的循环时间计到期, 实际触发可比 Date.now() 基准早 ~1ms,
+  // 压着 confirmDelayMs 边界触发会让状态机判"未满窗口"而白费一次 me(); 晚触发无害(只会更成熟)。
+  const PENDING_TIMER_SAFETY_MS = 10;
+
   function schedulePendingCheck(user, friendVrcId) {
     const userId = user.vrchat_user_id;
     let bucket = pendingBuckets.get(userId);
     if (!bucket) {
-      bucket = { timer: null, friends: new Set() };
+      bucket = { timer: null, friends: new Set(), oldestPendingAt: null };
       pendingBuckets.set(userId, bucket);
     }
     bucket.friends.add(friendVrcId);
+    // deadline 以库里的 pending_at 为准(重挂时保持原始到期点, 不随每轮 me() 扫描顺延)
+    const friend = db.getFriend(user.id, friendVrcId);
+    const pendingAt = friend && friend.pending_at ? friend.pending_at : now();
+    if (bucket.oldestPendingAt === null || pendingAt < bucket.oldestPendingAt) bucket.oldestPendingAt = pendingAt;
     if (bucket.timer) clearTimeout(bucket.timer);
+    const deadline = Math.min(now() + confirmDelayMs, bucket.oldestPendingAt + 2 * confirmDelayMs);
     const timer = setTimeout(async () => {
       bucket.timer = null;
+      bucket.oldestPendingAt = null;
       const friends = [...bucket.friends];
       bucket.friends.clear();
       await resolvePendingAll(user, friends);
-    }, confirmDelayMs);
+    }, Math.max(0, deadline - now()) + PENDING_TIMER_SAFETY_MS);
     if (timer.unref) timer.unref();
     bucket.timer = timer;
   }
