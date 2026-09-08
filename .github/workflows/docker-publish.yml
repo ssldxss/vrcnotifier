@@ -1,7 +1,7 @@
 # ============================================================
 #  vrcnotifier CI: 自动构建并推送 Docker 镜像到 Docker Hub
 #
-#  触发: push 到 main / 打 tag(v*) / 手动(Actions 页面)
+#  触发: 打 tag(v*) / 手动(Actions 页面)
 #  产物(推送):
 #    sihenglu/vrcnotifier-backend :latest | <版本> | sha-<前12位>
 #    sihenglu/vrcnotifier-frontend:latest | <版本> | sha-<前12位>
@@ -14,7 +14,6 @@ name: Build & Push Docker Images
 
 on:
   push:
-    branches: [main]
     tags: ["v*"]
   workflow_dispatch:
 
