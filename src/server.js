@@ -42,10 +42,11 @@ function createApp({
   const bus = monitor.events;
   const logStreamRef = logStream || getLogStream(); // 后端日志流: 未注入时回退全局
   const fileLogRef = fileLog;      // 本地日志文件(向前翻页数据源)
-  const maskRef = maskState;       // 前端流令牌打码状态(首次连接成功后由 index.js 置 active)
-  // 前端流令牌打码: 置位后所有出站日志行(SSE/API)替换令牌; 终端与本地文件保留明文
+  const maskRef = maskState;       // 前端流令牌打码状态
+  // 服务端出站令牌打码: 只要配置了令牌就一律替换, 不依赖「首次连接成功」标志 ——
+  // 日志段跨重启存活后, 上一轮落盘的令牌行在本轮 ws-open 之前就会出站, 必须始终打码。
   const maskOut = (line) => {
-    if (!maskRef || !maskRef.active || !maskRef.token) return line;
+    if (!maskRef || !maskRef.token) return line;
     return String(line).split(maskRef.token).join(maskRef.masked);
   };
   const pending2faTtlMs = config.pending2faTtlMs ?? 5 * 60 * 1000;
@@ -933,7 +934,7 @@ function createApp({
       const logs = fileLogRef
         ? fileLogRef.readBackFiltered(beforeSeq, limit, matches).map((e) => ({ seq: e.seq, line: maskOut(e.line) }))
         : [];
-      return res.json({ ok: true, logs, seq: logStreamRef.lastSeq() });
+      return res.json({ ok: true, logs, seq: (fileLogRef || logStreamRef).lastSeq() });
     }
     const tailN = Math.min(Math.max(parseInt(req.query.tail, 10) || 100, 1), 1000);
     const afterSeq = parseInt(req.query.after, 10);
@@ -944,16 +945,17 @@ function createApp({
         : logStreamRef.after(afterSeq, 1000)
             .filter((e) => matches(e.line))
             .map((e) => ({ seq: e.seq, line: maskOut(e.line) }));
-      return res.json({ ok: true, logs, seq: logStreamRef.lastSeq() });
+      return res.json({ ok: true, logs, seq: (fileLogRef || logStreamRef).lastSeq() });
     }
-    // 尾部: 优先从文件读(完整历史, 不受内存 500 条环形缓冲限制); 无文件日志时回退环形缓冲
+    // 尾部: 优先从文件读(完整历史, 不受内存 500 条环形缓冲限制); 无文件日志时回退环形缓冲。
+    // 游标取文件层水位: 重启后内存流尚为空(lastSeq=0), 历史在文件里, 以文件为准
     const logs = fileLogRef
-      ? fileLogRef.readBackFiltered(logStreamRef.lastSeq() + 1, tailN, matches)
+      ? fileLogRef.readBackFiltered(fileLogRef.lastSeq() + 1, tailN, matches)
           .map((e) => ({ seq: e.seq, line: maskOut(e.line) }))
       : logStreamRef.tail(tailN)
           .filter((e) => matches(e.line))
           .map((e) => ({ seq: e.seq, line: maskOut(e.line) }));
-    return res.json({ ok: true, logs, seq: logStreamRef.lastSeq() });
+    return res.json({ ok: true, logs, seq: (fileLogRef || logStreamRef).lastSeq() });
   });
 
   app.get('/api/events', (req, res) => {

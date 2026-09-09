@@ -57,7 +57,8 @@ function parseCategory(msg) {
  * 创建日志器。行格式: [时间] [级别] [分类] 正文。
  * 级别: debug < info < warn < error; 筛选阈值语义: 调试含全部, 信息含警告/错误, 警告含错误, 错误仅错误。
  * 输出同时进 console(明文)与本地日志文件(明文); 内存日志流供前端展示(服务层负责打码)。
- * 文件写满 10MB 时清空从头覆盖(先在流内发一行轮转说明)。
+ * seq 由文件层按「文件名+行号」推导分配(跨重启稳定), 内存流/SSE 复用同一编号;
+ * 无文件日志时由内存流内部计数兜底。文件写满由 filelog 自行切段淘汰, 这里不再预检。
  * 方法返回日志流条目(无流时为 null), 供调用方后续替换(令牌打码)。
  */
 function createLogger(defaultCategory = 'app', out = console.log) {
@@ -65,17 +66,19 @@ function createLogger(defaultCategory = 'app', out = console.log) {
     const msg = args.map((a) => (typeof a === 'string' ? a : JSON.stringify(a))).join(' ');
     const { category, body } = parseCategory(msg);
     const line = `[${formatLocalTime()}] [${level}] [${category || defaultCategory}] ${body}`;
-    // 文件写满: 清空后从头覆盖旧日志
-    if (globalFileLog && globalFileLog.willOverflow(line)) {
-      const marker = `[${formatLocalTime()}] [info] [startup] 日志文件已达 ${Math.round(globalFileLog.maxBytes / 1024 / 1024)}MB 上限, 清空后从头覆盖旧日志`;
-      out(marker);
-      globalFileLog.rotate();
-      if (globalLogStream) globalLogStream.push(marker);
+    // 先写文件: seq 由文件层推导(文件名+行号); 磁盘故障时只落 console, 不阻塞业务调用
+    let seq;
+    if (globalFileLog) {
+      try {
+        seq = globalFileLog.append(line);
+      } catch (e) {
+        out(line);
+        return null;
+      }
     }
     out(line);
     let entry = null;
-    if (globalLogStream) entry = globalLogStream.push(line);
-    if (globalFileLog) globalFileLog.append(line, entry ? entry.seq : null); // 文件保留明文
+    if (globalLogStream) entry = globalLogStream.push(line, seq);
     return entry;
   };
   return {

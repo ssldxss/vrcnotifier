@@ -65,3 +65,15 @@ test('lastSeq reflects latest entry', () => {
   s.push('a');
   assert.equal(s.lastSeq(), 1);
 });
+
+test('push 支持外部 seq(文件层推导); lastSeq 取历史最大, 不被乱序拉低', () => {
+  const s = createLogStream();
+  s.push('a', 5000);
+  s.push('b', 2); // 乱序到达不回退水位
+  const e = s.push('c'); // 未带 seq: 内部计数兜底
+  assert.equal(s.tail(10)[0].seq, 5000);
+  assert.equal(s.lastSeq(), 5000);
+  assert.ok(e.seq >= 1);
+  assert.deepEqual(s.after(4999).map((x) => x.line), ['a']);
+  assert.deepEqual(s.after(5000).map((x) => x.line), []);
+});

@@ -10,6 +10,8 @@ const { CookieJar } = require('../src/cookiejar');
 const { createAvatarCache } = require('../src/avatar');
 const { createApp } = require('../src/server');
 const { createLogStream } = require('../src/logstream');
+const { createFileLog } = require('../src/filelog');
+const { maskKey } = require('../src/util');
 
 const silent = { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
 
@@ -79,6 +81,7 @@ function setup(opts = {}) {
     })
   });
   const logStream = opts.logStream || createLogStream();
+  const maskState = { active: false, token: opts.accessToken || null, masked: opts.accessToken ? maskKey(opts.accessToken) : null };
   const { app, autoLogin, getConnectionStatus, handleAuthCommand } = createApp({
     db, notifier, pipeline, monitor, sessionStore,
     vrcapiFactory: (jar) => (jar ? { ...vrcapi, jar } : vrcapi),
@@ -90,6 +93,8 @@ function setup(opts = {}) {
     now: opts.now || (() => 1000000),
     publicDir: null,
     logStream: logStream,
+    maskState,
+    fileLog: opts.fileLog || null,
   });
   const server = app.listen(0);
   const base = 'http://127.0.0.1:' + server.address().port;
@@ -1002,6 +1007,48 @@ test('GET /api/logs filters by level and category server-side', async (t) => {
   ctx.logStream.push('没有格式的原始行');
   const rawF = await get(ctx, '/api/logs?tail=10&level=warn,error&cat=qq');
   assert.deepEqual(rawF.data.logs.map((l) => l.seq), [3, 5]);
+});
+
+test('GET /api/logs 出站无条件打码访问令牌(无需等待首次连接成功)', async (t) => {
+  const ctx = setup({ accessToken: 'secret123' });
+  t.after(() => close(ctx));
+  await post(ctx, '/api/login', { username: 'me', password: 'pw' });
+  // 模拟历史段中遗留的明文令牌行(上一轮落盘, 本轮尚未发生过 ws-open)
+  ctx.logStream.push('[2026-01-01 00:00:00] [info] [startup] 访问令牌: secret123');
+  const r = await get(ctx, '/api/logs?tail=10');
+  assert.equal(r.status, 200);
+  assert.equal(JSON.stringify(r.data).includes('secret123'), false, '明文令牌不得出站');
+  assert.ok(r.data.logs[0].line.includes(maskKey('secret123')), '应包含打码形式');
+});
+
+test('GET /api/logs 注入文件日志时跨段读取, seq 游标取文件层水位', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vrcn-srvlog-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  // 上一轮运行: 写两行后「重启」
+  let fl = createFileLog({ dir, now: () => Date.UTC(2026, 8, 9, 12, 0, 0) });
+  fl.open();
+  fl.append('[2026-01-01 00:00:00] [info] [ws] 旧段行1');
+  fl.append('[2026-01-01 00:00:01] [info] [ws] 旧段行2');
+  const oldLast = fl.lastSeq();
+  fl.close();
+  // 本轮运行: 新实例新段, 续写一行
+  fl = createFileLog({ dir, now: () => Date.UTC(2026, 8, 9, 12, 0, 1) });
+  fl.open();
+  fl.append('[2026-01-01 00:00:02] [info] [ws] 新段行3');
+  const ctx = setup({ accessToken: 'k', fileLog: fl, logStream: createLogStream() });
+  t.after(() => { fl.close(); return close(ctx); });
+  await post(ctx, '/api/login', { username: 'me', password: 'pw' });
+  // tail: 从文件跨段凑页(此时内存流为空, 全部来自文件)
+  const tail = await get(ctx, '/api/logs?tail=2');
+  assert.deepEqual(tail.data.logs.map((l) => l.line), ['[2026-01-01 00:00:01] [info] [ws] 旧段行2', '[2026-01-01 00:00:02] [info] [ws] 新段行3']);
+  assert.equal(tail.data.seq, fl.lastSeq(), '响应游标 = 文件层水位(而非空内存流的 0)');
+  // after: 跨重启补缺口
+  const after = await get(ctx, '/api/logs?after=' + (oldLast - 1));
+  assert.deepEqual(after.data.logs.map((l) => l.line), ['[2026-01-01 00:00:01] [info] [ws] 旧段行2', '[2026-01-01 00:00:02] [info] [ws] 新段行3']);
+  // before: 向前翻进旧段(严格旧于最新一行的所有行, 跨段)
+  const newest = tail.data.logs[1].seq;
+  const before = await get(ctx, '/api/logs?before=' + newest + '&limit=10');
+  assert.deepEqual(before.data.logs.map((l) => l.line), ['[2026-01-01 00:00:00] [info] [ws] 旧段行1', '[2026-01-01 00:00:01] [info] [ws] 旧段行2']);
 });
 
 test('SSE stream emits backend log lines live', async (t) => {

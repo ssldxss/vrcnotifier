@@ -191,11 +191,7 @@ function addLogLine(line, seq) {
   const wasAtTop = box.scrollTop <= 2;          // 是否正停留在顶部跟随最新
   const beforeH = box.scrollHeight;
   box.insertBefore(div, box.firstChild);        // 新的日志在上面
-  while (box.children.length > 2000) {          // 浏览窗口上限: 丢弃的最旧行可再翻页拉回
-    const last = box.lastChild;
-    if (last === loadMoreRow) break;
-    box.removeChild(last);
-  }
+  trimLogWindow(box, 'live');                   // 总窗口封顶: 从底部裁最老行(可翻页拉回)
   updateOldestSeq();
   setRowVisible(div);
   // 最新已展示 seq 只由真正插入的行维护(补缺口以此为起点, 不多不少)
@@ -213,8 +209,31 @@ function addOldLogLine(line, seq) {
   if (seq !== undefined) div.dataset.seq = seq;
   if (loadMoreRow) box.insertBefore(div, loadMoreRow);
   else box.appendChild(div);
+  trimLogWindow(box, 'older');                  // 总窗口封顶: 从顶部裁最新行(可 tail 重载拉回)
   updateOldestSeq();
   setRowVisible(div);
+}
+
+// 窗口裁剪: 直播/翻页统一 5000 行上限(VrcLogView.plan), 方向感知 —— 裁远离焦点的一侧
+function trimLogWindow(box, mode) {
+  const p = VrcLogView.plan({ totalRows: box.children.length, mode });
+  for (let i = 0; i < p.count; i++) {
+    if (p.side === 'bottom') {
+      // 底部最老行: loadMoreRow 挂在最末时, 裁它前面的那一行
+      const last = box.lastChild;
+      if (!last) break;
+      if (last === loadMoreRow) {
+        if (!last.previousSibling) break;
+        box.removeChild(last.previousSibling);
+      } else {
+        box.removeChild(last);
+      }
+    } else {
+      const first = box.firstChild;
+      if (!first) break;
+      box.removeChild(first);
+    }
+  }
 }
 
 function updateOldestSeq() {
@@ -289,7 +308,7 @@ function loadBackendLogs(opts = {}) {
     .catch(() => {});
 }
 
-// 滚动到底自动加载更旧日志(后端单文件存储, 前端不缓存, 随滚动实时加载)
+// 滚动到底自动加载更旧日志(后端多段文件存储, 跨段翻页; 前端不缓存, 随滚动实时加载)
 $('#log').addEventListener('scroll', () => {
   const box = $('#log');
   if (!hasOlder || loadingOlder) return;

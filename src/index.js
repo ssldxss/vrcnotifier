@@ -222,7 +222,8 @@ function buildApplication(opts = {}) {
   // 启动周期对账 + watchdog 定时器(单用户, 无会话时为空转)
   monitor.startTimers();
 
-  // 前端日志流令牌打码状态: 首次连接成功后由 main() 置 active; 置位后服务端出站行一律替换令牌
+  // 前端日志流令牌打码: 出站(server.js maskOut)无条件打码; 此处仅在首次连接成功后
+  // 把内存流里那条启动令牌行本身替换为打码版, 并输出一条说明。终端与本地日志文件保留明文。
   const maskState = { active: false, token: config.accessKey || null, masked: maskKey(config.accessKey) };
 
   const { app, autoLogin, getConnectionStatus, handleAuthCommand } = createApp({
@@ -259,13 +260,17 @@ function buildApplication(opts = {}) {
 
 async function main() {
   const dbPath = env('DB_PATH', path.join(__dirname, '..', 'data', 'vrcnotifier.db'));
-  // 日志: 内存流(前端实时展示) + 本地单文件 data/logs/vrcnotifier.log(每次启动清空重建, 10MB 覆盖)
+  // 日志: 内存流(前端实时展示) + 多段本地文件 data/logs/(每段默认 2MB, 保留 6 段, 覆盖最老段)
   const logStream = createLogStream();
   setLogStream(logStream); // 提前接管: 启动期日志(含令牌行)也进前端流
   const logger = createLogger('app');
   const fileLog = dbPath === ':memory:'
     ? null
-    : createFileLog({ file: path.join(path.dirname(dbPath), 'logs', 'vrcnotifier.log') });
+    : createFileLog({
+      dir: path.join(path.dirname(dbPath), 'logs'),
+      maxBytes: envInt('LOG_SEGMENT_MB', 2) * 1024 * 1024,
+      maxFiles: envInt('LOG_MAX_FILES', 6)
+    });
   if (fileLog) { fileLog.open(); setFileLog(fileLog); }
   // 运行标识: 每次启动以分隔行隔开(文件清空后的首行, 前端同样可见)
   logger.info(`[启动] ======== vrcnotifier 运行开始 ${formatLocalTime()} pid=${process.pid} node=${process.version} ========`);

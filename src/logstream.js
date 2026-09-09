@@ -5,10 +5,13 @@
 function createLogStream({ capacity = 500 } = {}) {
   const entries = []; // { seq, line }
   const listeners = new Set();
-  let seq = 0;
+  let seq = 0;   // 内部兜底计数(无文件日志时由它分配)
+  let last = 0;  // 已分配的最大 seq(外部 seq 为稀疏大整数, 取历史最大为游标)
 
-  function push(line) {
-    const entry = { seq: ++seq, line: String(line) };
+  function push(line, external) {
+    const s = (external === undefined || external === null) ? ++seq : external;
+    if (s > last) last = s;
+    const entry = { seq: s, line: String(line) };
     entries.push(entry);
     if (entries.length > capacity) entries.splice(0, entries.length - capacity);
     for (const fn of [...listeners]) {
@@ -59,11 +62,11 @@ function createLogStream({ capacity = 500 } = {}) {
     return () => listeners.delete(fn);
   }
 
-  function clear() { entries.length = 0; }
+  function clear() { entries.length = 0; seq = 0; last = 0; }
 
   function size() { return entries.length; }
 
-  function lastSeq() { return seq; }
+  function lastSeq() { return last; }
 
   return { push, update, findLast, tail, after, subscribe, clear, size, lastSeq, capacity };
 }
