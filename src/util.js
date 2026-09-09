@@ -43,7 +43,8 @@ const CATEGORY_ALIASES = {
   '通知': 'notify', 'notify': 'notify',
   'avatar': 'avatar',
   'health': 'status', 'vrcstatus': 'status', 'status': 'status',
-  'world': 'world', '世界': 'world'
+  'world': 'world', '世界': 'world',
+  'group': 'group', '群组': 'group'
 };
 
 function parseCategory(msg) {

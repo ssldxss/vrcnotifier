@@ -133,7 +133,7 @@ let loadingOlder = false;    // 防止重复翻页
 let loadMoreRow = null;      // 底部「加载更早日志」占位行
 
 // ---------- 日志行渲染(OpenClash 观感): [时间] [级别] [分类] 正文 → 级别词着色 + 分类徽章 ----------
-const LOG_CATS = ['startup', 'server', 'auth', 'monitor', 'ws', 'vrcapi', 'world', 'qq', 'notify', 'avatar', 'status'];
+const LOG_CATS = ['startup', 'server', 'auth', 'monitor', 'ws', 'vrcapi', 'world', 'group', 'qq', 'notify', 'avatar', 'status'];
 let logLevelSel = null; // 多选下拉: 选中集合在 selectedValues (Set); 选中集合=显示集合, 默认全选
 let logCatSel = null;   // 多选下拉: 选中集合在 selectedValues (Set)
 

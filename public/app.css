@@ -779,6 +779,7 @@ button.danger { background: linear-gradient(135deg, var(--bad), #b4232c); box-sh
 .cat-ws { --c: #38bdf8; }
 .cat-vrcapi { --c: #2dd4bf; }
 .cat-world { --c: #34d399; }
+.cat-group { --c: #fbbf24; }
 .cat-qq { --c: #60a5fa; }
 .cat-notify { --c: #f472b6; }
 .cat-avatar { --c: #fb923c; }
