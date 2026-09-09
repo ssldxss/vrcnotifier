@@ -806,8 +806,8 @@ button.danger { background: linear-gradient(135deg, var(--bad), #b4232c); box-sh
 .dd-arrow { width: 13px; height: 13px; flex: 0 0 auto; color: var(--text-3); transition: transform .22s cubic-bezier(.22,.8,.3,1); }
 .dd.open .dd-arrow { transform: rotate(180deg); }
 .dd-menu {
-  position: absolute; top: calc(100% + 6px); left: 0; min-width: 100%; max-height: 280px; overflow: auto;
-  z-index: 130; margin: 0; padding: 4px;
+  position: absolute; top: calc(100% + 6px); left: 0; min-width: 100%; overflow: hidden;
+  z-index: 130; margin: 0;
   background: light-dark(rgba(243,246,252,.96), rgba(16,19,26,.96)); /* 近实底: 降低透明度, 菜单内容清晰可读 */
   -webkit-backdrop-filter: blur(calc(var(--blur) - 4px)) saturate(150%);
   backdrop-filter: blur(calc(var(--blur) - 4px)) saturate(150%);
@@ -823,6 +823,8 @@ button.danger { background: linear-gradient(135deg, var(--bad), #b4232c); box-sh
   opacity: 1; visibility: visible; pointer-events: auto; transform: none;
   transition: opacity .22s cubic-bezier(.22,.8,.3,1), transform .26s cubic-bezier(.22,.8,.3,1), visibility 0s;
 }
+/* 滚动层: 壳负责定位/过渡/毛玻璃, 滚动收在内层(关闭重开保留滚动位置) */
+.dd-scroll { max-height: 280px; overflow: auto; padding: 4px; }
 .dd-item {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   padding: 6px 10px; border-radius: var(--r-sm); cursor: pointer;
@@ -852,20 +854,11 @@ button.danger { background: linear-gradient(135deg, var(--bad), #b4232c); box-sh
 .dd-check.ind .dd-cb::before { clip-path: none; width: 8px; height: 2px; transform: scale(1); }
 .dd-check .dd-lb { color: var(--text-2); transition: color var(--t-fast); }
 .dd-check.on .dd-lb { color: var(--text-1); }
-/* 展开时选项逐行淡入(轻微级联, 每行 20ms, 同页面 riseIn 语汇) */
+/* 展开时选项逐行淡入(轻微级联, 每行 20ms, 封顶 12 行, 同页面 riseIn 语汇);
+   延迟按行号 --i 计算(JS 逐行设值) —— 手写 nth-child 列表只覆盖固定行数,
+   超出的行会退回无延迟, 比所有级联行更早出现 */
 @keyframes ddItemIn { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
-.dd.open .dd-item { animation: ddItemIn .26s cubic-bezier(.22,.8,.3,1) backwards; }
-.dd.open .dd-item:nth-child(2) { animation-delay: .02s; }
-.dd.open .dd-item:nth-child(3) { animation-delay: .04s; }
-.dd.open .dd-item:nth-child(4) { animation-delay: .06s; }
-.dd.open .dd-item:nth-child(5) { animation-delay: .08s; }
-.dd.open .dd-item:nth-child(6) { animation-delay: .1s; }
-.dd.open .dd-item:nth-child(7) { animation-delay: .12s; }
-.dd.open .dd-item:nth-child(8) { animation-delay: .14s; }
-.dd.open .dd-item:nth-child(9) { animation-delay: .16s; }
-.dd.open .dd-item:nth-child(10) { animation-delay: .18s; }
-.dd.open .dd-item:nth-child(11) { animation-delay: .2s; }
-.dd.open .dd-item:nth-child(12) { animation-delay: .22s; }
+.dd.open .dd-item { animation: ddItemIn .26s cubic-bezier(.22,.8,.3,1) backwards; animation-delay: calc(min(var(--i, 0), 12) * .02s); }
 .field .dd, .field .dd-btn { width: 100%; }
 
 /* ---------- 概览条(常驻) ---------- */

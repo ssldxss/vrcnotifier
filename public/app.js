@@ -1673,6 +1673,9 @@ function makeDropdown(sel, opts = {}) {
   btn.innerHTML = "<span class='dd-val'></span><svg class='dd-arrow' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m6 9 6 6 6-6'/></svg>";
   const menu = document.createElement('div');
   menu.className = 'dd-menu'; // 开合由 .dd.open 驱动(全局 .hidden 是 display:none, 会跳过淡入淡出)
+  const scroll = document.createElement('div');
+  scroll.className = 'dd-scroll'; // 滚动收在内层: 过渡加在滚动容器自身时, 带滚动位置重开会闪现滚动内容
+  menu.appendChild(scroll);
   wrap.append(btn, menu);
   const items = [];
   function checkEl() { const cb = document.createElement('span'); cb.className = 'dd-cb'; return cb; }
@@ -1692,7 +1695,7 @@ function makeDropdown(sel, opts = {}) {
       sync();
       sel.dispatchEvent(new Event('change', { bubbles: true }));
     });
-    menu.appendChild(allRow);
+    scroll.appendChild(allRow);
   }
   for (const opt of sel.options) {
     const it = document.createElement('div');
@@ -1714,7 +1717,7 @@ function makeDropdown(sel, opts = {}) {
       sync(); // 立即更新按钮文案, 不必等下次展开
       close();
     });
-    menu.appendChild(it);
+    scroll.appendChild(it);
     items.push(it);
   }
   function sync() {
@@ -1736,6 +1739,7 @@ function makeDropdown(sel, opts = {}) {
     wrap.classList.remove('open'); // CSS 过渡负责淡出
   }
   const navItems = multi ? [allRow, ...items] : items; // 多选时「全选」行也参与键盘导航
+  navItems.forEach((it, i) => it.style.setProperty('--i', i)); // 逐行级联延迟的行号, 见 app.css .dd-item 的 animation-delay
   let activeIdx = -1;
   function markActive() {
     navItems.forEach((it, i) => it.classList.toggle('act', i === activeIdx));
@@ -1749,7 +1753,6 @@ function makeDropdown(sel, opts = {}) {
       activeIdx = navItems.findIndex((it) => it.classList.contains('on'));
       if (activeIdx < 0) activeIdx = 0; // 键盘导航默认落在第一行
       markActive();
-      menu.scrollTop = 0; // 重开固定从顶部展开: 菜单自身是滚动容器, 带着滚动位置重开时底部条目会先于展开动画闪现
       wrap.classList.add('open'); // CSS 过渡负责淡入
     } else {
       close();
