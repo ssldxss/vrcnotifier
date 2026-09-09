@@ -1749,6 +1749,7 @@ function makeDropdown(sel, opts = {}) {
       activeIdx = navItems.findIndex((it) => it.classList.contains('on'));
       if (activeIdx < 0) activeIdx = 0; // 键盘导航默认落在第一行
       markActive();
+      menu.scrollTop = 0; // 重开固定从顶部展开: 菜单自身是滚动容器, 带着滚动位置重开时底部条目会先于展开动画闪现
       wrap.classList.add('open'); // CSS 过渡负责淡入
     } else {
       close();
