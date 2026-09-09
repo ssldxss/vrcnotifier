@@ -1674,7 +1674,7 @@ function makeDropdown(sel, opts = {}) {
   const menu = document.createElement('div');
   menu.className = 'dd-menu'; // 开合由 .dd.open 驱动(全局 .hidden 是 display:none, 会跳过淡入淡出)
   const scroll = document.createElement('div');
-  scroll.className = 'dd-scroll'; // 滚动收在内层: 过渡加在滚动容器自身时, 带滚动位置重开会闪现滚动内容
+  scroll.className = 'dd-scroll'; // 滚动收在内层, 关闭重开保留滚动位置(与 app.css .dd-scroll 同思路)
   menu.appendChild(scroll);
   wrap.append(btn, menu);
   const items = [];
