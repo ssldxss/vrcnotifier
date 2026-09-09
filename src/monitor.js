@@ -284,9 +284,10 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
         if (Array.isArray(list)) {
           const at = now();
           for (const g of list) {
-            if (g && g.id && g.name) db.upsertGroupCache(g.id, g.name, at, 0, 0);
+            // 注意: 列表项的 id 是成员关系 id(gmem_*), 真正的群组 id 在 groupId 字段(grp_*)
+            if (g && g.groupId && g.name) db.upsertGroupCache(g.groupId, g.name, at, 0, 0);
           }
-          const hit = list.find((g) => g && g.id === groupId && g.name);
+          const hit = list.find((g) => g && g.groupId === groupId && g.name);
           if (hit) name = hit.name;
         }
       } catch (e) {

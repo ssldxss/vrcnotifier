@@ -917,7 +917,8 @@ test('群组公告优先批量获取全部群组名, 未命中才单查', async 
   t.notifications.length = 0;
   let batchCalls = 0;
   let groupCalls = 0;
-  t.vrcapi.userGroups = async () => { batchCalls += 1; return [{ id: 'grp_a', name: '群组A' }, { id: 'grp_b', name: '群组B' }]; };
+  // 真实 API 形状: 列表项 id 是成员关系 id(gmem_*), 群组 id 在 groupId 字段(grp_*)
+  t.vrcapi.userGroups = async () => { batchCalls += 1; return [{ id: 'gmem_a', groupId: 'grp_a', name: '群组A' }, { id: 'gmem_b', groupId: 'grp_b', name: '群组B' }]; };
   t.vrcapi.group = async (id) => { groupCalls += 1; return { id, name: '单查群' }; };
   const evt = (id, gid) => ({ type: 'notification-v2', content: { id, version: 2, type: 'group.announcement', title: `公告${id}`, message: 'hi', link: `group:${gid}` } });
   // 公告来自已加入群组: 批量命中, 不单查
