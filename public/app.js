@@ -977,13 +977,38 @@ $('#friendSearch').addEventListener('input', (e) => {
 });
 
 // ---------- 设置 ----------
-// QQ 开关: 关闭时隐藏 AppID/AppSecret/说明/按钮, 只留开关与提示
+// QQ 开关: 实时保存(成功不提示, 后端 [server] 更新通知设置 日志可在面板看到); 关闭时隐藏 AppID/AppSecret/说明/按钮
 function syncQqFields() {
   const on = $('#sQqEnabled').checked;
   $('#qqFields').classList.toggle('hidden', !on);
   $('#qqDisabledHint').classList.toggle('hidden', on);
 }
-$('#sQqEnabled').addEventListener('change', syncQqFields);
+
+// 卡片提示: 2s 后自动消失(重复触发重置计时)
+let settingsMsgTimer = null;
+function flashSettingsMsg(text) {
+  $('#settingsMsg').textContent = text;
+  clearTimeout(settingsMsgTimer);
+  settingsMsgTimer = setTimeout(() => { $('#settingsMsg').textContent = ''; }, 2000);
+}
+
+$('#sQqEnabled').addEventListener('change', async () => {
+  const input = $('#sQqEnabled');
+  const want = input.checked ? 1 : 0;
+  try {
+    const r = await api('PUT', '/api/settings', { qq_enabled: want });
+    if (!r.data.ok) {
+      input.checked = want !== 1; // 回滚本次提交的开关值
+      flashSettingsMsg(r.data.error || '保存失败');
+      return;
+    }
+  } catch (e) {
+    input.checked = want !== 1;
+    flashSettingsMsg(e.message || '保存失败');
+    return;
+  }
+  syncQqFields();
+});
 
 async function loadSettings() {
   const r = await api('GET', '/api/settings');
@@ -998,31 +1023,26 @@ async function loadSettings() {
   syncQqFields();
 }
 
+// 保存按钮: 仅提交 AppID/AppSecret(开关已实时保存); 结果提示 2s 后消失
 $('#saveSettings').addEventListener('click', async () => {
-  const body = {
-    qq_enabled: $('#sQqEnabled').checked ? 1 : 0,
-    qq_app_id: $('#sQqAppId').value.trim() || null
-  };
+  const body = { qq_app_id: $('#sQqAppId').value.trim() || null };
   const qqSecret = $('#sQqAppSecret').value;
   if (qqSecret) body.qq_app_secret = qqSecret;
   const r = await api('PUT', '/api/settings', body);
-  $('#settingsMsg').textContent = r.data.ok ? '已保存' : (r.data.error || '保存失败');
+  flashSettingsMsg(r.data.ok ? '已保存' : (r.data.error || '保存失败'));
   if (r.data.ok) {
     $('#sQqAppSecret').value = '';
     loadSettings();
   }
 });
 
-// 通知设置: 切换即时保存(无保存按钮); 失败时回滚开关 UI 并提示
+// 通知设置: 切换即时保存(无保存按钮); 成功不提示(后端 [server] 更新通知设置 日志可在面板看到), 失败时回滚开关 UI 并提示
 function bindNotifyToggle(id, key) {
   $(id).addEventListener('change', async () => {
     const input = $(id);
     const want = input.checked ? 1 : 0;
     const r = await api('PUT', '/api/settings', { [key]: want });
-    if (r.data.ok) {
-      $('#notifyMsg').textContent = '已保存';
-      setTimeout(() => { $('#notifyMsg').textContent = ''; }, 2000);
-    } else {
+    if (!r.data.ok) {
       input.checked = want !== 1; // 回滚本次提交的开关值
       $('#notifyMsg').textContent = r.data.error || '保存失败';
     }
