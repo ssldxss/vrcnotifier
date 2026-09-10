@@ -1436,3 +1436,32 @@ test('WS friend-delete: 直接移除记录', async () => {
   assert.equal(t.db.getFriend(user.id, 'usr_f1'), null, 'WS 删除事件移除记录');
   assert.equal(t.notifications.length, 0, '删除不通知');
 });
+
+// 保护性契约: pending 到期任务的定时器回调必须自己接住内部异常。
+// 该回调是 setTimeout 的 async 函数, 异常一旦穿透就成为未处理的拒绝并终止整个进程;
+// 同类定时任务(watchdog / 自动对账)均已用 .catch 兜住, 此处对齐同一约定:
+// 数据库等意外失败只记录日志, 不影响监控继续运行。
+test('pending 到期验证内部抛错: 接住并记录日志, 不穿透', async () => {
+  const logs = [];
+  const t = setup({
+    confirmDelayMs: 20, now: () => Date.now(),
+    onlineFriends: [onlineFriend('usr_f1')],
+    logger: { debug: () => {}, info: () => {}, warn: () => {}, error: (m) => logs.push(m) }
+  });
+  const user = addUser(t.db);
+  addConfig(t.db, user.id, 'usr_f1');
+  await t.monitor.activateUser(user, t.vrcapi);
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '1', { type: 'friend-online', content: { userId: 'usr_f1', location: 'wrld_a:1', user: { id: 'usr_f1', displayName: 'F1', status: 'active' } } });
+  t.notifications.length = 0;
+  // 下线 → 进入 pending, 到期后定时器回调会做验证与落库
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '2', { type: 'friend-offline', content: { userId: 'usr_f1', platform: '' } });
+  // 名册为空 → 走"已删除"分支, 该分支内部会写库
+  t.vrcapi.me = async () => meSnapshot({ friends: [], onlineFriends: [], activeFriends: [], offlineFriends: [] });
+  // 让该分支内部的写库失败(模拟 database is locked / 磁盘故障等意外)
+  t.db.deleteFriend = () => { throw new Error('database is locked'); };
+  await new Promise((r) => setTimeout(r, 120));
+  assert.ok(
+    logs.some((m) => m.includes('pending 到期验证异常') && m.includes('database is locked')),
+    '定时器回调内部异常被接住并记录: ' + JSON.stringify(logs)
+  );
+});

@@ -516,12 +516,13 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
     if (bucket.oldestPendingAt === null || pendingAt < bucket.oldestPendingAt) bucket.oldestPendingAt = pendingAt;
     if (bucket.timer) clearTimeout(bucket.timer);
     const deadline = Math.min(now() + confirmDelayMs, bucket.oldestPendingAt + 2 * confirmDelayMs);
-    const timer = setTimeout(async () => {
+    const timer = setTimeout(() => {
       bucket.timer = null;
       bucket.oldestPendingAt = null;
       const friends = [...bucket.friends];
       bucket.friends.clear();
-      await resolvePendingAll(user, friends);
+      // 兜底: 定时器回调内的异常若穿透会成为未处理拒绝并终止进程(watchdog/自动对账同此约定)
+      resolvePendingAll(user, friends).catch((e) => log.error(`[monitor] pending 到期验证异常: ${e.message}`));
     }, Math.max(0, deadline - now()) + PENDING_TIMER_SAFETY_MS);
     if (timer.unref) timer.unref();
     bucket.timer = timer;
