@@ -445,6 +445,12 @@ function createDb(location = ':memory:', opts = {}) {
     isDuplicate(key, windowMs, atMs = Date.now()) {
       const r = stmt.isDuplicate.get(key);
       return !!r && r.created_at > atMs - windowMs;
+    },
+    // 优雅退出用: 先尝试 TRUNCATE checkpoint 把 WAL 归零(有并发读者时会失败, 忽略),
+    // 让主库文件自包含(拷贝单文件即完整备份); close 本身也会对最后一条连接执行 checkpoint。
+    close() {
+      try { db.exec('PRAGMA wal_checkpoint(TRUNCATE)'); } catch (e) { /* 忽略 */ }
+      db.close();
     }
   };
 }

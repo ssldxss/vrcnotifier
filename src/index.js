@@ -360,6 +360,8 @@ async function main() {
     for (const { user } of runtime.monitor.activeUsers()) {
       try { runtime.monitor.deactivateUser(user.vrchat_user_id); } catch (e) { /* ignore */ }
     }
+    // 关闭数据库(WAL 归零; 失败仅告警, 数据已随事务提交在 WAL 中, 不影响安全退出)
+    try { db.close(); } catch (e) { logger.warn(`[退出] db.close: ${e.message}`); }
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 3000).unref();
   };
