@@ -1560,7 +1560,7 @@ function switchTab(name, opts = {}) {
       .find((el) => el && !el.classList.contains('hidden'));
     if (old) {
       old.classList.add('page-fade-out');
-      fadeOutTimer = setTimeout(finish, 120); // 快速淡出后立刻淡入(减弱动效用户由定时器兜底)
+      fadeOutTimer = setTimeout(finish, 120); // 快速淡出后立刻淡入(定时器兜底, 不依赖动画事件)
     } else {
       finish();
     }
@@ -1807,9 +1807,9 @@ $('#logLevelSel').addEventListener('change', () => { saveLogFilter(); loadBacken
 $('#logCatSel').addEventListener('change', () => { saveLogFilter(); loadBackendLogs({ tail: 100 }); });
 
 // ---------- 丝滑滚动: 替换默认滚轮为指数趋近的惯性滚动 ----------
-// 起步跟手、尾段柔和; 日志卡/下拉菜单等内部滚动容器仍走原生; 减弱动态效果用户保持原生。
+// 起步跟手、尾段柔和; 日志卡/下拉菜单等内部滚动容器仍走原生。
+// 不检测系统「减少动态效果」开关, 一律启用。
 (function initSmoothScroll() {
-  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
   const NATIVE_SEL = '#log, .dd-menu'; // 内部滚动容器: 不拦截
   let target = window.scrollY;
   let current = window.scrollY;

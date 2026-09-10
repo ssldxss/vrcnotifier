@@ -2,7 +2,7 @@
    vrcnotifier 前端样式
    设计系统: Primitive(原始色) -> Semantic(语义) -> Component(组件)
    主题: 默认深色, 可手动切换 深/浅/自动(跟随系统)
-   风格: 毛玻璃卡片 + 渐变光晕 + 丝滑过渡(尊重 prefers-reduced-motion)
+   风格: 毛玻璃卡片 + 渐变光晕 + 丝滑过渡(不随系统「减少动态效果」降级)
    ================================================================ */
 
 /* ---------- 字体: 自托管 woff2(原由 Google Fonts CDN 加载, 现本地化, 声明与 Google 原 CSS 一致) ----------
@@ -1135,8 +1135,8 @@ h3.chan { font-size: 13px; margin: 16px 0 6px; color: var(--text-2); font-weight
   .url-row .gate-port { flex: 0 0 76px; }
 }
 
-/* ---------- 无障碍: 减少动画 ---------- */
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation: none !important; transition: none !important; }
-}
+/* ---------- 动画策略 ----------
+   动画不受系统「减少动态效果」开关影响, 一律照常播放。
+   注意: 部分组件依赖 animationend 事件做收尾, 若将来重新引入
+   prefers-reduced-motion 归零规则, 需同步改为不依赖该事件的写法。 */
 
