@@ -130,6 +130,14 @@ async function put(t, path, body) {
   return { status: res.status, data: await res.json() };
 }
 
+// 显式指定请求头(鉴权回归用: 需要构造"不带 token"或大小写变体路径)
+async function getWith(t, path, headers) {
+  const res = await fetch(t.base + path, { headers: headers || {} });
+  let data = null;
+  try { data = await res.json(); } catch (e) { /* 非 JSON 响应 */ }
+  return { status: res.status, data };
+}
+
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 test('config endpoint exposes app config and access key requirement', async (t) => {
@@ -146,6 +154,43 @@ test('config endpoint exposes app config and access key requirement', async (t) 
   assert.equal(bad.data.ok, false);
   const good = await post(ctx, '/api/access/verify', { key: 'secret123' });
   assert.equal(good.data.ok, true);
+});
+
+// Express 路由默认大小写不敏感(caseSensitive:false), 鉴权中间件的路径判断必须与路由同口径。
+// 若中间件按原样(大小写敏感)判断 `/api/` 前缀, 则 /API/status、/Api/Status 会跳过 token 检查,
+// 却仍被路由命中 —— 访问令牌门形同虚设(数据面泄露 + 登录接口可被无令牌触达)。
+test('auth: /api routes require token regardless of path casing', async (t) => {
+  const ctx = setup({ accessToken: 'secret123' });
+  t.after(() => close(ctx));
+  const AUTH = { 'Authorization': 'Bearer secret123' };
+
+  // 小写规范路径: 无 token 401 / 带 token 放行(确认该路径确实受保护且可用)
+  const lowerNo = await getWith(ctx, '/api/status', {});
+  assert.equal(lowerNo.status, 401);
+  const lowerOk = await getWith(ctx, '/api/status', AUTH);
+  assert.equal(lowerOk.status, 200, '带正确 token 的规范路径应正常');
+  assert.equal(lowerOk.data.ok, true);
+
+  // 大小写变体: 必须与规范路径同等对待(都要求 token)
+  for (const p of ['/API/status', '/Api/Status', '/API/STATUS', '/API/settings', '/API/logs']) {
+    const r = await getWith(ctx, p, {});
+    assert.equal(r.status, 401, `${p} 大小写变体必须仍要求访问令牌`);
+    assert.equal(r.data.error, '访问被拒绝: 缺少或错误的访问令牌', `${p} 应返回鉴权拒绝而非业务响应`);
+  }
+
+  // 大小写变体带正确 token: 同样放行(不能误伤合法请求)
+  const upperOk = await getWith(ctx, '/API/status', AUTH);
+  assert.equal(upperOk.status, 200, '/API/status 带正确 token 应放行');
+  assert.equal(upperOk.data.ok, true);
+
+  // 未命中 /api 前缀判断的其它写法不得绕过
+  const trailing = await getWith(ctx, '/API/status/', {});
+  assert.equal(trailing.status, 401, '尾斜杠不得成为绕过手段');
+
+  // 白名单按同一口径判定: 大小写变体同样免 token
+  const cfgUpper = await getWith(ctx, '/API/config', {});
+  assert.equal(cfgUpper.status, 200, '白名单大小写变体应免 token');
+  assert.equal(cfgUpper.data.tokenRequired, true);
 });
 
 test('login without 2FA activates monitor and returns masked user', async (t) => {

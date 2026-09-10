@@ -592,7 +592,9 @@ function createApp({
   const authWhitelist = new Set(['/api/config', '/api/access/verify']);
   app.use((req, res, next) => {
     if (!config.accessToken) return next(); // 未配置 token 时跳过(测试/内嵌兼容)
-    const pathname = (req.path || req.url.split('?')[0]).replace(/\/+$/, '');
+    // 路径统一转小写再比对: Express 路由默认大小写不敏感(caseSensitive:false), 本中间件必须与
+    // 路由同口径 —— 否则 /API/status、/Api/Status 会跳过 token 检查却仍被路由命中(令牌门失效)。
+    const pathname = (req.path || req.url.split('?')[0]).toLowerCase().replace(/\/+$/, '');
     if (!pathname.startsWith('/api/')) return next(); // 静态资源无需 token
     if (authWhitelist.has(pathname)) return next();
     const header = req.headers.authorization || '';
