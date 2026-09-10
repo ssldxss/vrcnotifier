@@ -66,7 +66,6 @@ function createPipelineManager(opts) {
         displayName: displayName || '',
         stopped: false,
         attempt: 0,
-        watchdogForced: false,
         failedSince: null,
         notified: false
       };
@@ -119,8 +118,7 @@ function createPipelineManager(opts) {
     if (!conn.failedSince) conn.failedSince = now();
     const delay = backoffMs(conn.attempt);
     conn.attempt += 1;
-    // watchdog 触发的正常断开/重连按 info 记录; 异常断开导致的重连保持 warn
-    (conn.watchdogForced ? log.info : log.warn)(`[ws] userId=${userId} ${delay}ms 后重连(第 ${conn.attempt} 次)`);
+    log.warn(`[ws] userId=${userId} ${delay}ms 后重连(第 ${conn.attempt} 次)`);
     maybeNotifyFailure(userId, conn);
     conn.reconnectTimer = setTimeout(() => {
       conn.reconnectTimer = null;
@@ -170,8 +168,6 @@ function createPipelineManager(opts) {
     ws.on('open', () => {
       log.info(`[ws] 已连接 userId=${userId}`);
       const wasFailing = conn.notified || !!conn.failedSince;
-      const isWatchdog = !!conn.watchdogForced;
-      conn.watchdogForced = false;
       conn.attempt = 0;
       conn.failedSince = null;
       conn.notified = false;
@@ -179,7 +175,7 @@ function createPipelineManager(opts) {
       conn.lastRaw = ''; // 新连接: 清空上次连接的帧去重基线, 避免重连后首帧被吞
       startPing(conn);
       if (onOpen) {
-        try { onOpen(userId, conn.displayName, wasFailing, isWatchdog); } catch (e) { log.error(`[ws] onOpen 错误 userId=${userId}: ${e.message}`); }
+        try { onOpen(userId, conn.displayName, wasFailing); } catch (e) { log.error(`[ws] onOpen 错误 userId=${userId}: ${e.message}`); }
       }
       if (wasFailing && onReconnect) {
         try { onReconnect(userId, conn.displayName); } catch (e) { log.error(`[ws] onReconnect 错误 userId=${userId}: ${e.message}`); }
@@ -257,15 +253,13 @@ function createPipelineManager(opts) {
   function forceReconnect(userId) {
     const conn = conns.get(userId);
     if (!conn || conn.stopped) return;
-    conn.watchdogForced = true; // watchdog 强制重连: 成功后不推送恢复/已连接通知
-    if (conn.reconnectTimer) { clearTimeout(conn.reconnectTimer); conn.reconnectTimer = null; }
-    conn.attempt = 0;
     if (conn.ws) {
-      try { conn.ws.removeAllListeners('close'); conn.ws.close(); } catch (e) { /* ignore */ }
-      conn.ws = null;
+      // 只负责断开。剩下的事(通知 monitor、安排重连)全部交给 close 事件,
+      // 和"正常断开"走同一条路 —— 这里不再自己排重连。
+      // 若摘掉 close 监听, monitor 的 st.open 会停在陈旧的 true, 故障窗口不开 → 不告警。
+      try { conn.ws.close(); } catch (e) { /* ignore */ }
     }
     clearTimers(conn);
-    scheduleReconnect(userId, conn);
   }
 
   function isConnected(userId) {

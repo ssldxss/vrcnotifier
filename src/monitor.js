@@ -128,12 +128,11 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
     if (wasNotified) st.recovering = true;
   }
 
-  bus.on('ws-open', ({ userId, isWatchdog }) => {
+  bus.on('ws-open', ({ userId }) => {
     const st = stateOf(userId);
     st.open = true;
     const s = sessions.get(userId);
     if (!s) return;
-    if (isWatchdog) return; // watchdog 强制重连: 不推送恢复/已连接通知
     if (!st.startupSent) {
       // 首次连接成功: 发启动说明(不属于重连)
       maybeSendLifecycle(s.user);

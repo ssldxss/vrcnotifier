@@ -105,8 +105,44 @@ test('forceReconnect tears down and reconnects; disconnect stops reconnection', 
   } finally { await close(); }
 });
 
-test('frame receipt logs at debug level; watchdog-forced reconnect logs at info level', async () => {
+// 回归: forceReconnect 必须让 onClose 走通(monitor 据此把 st.open 置 false 并开启故障窗口),
+// 否则重连持续失败时故障窗口永不开启 → 不告警。同时不能双重调度重连。
+test('forceReconnect notifies onClose exactly once and still reconnects', async () => {
   const { state, url, close } = await startMockPipeline();
+  let pm = null;
+  try {
+    let onCloseCalls = 0;
+    pm = createPipelineManager({
+      getToken: async () => ({ status: 'ok', token: 't' }),
+      onMessage: () => {},
+      onClose: () => { onCloseCalls++; },
+      userAgent: 't/1',
+      wsUrl: (token) => `${url}/?authToken=${token}`,
+      config: cfg,
+      logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} }
+    });
+    pm.connect('u1', '我');
+    await sleep(80);
+    assert.equal(state.connections.length, 1);
+
+    pm.forceReconnect('u1');
+    // close 事件是异步派发的: 等一拍再断言(旧实现在此处永久为 0 → 会失败)
+    await sleep(20);
+    assert.equal(onCloseCalls, 1, 'forceReconnect 应通知一次 onClose');
+
+    await sleep(230);
+    assert.ok(state.connections.length >= 2, 'watchdog 强制重连成功');
+    assert.equal(onCloseCalls, 1, '重连不应产生第二次 onClose(无双重调度)');
+  } finally {
+    // 无条件清理: 断言失败时也要断开并停掉服务, 否则残留连接会让测试进程不退出
+    try { if (pm) pm.disconnect('u1'); } catch (e) { /* ignore */ }
+    await close();
+  }
+});
+
+test('frame receipt logs at debug level; reconnect logs at warn level', async () => {
+  const { state, url, close } = await startMockPipeline();
+  let pm = null;
   try {
     const logs = [];
     const logger = {
@@ -115,7 +151,7 @@ test('frame receipt logs at debug level; watchdog-forced reconnect logs at info 
       warn: (...a) => logs.push(['warn', a.join(' ')]),
       error: (...a) => logs.push(['error', a.join(' ')])
     };
-    const pm = createPipelineManager({
+    pm = createPipelineManager({
       getToken: async () => ({ status: 'ok', token: 't' }),
       onMessage: () => {},
       userAgent: 't/1',
@@ -133,12 +169,15 @@ test('frame receipt logs at debug level; watchdog-forced reconnect logs at info 
     logs.length = 0;
     pm.forceReconnect('u1');
     await sleep(250);
-    assert.ok(state.connections.length >= 2, 'watchdog 强制重连成功');
+    assert.ok(state.connections.length >= 2, '强制重连成功');
     const rcLog = logs.find((l) => l[1].includes('后重连'));
     assert.ok(rcLog, '重连应输出日志');
-    assert.equal(rcLog[0], 'info', 'watchdog 触发的重连应为 info 级');
-    pm.disconnect('u1');
-  } finally { await close(); }
+    assert.equal(rcLog[0], 'warn', '重连统一按 warn 记录(不再区分来源)');
+  } finally {
+    // 无条件清理: 断言失败时也要断开, 否则残留连接会让测试进程不退出
+    try { if (pm) pm.disconnect('u1'); } catch (e) { /* ignore */ }
+    await close();
+  }
 });
 
 test('abnormal disconnect reconnect stays warn level', async () => {

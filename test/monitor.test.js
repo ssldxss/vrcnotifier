@@ -1171,7 +1171,7 @@ test('system: 阈值内故障恢复全程静默(无断开/恢复通知)', async 
   assert.equal(t.notifications.length, 0, '恢复后不再补发故障通知');
 });
 
-test('system: watchdog reconnect does not push recovery/connected notifications', async () => {
+test('system: reconnect within fault threshold does not push recovery/connected notifications', async () => {
   const t = setup({ onlineFriends: [onlineFriend('usr_f1')], faultNotifyMs: 30 });
   const user = addUser(t.db);
   addConfig(t.db, user.id, 'usr_f1');
@@ -1180,8 +1180,8 @@ test('system: watchdog reconnect does not push recovery/connected notifications'
   t.qqTexts.length = 0;
   t.notifications.length = 0;
   t.monitor.events.emit('ws-close', { userId: user.vrchat_user_id });
-  t.monitor.events.emit('ws-open', { userId: user.vrchat_user_id, isWatchdog: true });
-  assert.equal(t.qqTexts.length, 0, 'watchdog 重连不推恢复说明');
+  t.monitor.events.emit('ws-open', { userId: user.vrchat_user_id }); // 重连(未超阈值)
+  assert.equal(t.qqTexts.length, 0, '未超阈值恢复不推恢复说明');
   assert.equal(t.notifications.length, 0, 'watchdog 重连本身不推通知');
 });
 
