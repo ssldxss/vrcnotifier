@@ -813,7 +813,7 @@ test('snapshot 不查世界名: 只同步读缓存, 未监控好友也不发请�
   assert.equal(t.monitor.worldName.peek('wrld_a'), '缓存里的名字', '快照只同步读缓存, 不发请求');
 });
 
-test('世界名网络错误: 就地重试 1 次, 仍失败进负缓存 1 分钟(不入库)', async () => {
+test('世界名网络错误: 就地重试 1 次, 仍失败进冷却 5 分钟(不入库)', async () => {
   let cur = 1000000;
   let fail = true;
   let worldCalls = 0;
@@ -828,18 +828,18 @@ test('世界名网络错误: 就地重试 1 次, 仍失败进负缓存 1 分钟(
   assert.equal(worldCalls, 2, '首次 + 就地重试 1 次');
   assert.equal(t.db.getWorldCache('wrld_a'), null, '失败不入库');
 
-  cur += 30000;
+  cur += 4 * 60 * 1000;
   await t.monitor.handlePipelineEvent(user.vrchat_user_id, '2', loc());
-  assert.equal(worldCalls, 2, '负缓存 1 分钟冷却期内 0 请求');
+  assert.equal(worldCalls, 2, '5 分钟冷却期内 0 请求');
 
   fail = false;
-  cur += 31000; // 累计 61 秒, 超过 1 分钟冷却
+  cur += 2 * 60 * 1000; // 累计超过 5 分钟
   await t.monitor.handlePipelineEvent(user.vrchat_user_id, '3', loc());
   assert.equal(worldCalls, 3, '冷却到期后放行, 这次一次成功');
   assert.equal(t.db.getWorldCache('wrld_a').world_name, '世界_wrld_a');
 });
 
-test('世界名 404: 不重试, 负缓存 15 分钟', async () => {
+test('世界名 404: 不重试, 冷却从 5 分钟起指数退避', async () => {
   let cur = 1000000;
   let worldCalls = 0;
   const t = setup({ now: () => cur, worldName: { retryDelayMs: 0 }, onlineFriends: [onlineFriend('usr_f1')] });
@@ -852,13 +852,21 @@ test('世界名 404: 不重试, 负缓存 15 分钟', async () => {
   await t.monitor.handlePipelineEvent(user.vrchat_user_id, '1', loc());
   assert.equal(worldCalls, 1, '404 不重试');
 
-  cur += 14 * 60 * 1000;
+  cur += 5 * 60 * 1000 - 1;
   await t.monitor.handlePipelineEvent(user.vrchat_user_id, '2', loc());
-  assert.equal(worldCalls, 1, '15 分钟冷却期内 0 请求');
+  assert.equal(worldCalls, 1, '首次失败冷却 5 分钟, 期内 0 请求');
 
-  cur += 2 * 60 * 1000;
+  cur += 2; // 越过 5 分钟
   await t.monitor.handlePipelineEvent(user.vrchat_user_id, '3', loc());
   assert.equal(worldCalls, 2, '冷却到期后放行');
+
+  // 第二次失败 → 冷却翻倍到 10 分钟
+  cur += 10 * 60 * 1000 - 1;
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '4', loc());
+  assert.equal(worldCalls, 2, '第二次失败后冷却 10 分钟, 未到期仍 0 请求');
+  cur += 2;
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '5', loc());
+  assert.equal(worldCalls, 3, '10 分钟到期后放行');
 });
 
 test('世界名查询失败时沿用缓存里的旧名字(前端/通知不至于变成空白)', async () => {

@@ -3,11 +3,15 @@
 //
 // 一个领域一件事, 两层实现都在这:
 //   传输层 —— 按 ID 查公开世界信息, 独立于 VRChat 登录会话, 请求不携带 Cookie / Authorization
-//   策略层 —— 缓存 1 小时 / 在途与完成后窗口合并 / 404-403 与网络错误的负缓存 /
-//              重试 / 失败沿用旧名字 / 并发与速率上限 / 日志
+//   策略层 —— 缓存 1 小时 / 在途与完成后窗口合并 / 失败冷却(指数退避) /
+//              网络抖动就地重试一次 / 失败沿用旧名字 / 并发与速率上限 / 日志
 //
-// 不负责等待: get() 返回的 Promise 可能很慢(被限流时按 1 小时封顶一直重试, 期间不会结束),
-//              超时后查询仍在后台跑完。peek() 供需求方在超时时同步取旧名字兜底。
+// 不负责等待: get() 最多做一次尝试(网络抖动时多试一次)就返回, 不会长时间挂起;
+//              需要更短时限的需求方自己 race(超时后用 peek() 取旧名字兜底)。
+// 失败不挂着重试: 世界名是"即时请求", 晚报到的结果没有消费者 —— 等到 5 秒、10 秒后
+//              再重试时调用方早走了。所以改为把"多久之后才允许再问"做指数退避:
+//              同一个世界连续失败 → 冷却 5min→10min→20min→…→1h 封顶, 成功一次即归零;
+//              冷却期内重复调用【立即】返回(不等待、不发请求)。
 // 只接受真实世界编号: private/offline/traveling 等哨兵值由调用方自行处理, 不进本模块。
 
 const DEFAULT_API_BASE = 'https://api.vrchat.cloud/api/1';
@@ -17,16 +21,13 @@ const MINUTE_MS = 60 * 1000;
 const DEFAULTS = {
   cacheTtlMs: 60 * MINUTE_MS,     // 成功名字有效期 1 小时
   dedupeWindowMs: 10 * 1000,      // 完成后 10 秒内复用同一结果
-  goneTtlMs: 15 * MINUTE_MS,      // 404/403: 世界不存在/无权限, 负缓存 15 分钟
-  failureTtlMs: 1 * MINUTE_MS,    // 网络/超时/5xx: 负缓存 1 分钟
-  retryDelayMs: 500,              // 就地重试间隔
+  cooldownBaseMs: 5 * MINUTE_MS,  // 失败后的冷却起步 5 分钟(同一个世界连续失败逐次翻倍)
+  cooldownMaxMs: 60 * MINUTE_MS,  // 冷却封顶 1 小时
+  retryDelayMs: 500,              // 就地重试间隔(仅网络/超时/5xx)
   maxRetries: 1,                  // 就地重试次数上限(网络/超时/5xx)
-  backoffBaseMs: 5000,            // 429 指数退避起步
-  backoffMaxMs: 60 * MINUTE_MS,   // 退避封顶
-  jitterMs: 1000,                 // 退避抖动
   maxConcurrency: 10,             // 同时最多 10 个在途请求
   ratePerMinute: 600,             // 每分钟最多 600 次(<=0 关闭, 测试用)
-  maxTracked: 2000                // 合并记录上限, 超出清理已过期项
+  maxTracked: 2000                // 合并记录 / 失败计数表上限, 超出清理过期项
 };
 
 // ---------- 传输层: 无 Cookie 的世界信息查询 ----------
@@ -119,7 +120,7 @@ function createWorldName(opts = {}) {
   }
 
   // ---------- 缓存 / 负缓存 / 合并记录 ----------
-  const negative = new Map(); // worldId -> 冷却到期时刻
+  const negative = new Map(); // worldId -> { fails, until }: 连续失败次数与冷却到期时刻(成功即清)
   const inflight = new Map(); // worldId -> { promise, settled, doneAt }
 
   function cachedRow(worldId) {
@@ -131,6 +132,21 @@ function createWorldName(opts = {}) {
   function peek(worldId) {
     const row = cachedRow(worldId);
     return row && row.world_name ? row.world_name : null;
+  }
+
+  /** 该世界是否正处在失败冷却期内(到期即放行一次, 失败计数继续累积)。 */
+  function cooling(worldId, t) {
+    const rec = negative.get(worldId);
+    return !!rec && t < rec.until;
+  }
+
+  /** 记一次失败, 返回本次冷却时长: min(起步 × 2^(连续失败-1), 封顶)。 */
+  function coolDown(worldId) {
+    const rec = negative.get(worldId);
+    const fails = (rec ? rec.fails : 0) + 1;
+    const ttl = Math.min(cfg.cooldownBaseMs * 2 ** (fails - 1), cfg.cooldownMaxMs);
+    negative.set(worldId, { fails, until: now() + ttl });
+    return ttl;
   }
 
   /** 缓存里是否有仍在有效期内的名字。 */
@@ -148,9 +164,13 @@ function createWorldName(opts = {}) {
     }
   }
 
-  function backoffDelay(attempt) {
-    const base = Math.min(cfg.backoffBaseMs * 2 ** attempt, cfg.backoffMaxMs);
-    return base + Math.floor(Math.random() * cfg.jitterMs);
+  // 失败计数表同样有上限; 只清"早已过冷却"的条目 —— 冷却中的必须留着, 否则退避会被重置
+  function sweepNegative(t) {
+    if (negative.size <= cfg.maxTracked) return;
+    for (const [id, rec] of negative) {
+      if (t - rec.until >= cfg.cooldownMaxMs) negative.delete(id);
+      if (negative.size <= cfg.maxTracked) break;
+    }
   }
 
   // 失败原因分类: 日志里一眼看出是"世界没了"还是"网络抖了"/"被限流"
@@ -158,6 +178,7 @@ function createWorldName(opts = {}) {
     const status = err && err.status;
     if (status === 404) return '世界不存在, HTTP 404';
     if (status === 403) return '无权限访问, HTTP 403';
+    if (status === 429) return '被限流, HTTP 429';
     if (status === -1) return '网络错误';
     if (status === -2) return '响应缺少名称字段';
     if (typeof status === 'number' && status >= 500 && status < 600) return `服务端错误, HTTP ${status}`;
@@ -182,7 +203,6 @@ function createWorldName(opts = {}) {
     const oldName = peek(worldId);
     let lastErr = null;
     let retries = 0;
-    let backoffs = 0;
     for (;;) {
       try {
         const w = await schedule(() => doFetch(worldId));
@@ -200,20 +220,12 @@ function createWorldName(opts = {}) {
         lastErr = e;
         const status = e && e.status;
         if (status === 404 || status === 403) {
-          negative.set(worldId, now() + cfg.goneTtlMs);
-          logFallback(worldId, oldName, reasonOf(e), e, cfg.goneTtlMs);
+          logFallback(worldId, oldName, reasonOf(e), e, coolDown(worldId));
           return oldName;
         }
-        // 429 = 世界还在, 只是"你太快了": 不限次数退避重试, 翻倍到 1 小时封顶后保持
-        // 每小时一次, 直到成功; 不进负缓存 —— 调用方靠 peek 拿旧名字/占位符先顶着
-        if (status === 429) {
-          const delay = backoffDelay(backoffs);
-          backoffs++;
-          log.warn(`[world] 世界 ${worldId} 被限流(${e.message}), ${delay}ms 后重试(第 ${backoffs} 次)`);
-          await sleepFn(delay);
-          continue;
-        }
-        if (retries < cfg.maxRetries) {
+        // 429 不做就地重试: 它在说"别打了", 等 500ms 再打一次不会变好; 退避到 5 秒、10 秒
+        // 时调用方早走了, 没人消费这个结果 —— 直接冷却, 让"下一次有人要"再来问
+        if (status !== 429 && retries < cfg.maxRetries) {
           retries++;
           log.warn(`[world] 世界 ${worldId} 查询失败(${e.message}), ${cfg.retryDelayMs}ms 后重试(第 ${retries} 次)`);
           await sleepFn(cfg.retryDelayMs);
@@ -222,22 +234,17 @@ function createWorldName(opts = {}) {
         break;
       }
     }
-    negative.set(worldId, now() + cfg.failureTtlMs);
-    logFallback(worldId, oldName, reasonOf(lastErr), lastErr, cfg.failureTtlMs);
+    logFallback(worldId, oldName, reasonOf(lastErr), lastErr, coolDown(worldId));
     return oldName;
   }
 
-  /** 取世界名。可能很慢; 超时由调用方自己 race, 超时后查询仍在后台跑完。 */
+  /** 取世界名。只做一次尝试(网络抖动多试一次)即返回; 冷却期内立即返回, 不会长时间挂起。 */
   function get(worldId) {
     if (!worldId) return Promise.resolve(null);
     const t = now();
 
-    // 1) 负缓存冷却期内: 不发请求, 直接给现有(可能是旧的)名字
-    const negUntil = negative.get(worldId);
-    if (negUntil !== undefined) {
-      if (t < negUntil) return Promise.resolve(peek(worldId));
-      negative.delete(worldId);
-    }
+    // 1) 冷却期内: 不发请求、不等待, 直接给现有(可能是旧的)名字
+    if (cooling(worldId, t)) return Promise.resolve(peek(worldId));
 
     // 2) 在途搭车 / 完成后窗口内复用
     const rec = inflight.get(worldId);
@@ -253,6 +260,7 @@ function createWorldName(opts = {}) {
 
     // 4) 真查
     sweepInflight(t);
+    sweepNegative(t);
     const entry = { settled: false, doneAt: 0, promise: null };
     entry.promise = resolveWorld(worldId).then(
       (name) => { entry.settled = true; entry.doneAt = now(); return name; },
@@ -266,7 +274,7 @@ function createWorldName(opts = {}) {
     return entry.promise;
   }
 
-  return { get, peek, _internals: { inflight, negative } };
+  return { get, peek };
 }
 
 module.exports = { createWorldName, DEFAULTS };
