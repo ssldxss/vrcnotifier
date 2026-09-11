@@ -157,6 +157,51 @@ test('world_cache 旧库迁移: 删掉失败退避列并保留名字', () => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+test('好友/自己的 world_name 旧库迁移: 删列只留 world_id, 数据不丢', () => {
+  const { DatabaseSync } = require('node:sqlite');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vrcnt-db-mig2-'));
+  const dbPath = path.join(dir, 'old.db');
+  const raw = new DatabaseSync(dbPath);
+  // 旧 schema: friends/users 都还带着 world_name 列
+  raw.exec(`CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, vrchat_user_id TEXT UNIQUE, username TEXT,
+    saved_username TEXT, display_name TEXT, avatar_url TEXT, avatar_thumb_url TEXT, status TEXT,
+    status_description TEXT, platform TEXT, state TEXT DEFAULT 'offline', world_id TEXT, world_name TEXT,
+    last_seen INTEGER, remember_me INTEGER DEFAULT 0, cookie_data TEXT,
+    created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')))`);
+  raw.exec(`CREATE TABLE friends (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL,
+    friend_vrchat_id TEXT NOT NULL, display_name TEXT, avatar_url TEXT, avatar_thumb_url TEXT,
+    state TEXT DEFAULT 'offline', status TEXT, world_id TEXT, world_name TEXT, instance_id TEXT,
+    status_description TEXT, platform TEXT, trust_level TEXT, pending_state TEXT, pending_at INTEGER,
+    last_seen INTEGER, created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(user_id, friend_vrchat_id))`);
+  raw.exec("INSERT INTO users (vrchat_user_id, username, world_id, world_name) VALUES ('usr_me','me','wrld_self','自己的旧世界名')");
+  raw.exec("INSERT INTO friends (user_id, friend_vrchat_id, world_id, world_name, state) VALUES (1,'usr_f1','wrld_a','好友的旧世界名','online')");
+  raw.exec("INSERT INTO friends (user_id, friend_vrchat_id, world_id, world_name, state) VALUES (1,'usr_f2','private','私密世界','online')");
+  raw.close();
+
+  const db = createDb(dbPath);
+  const check = new DatabaseSync(dbPath, { readOnly: true });
+  assert.ok(!check.prepare('PRAGMA table_info(friends)').all().some((c) => c.name === 'world_name'),
+    'friends.world_name 旧列已删除');
+  assert.ok(!check.prepare('PRAGMA table_info(users)').all().some((c) => c.name === 'world_name'),
+    'users.world_name 旧列已删除');
+  check.close();
+
+  // 数据不能丢: 好友数、world_id 都要在
+  assert.equal(db.listFriends(1).length, 2, '好友记录保留');
+  assert.equal(db.getFriend(1, 'usr_f1').world_id, 'wrld_a', '好友的 world_id 保留');
+  assert.equal(db.getFriend(1, 'usr_f1').world_name, undefined, '列没了, 名字改由世界名缓存提供');
+  assert.equal(db.getFriend(1, 'usr_f2').world_id, 'private', 'private 哨兵值原样保留');
+  assert.equal(db.getUserByVrcId('usr_me').world_id, 'wrld_self', '自己的 world_id 保留');
+
+  db.close();
+  // 二次打开幂等(列已不存在, DROP 会抛错但被吞掉)
+  const db2 = createDb(dbPath);
+  assert.equal(db2.getFriend(1, 'usr_f1').world_id, 'wrld_a');
+  db2.close();
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
 test('friends: instance_id 旧库迁移补列不报错', () => {
   // 模拟旧 schema: 先在文件库里建一张没有 instance_id 的 friends 表, 再让 createDb 迁移
   const { DatabaseSync } = require('node:sqlite');
