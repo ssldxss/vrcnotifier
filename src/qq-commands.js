@@ -57,7 +57,7 @@ function buildOnlineList(friends) {
   return { text, markdown };
 }
 
-function createQqCommands({ db, logger = null, getStatus = null, onCode = null, getWorldName = null, worldNameWaitMs = 3000 }) {
+function createQqCommands({ db, worldName = null, logger = null, getStatus = null, onCode = null, worldNameWaitMs = 3000 }) {
   const log = logger || { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
 
   /**
@@ -66,7 +66,7 @@ function createQqCommands({ db, logger = null, getStatus = null, onCode = null, 
    * 超时就用缓存里的旧名字/占位符先出结果, 查询继续在后台跑完。
    */
   async function fillWorldNames(friends) {
-    const svc = getWorldName ? getWorldName() : null;
+    const svc = worldName;
     if (!svc) return friends;
     const wanted = [...new Set(friends
       .filter((f) => f.state === 'online' && f.world_id && f.world_id !== 'private')

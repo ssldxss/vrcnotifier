@@ -3,6 +3,7 @@ const assert = require('node:assert');
 const { EventEmitter } = require('node:events');
 const { createDb } = require('../src/db');
 const { createMonitor } = require('../src/monitor');
+const { createWorldName } = require('../src/world');
 
 function setup(opts = {}) {
   const db = createDb(':memory:');
@@ -56,13 +57,21 @@ function setup(opts = {}) {
     lastMessageAt: () => (typeof opts.lastMessageAt === 'function' ? opts.lastMessageAt() : (opts.lastMessageAt ?? Date.now())),
     status: () => ({ connected: true, notified: false })
   };
-  const monitor = createMonitor({
-    db, notifier, pipeline, bus,
-    logger: opts.logger || { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
-    now: opts.now || (() => 1000000),
-    config: { confirmDelayMs: opts.confirmDelayMs ?? 30000, dedupeWindowMs: 30000, snapshotIntervalMs: 600000, watchdogMs: 600000, statusCoalesceMs: opts.statusCoalesceMs ?? 3000, faultNotifyMs: opts.faultNotifyMs ?? 300000, worldName: opts.worldName || {} }
+  const silentLogger = opts.logger || { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
+  const nowFn = opts.now || (() => 1000000);
+  // 世界名查询模块: 与 index.js 一样注入; 传输层换成假 vrcapi(逐用例可覆盖 vrcapi.world)
+  const worldName = opts.worldNameModule || createWorldName({
+    db, logger: silentLogger, now: nowFn, bus,
+    fetchWorld: (id) => vrcapi.world(id),
+    config: { ratePerMinute: 0, ...(opts.worldName || {}) }
   });
-  return { db, bus, events, notifications, qqTexts, notifier, vrcapi, pipeline, monitor };
+  const monitor = createMonitor({
+    db, notifier, pipeline, worldName, bus,
+    logger: silentLogger,
+    now: nowFn,
+    config: { confirmDelayMs: opts.confirmDelayMs ?? 30000, dedupeWindowMs: 30000, snapshotIntervalMs: 600000, watchdogMs: 600000, statusCoalesceMs: opts.statusCoalesceMs ?? 3000, faultNotifyMs: opts.faultNotifyMs ?? 300000 }
+  });
+  return { db, bus, events, notifications, qqTexts, notifier, vrcapi, pipeline, monitor, worldName };
 }
 
 function addUser(db, { vrcId = 'usr_me', displayName = '我' } = {}) {

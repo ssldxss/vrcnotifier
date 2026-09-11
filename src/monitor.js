@@ -6,26 +6,17 @@ const { applyChange } = require('./state');
 const { parseLocation } = require('./location');
 const { formatLocalTime, createLogger, trustLevelFromTags, withDeadline } = require('./util');
 const { isMissingCredentials, isUnauthorized } = require('./vrcapi');
-const { createWorldName } = require('./worldname');
 const { STARTUP_TEXT } = require('./qq-commands');
 
-function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger = null, now = Date.now, worldFetcher = null, worldName = null }) {
+function createMonitor({ db, notifier, pipeline, worldName, bus = null, config = {}, logger = null, now = Date.now }) {
   const log = logger || createLogger('monitor');
   const events = bus || new EventEmitter();
   const sessions = new Map();      // vrchat_user_id -> { vrcapi, user }
 
-  // 世界名查询: 全项目唯一入口(src/worldname.js)。模块管查询/缓存/失败兜底, 等待由各调用点自己设上限。
-  const worldNames = worldName || createWorldName({
-    db, bus: events, logger: log, now,
-    // 生产走独立无 Cookie 的世界模块; 测试未注入时回退到活跃会话的 vrcapi
-    fetchWorld: (id) => {
-      if (worldFetcher) return worldFetcher.world(id);
-      const first = sessions.values().next().value;
-      if (!first) return Promise.reject(Object.assign(new Error('无活跃会话'), { status: -1 }));
-      return first.vrcapi.world(id, { noRetry: true });
-    },
-    config: config.worldName || {}
-  });
+  // 世界名查询(全项目唯一入口, 见 src/world.js)。与其他依赖一样由 index.js 注入;
+  // 模块管查询/缓存/失败兜底, 等待由各调用点自己设上限。
+  if (!worldName) throw new Error('monitor: 缺少 worldName');
+  const worldNames = worldName;
 
   const confirmDelayMs = config.confirmDelayMs ?? 30000;
   const dedupeWindowMs = config.dedupeWindowMs ?? 30000;
@@ -232,7 +223,7 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
   }
 
   // ---------- 世界名 ----------
-  // 查询/缓存/失败兜底全在 src/worldname.js; 这里只负责"等多久"。
+  // 查询/缓存/失败兜底全在 src/world.js; 这里只负责"等多久"。
   // 超时用 peek 的旧名字先顶上, 查询继续在后台跑完(查到会写缓存并推 SSE)。
   // 调用点自行处理 private/offline/traveling 等哨兵值, 本函数只吃真实世界编号。
   /** world_id -> 当前缓存里的显示名(同步, 不发请求); private 是哨兵值, 就地写死 */
@@ -251,7 +242,7 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
 
   // ---------- 群组名 ----------
   // 与世界名同构: 成功缓存 1 小时, 失败指数退避(封顶 1h), 退避期内沿用"未知群组"
-  // (世界名已迁到 src/worldname.js 按需查询; 群组名暂时保持原实现, 只改 TTL)
+  // (世界名已迁到 src/world.js 按需查询; 群组名暂时保持原实现, 只改 TTL)
   function groupCacheFresh(groupId) {
     const c = db.getGroupCache(groupId);
     if (!c) return null;

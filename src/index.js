@@ -9,7 +9,7 @@ const { createLogger, setLogStream, setFileLog, maskKey, formatLocalTime } = req
 const { createFileLog } = require('./filelog');
 const { createCrypto, resolveMasterKey } = require('./crypto');
 const { createVrcApi, isMissingCredentials, isUnauthorized } = require('./vrcapi');
-const { createWorldFetcher } = require('./world');
+const { createWorldName } = require('./world');
 const { createNotifier } = require('./notify');
 const { createPipelineManager } = require('./pipeline');
 const { createMonitor } = require('./monitor');
@@ -139,12 +139,21 @@ function buildApplication(opts = {}) {
   // 连接状态由 createApp 提供(依赖 pipeline + 自动登录状态), 先占位后注入
   const connectionStatus = { fn: null };
   const authCommandHooks = { fn: null };
+  // 世界名查询: 全项目唯一入口(传输 + 缓存/重试/兜底都在 src/world.js)
+  const worldName = opts.worldName || createWorldName({
+    db, bus, logger, now,
+    baseUrl: config.apiBaseUrl,
+    userAgent: config.userAgent,
+    fetchImpl: opts.fetchImpl || fetch,
+    fetchWorld: opts.fetchWorld,
+    config: config.monitor.worldName
+  });
+
   const qqCommands = createQqCommands({
     db, logger,
     getStatus: (dbId) => (connectionStatus.fn ? connectionStatus.fn(dbId) : null),
     onCode: (dbId, content) => (authCommandHooks.fn ? authCommandHooks.fn(dbId, content) : null),
-    // monitor 在下方才创建, 用惰性取值避免调整创建顺序
-    getWorldName: () => (monitor ? monitor.worldName : null),
+    worldName,
     worldNameWaitMs: config.monitor.worldNameWaitMs
   });
   const qq = opts.qq || createQqManager({
@@ -164,12 +173,6 @@ function buildApplication(opts = {}) {
   const notifier = opts.notifier || createNotifier({
     logger, qq,
     getSettings: () => db.getGlobalSettings()
-  });
-  // 无 Cookie 的世界信息查询(传输层); 缓存/重试/兜底由 src/worldname.js 负责
-  const worldFetcher = opts.worldFetcher || createWorldFetcher({
-    baseUrl: config.apiBaseUrl,
-    userAgent: config.userAgent,
-    fetchImpl: opts.fetchImpl || fetch
   });
   let monitor = null;
   const pipeline = opts.pipeline || createPipelineManager({
@@ -200,8 +203,7 @@ function buildApplication(opts = {}) {
     config: config.ws
   });
   monitor = opts.monitor || createMonitor({
-    db, notifier, pipeline, bus, logger, now,
-    worldFetcher,
+    db, notifier, pipeline, worldName, bus, logger, now,
     config: config.monitor
   });
   const healthMonitor = opts.healthMonitor || createHealthMonitor({

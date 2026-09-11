@@ -7,6 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { createDb } = require('../src/db');
 const { createMonitor } = require('../src/monitor');
+const { createWorldName } = require('../src/world');
 const { CookieJar } = require('../src/cookiejar');
 const { createAvatarCache } = require('../src/avatar');
 const { createApp } = require('../src/server');
@@ -64,10 +65,16 @@ function setup(opts = {}) {
     sendAll: async (user, change) => { notifications.push({ user, change }); return { qq: { ok: true } }; },
     sendTest: async (user, kind) => ({ ok: true, kind, user: user.qq_app_secret })
   };
+  const nowFn = opts.now || (() => 1000000);
+  const worldName = opts.worldNameModule || createWorldName({
+    db, logger: opts.logger || silent, now: nowFn, bus,
+    fetchWorld: (id) => vrcapi.world(id),
+    config: { ratePerMinute: 0, ...(opts.worldName || {}) }
+  });
   const monitor = createMonitor({
-    db, notifier, pipeline, bus,
+    db, notifier, pipeline, worldName, bus,
     logger: opts.logger || silent,
-    now: opts.now || (() => 1000000),
+    now: nowFn,
     config: { confirmDelayMs: 30000, dedupeWindowMs: 30000, snapshotIntervalMs: 3600000, watchdogMs: 600000 }
   });
   const sessionStore = new Map();
@@ -657,7 +664,8 @@ test('saved session auto-restores on fresh app instance (GET /api/session)', asy
   };
   const notifier2 = { sendAll: async () => ({}), sendTest: async () => ({}) };
   const pipeline2 = { connect: () => {}, disconnect: () => {}, forceReconnect: () => {}, isConnected: () => true, lastMessageAt: () => Date.now(), status: () => ({ connected: true }) };
-  const monitor2 = createMonitor({ db: ctx.db, notifier: notifier2, pipeline: pipeline2, bus, logger: silent, now: ctx.monitor.now || (() => 1000000), config: {} });
+  const worldName2 = createWorldName({ db: ctx.db, logger: silent, now: () => 1000000, bus, fetchWorld: (id) => vrcapi2.world(id), config: { ratePerMinute: 0 } });
+  const monitor2 = createMonitor({ db: ctx.db, notifier: notifier2, pipeline: pipeline2, worldName: worldName2, bus, logger: silent, now: ctx.monitor.now || (() => 1000000), config: {} });
   const store2 = new Map();
   const { app: app2 } = createApp({
     db: ctx.db, notifier: notifier2, pipeline: pipeline2, monitor: monitor2, sessionStore: store2,

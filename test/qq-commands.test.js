@@ -95,7 +95,7 @@ test('createQqCommands: 任意输入都直接输出在线列表', async () => {
   db.upsertFriend(id, 'usr_a', { displayName: 'Alice', state: 'online', status: 'active', worldId: 'wrld_x' });
   db.upsertFriend(id, 'usr_b', { displayName: 'Bob', state: 'offline', status: 'busy', worldId: null });
   const svc = fakeWorldName({ wrld_x: 'WorldX' });
-  const handler = createQqCommands({ db, logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} }, getWorldName: () => svc });
+  const handler = createQqCommands({ db, logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} }, worldName: svc });
   // 任意输入都直接输出在线列表(首次提示由绑定消息承担)
   for (const text of ['你好', '/在线列表', '好友', '随便聊聊']) {
     const reply = await handler({ dbId: id, content: text, openid: 'openid_x' });
@@ -119,7 +119,7 @@ test('createQqCommands: 世界名等不到时先用占位符出结果, 不拖住
   const t0 = Date.now();
   const handler = createQqCommands({
     db, logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
-    getWorldName: () => svc, worldNameWaitMs: 50
+    worldName: svc, worldNameWaitMs: 50
   });
   const reply = await handler({ dbId: id, content: 'hi', openid: 'o' });
   assert.ok(Date.now() - t0 < 2000, '等待上限生效, 不会一直卡住');
@@ -136,7 +136,7 @@ test('createQqCommands: 等待超时后用缓存里的旧名字兜底', async ()
   svc.get = () => new Promise(() => {});
   const handler = createQqCommands({
     db, logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
-    getWorldName: () => svc, worldNameWaitMs: 50
+    worldName: svc, worldNameWaitMs: 50
   });
   const reply = await handler({ dbId: id, content: 'hi', openid: 'o' });
   assert.ok(reply.markdown.includes('| 🟢 Alice | 很久以前的名字 |'), '超时用 peek 的旧名字兜底');
@@ -149,11 +149,11 @@ test('createQqCommands: 连接异常时头部提示"当前未连接, 数据截�
   const svc = fakeWorldName({ wrld_x: 'WorldX' });
   const silent = { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
   // 连接正常: 无提示
-  const ok = createQqCommands({ db, logger: silent, getStatus: () => ({ connected: true, since: null }), getWorldName: () => svc });
+  const ok = createQqCommands({ db, logger: silent, getStatus: () => ({ connected: true, since: null }), worldName: svc });
   const okReply = await ok({ dbId: id, content: 'hi' });
   assert.ok(!okReply.text.includes('当前未连接'));
   // WS 重连中 / 401 未恢复: 头部提示 + 原有列表
-  const down = createQqCommands({ db, logger: silent, getStatus: () => ({ connected: false, since: 1750000000000 }), getWorldName: () => svc });
+  const down = createQqCommands({ db, logger: silent, getStatus: () => ({ connected: false, since: 1750000000000 }), worldName: svc });
   const reply = await down({ dbId: id, content: 'hi' });
   assert.ok(reply.text.startsWith('当前未连接, 数据截止至 '), '文本头部提示数据截止时间');
   assert.ok(reply.markdown.startsWith('当前未连接, 数据截止至 '), 'markdown 头部提示数据截止时间');
