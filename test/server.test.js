@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const { EventEmitter } = require('node:events');
 const fs = require('node:fs');
+const net = require('node:net');
 const os = require('node:os');
 const path = require('node:path');
 const { createDb } = require('../src/db');
@@ -138,6 +139,38 @@ async function getWith(t, path, headers) {
   return { status: res.status, data };
 }
 
+// 原始请求: 按字面发送路径, 不经任何客户端规范化。
+// 必须走原始连接 —— fetch/curl 会把 `/api/status/../config` 规范化成 `/api/config`,
+// 那样测到的不是目标路径, 会得出错误结论(曾据此误判为漏洞)。
+// 硬超时 + 所有结束路径都销毁连接: 既不挂住测试, 也不让 close() 等待悬挂连接。
+function rawGet(t, pathname, { headers = {}, timeoutMs = 1500 } = {}) {
+  const { hostname, port } = new URL(t.base);
+  return new Promise((resolve, reject) => {
+    const socket = net.createConnection({ host: hostname, port });
+    let settled = false;
+    let timer = null;
+    const done = (fn, arg) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      socket.destroy();
+      fn(arg);
+    };
+    timer = setTimeout(() => done(reject, new Error(`原始请求超时(${timeoutMs}ms): ${pathname}`)), timeoutMs);
+    socket.on('connect', () => {
+      const extra = Object.entries(headers).map(([k, v]) => `${k}: ${v}\r\n`).join('');
+      socket.write(`GET ${pathname} HTTP/1.1\r\nHost: ${hostname}:${port}\r\n${extra}Connection: close\r\n\r\n`);
+    });
+    let buf = '';
+    socket.on('data', (d) => { buf += d; });
+    socket.on('error', (e) => done(reject, e));
+    socket.on('close', () => {
+      const m = buf.match(/^HTTP\/1\.\d (\d{3})/);
+      done(resolve, { status: m ? Number(m[1]) : 0, body: buf.split('\r\n\r\n').slice(1).join('\r\n\r\n') });
+    });
+  });
+}
+
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 test('config endpoint exposes app config and access key requirement', async (t) => {
@@ -191,6 +224,47 @@ test('auth: /api routes require token regardless of path casing', async (t) => {
   const cfgUpper = await getWith(ctx, '/API/config', {});
   assert.equal(cfgUpper.status, 200, '白名单大小写变体应免 token');
   assert.equal(cfgUpper.data.tokenRequired, true);
+});
+
+// 路径伪装不得成为绕过令牌门的手段。
+// 依据: 鉴权中间件与 Express 路由都以「原始(未解码)路径」比对 —— 两者同口径。
+// 业务路由全部挂在 /api/ 下, 故只有两种结果:
+//   字面以 /api/ 开头            → 门卫必拦(401)
+//   字面不以 /api/ 开头(百分号编码/双斜杠/点段等) → 路由同样匹配不到(404)
+// 绝不允许出现第三种「跳过门卫却又命中处理器」的结果。
+test('auth: percent-encoded and variant paths cannot bypass access token', async (t) => {
+  const ctx = setup({ accessToken: 'secret123' });
+  // 原始连接需显式清理: close() 会等待全部连接断开, 悬挂连接会挂住测试。
+  t.after(async () => { ctx.server.closeAllConnections?.(); await close(ctx); });
+  const AUTH = { Authorization: 'Bearer secret123' };
+
+  // 基线: 确认门卫确实装着(否则下面的断言可能因"门根本没装"而空过)
+  assert.equal((await rawGet(ctx, '/api/status')).status, 401, '规范路径无令牌必须 401');
+  assert.equal((await rawGet(ctx, '/api/status', { headers: AUTH })).status, 200, '规范路径带令牌应放行');
+
+  // 字面不以 /api/ 开头: 门卫不识别, 路由也不得命中 —— 只能是 404
+  const disguised = [
+    '/%41PI/status', '/%61pi/status', '/%61%70%69/status',
+    '/api%2Fstatus', '/api%2fstatus', '/%2fapi/status',
+    '/%2e/api/status', '/./api/status', '//api/status'
+  ];
+  for (const p of disguised) {
+    const r = await rawGet(ctx, p);
+    assert.equal(r.status, 404, `${p} 必须无路由可命中(既不放行, 也不得返回业务响应)`);
+  }
+
+  // 字面仍以 /api/ 开头: 门卫必须照常拦截(伪装不得削弱前缀判定)
+  const stillGated = [
+    '/api/%73tatus', '/api/./status', '/api/status/../config',
+    '/api/status%00', '/api/status;x=1', '/api/status%20', '/api/status.'
+  ];
+  for (const p of stillGated) {
+    const r = await rawGet(ctx, p);
+    assert.equal(r.status, 401, `${p} 字面以 /api/ 开头时必须要求访问令牌`);
+  }
+
+  // 白名单同样按原始字面判定: 编码形式拿不到白名单待遇
+  assert.equal((await rawGet(ctx, '/%61pi/config')).status, 404, '编码白名单路径不得免 token 读到配置');
 });
 
 test('login without 2FA activates monitor and returns masked user', async (t) => {
