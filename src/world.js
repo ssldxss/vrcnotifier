@@ -196,10 +196,10 @@ function createWorldName(opts = {}) {
     }
   }
 
-  // 真正去查: 404/403 立即负缓存; 429 指数退避; 其余就地重试一次; 仍失败进负缓存。
+  // 真正去查: 404/403 与 429 直接冷却(重试没意义); 网络/超时/5xx 就地重试一次, 仍失败才冷却。
   // 任何情况下都返回一个值(不抛), 避免调用方出现未处理拒绝。
   async function resolveWorld(worldId) {
-    const startedAt = now(); // 含重试与退避的总耗时, 便于排查"名字为什么出来得慢"
+    const startedAt = now(); // 含就地重试的总耗时, 便于排查"名字为什么出来得慢"
     const oldName = peek(worldId);
     let lastErr = null;
     let retries = 0;
