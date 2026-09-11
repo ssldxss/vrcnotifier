@@ -29,7 +29,7 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
 
   const confirmDelayMs = config.confirmDelayMs ?? 30000;
   const dedupeWindowMs = config.dedupeWindowMs ?? 30000;
-  const GROUP_CACHE_OK_TTL_MS = 365 * 24 * 60 * 60 * 1000; // 群组名成功缓存 1 年
+  const GROUP_CACHE_OK_TTL_MS = 3600 * 1000; // 群组名成功缓存 1 小时(与世界名一致)
   const WORLD_NAME_RETRY_BASE_MS = config.worldNameRetryBaseMs ?? 5000; // 与 WS 重连一致的退避起步
   const WORLD_NAME_RETRY_MAX_MS = config.worldNameRetryMaxMs ?? 3600 * 1000; // 退避封顶 1h, 封顶后保持不回退
   const UNKNOWN_GROUP_NAME = '未知群组';
@@ -250,7 +250,8 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
   }
 
   // ---------- 群组名 ----------
-  // 与世界名同构: 成功缓存 1 年, 失败指数退避(封顶 1h), 退避期内沿用"未知群组"
+  // 与世界名同构: 成功缓存 1 小时, 失败指数退避(封顶 1h), 退避期内沿用"未知群组"
+  // (世界名已迁到 src/worldname.js 按需查询; 群组名暂时保持原实现, 只改 TTL)
   function groupCacheFresh(groupId) {
     const c = db.getGroupCache(groupId);
     if (!c) return null;

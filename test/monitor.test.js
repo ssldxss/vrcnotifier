@@ -947,6 +947,34 @@ test('群组公告优先批量获取全部群组名, 未命中才单查', async 
   assert.equal(groupCalls, 1);
 });
 
+test('群组名成功缓存 1 小时, 到期后重查', async () => {
+  let cur = 1000000;
+  const t = setup({ now: () => cur });
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+  t.notifications.length = 0;
+  let groupCalls = 0;
+  t.vrcapi.userGroups = async () => [];
+  t.vrcapi.group = async (id) => { groupCalls += 1; return { id, name: '群组' + groupCalls }; };
+  const evt = (id) => ({ type: 'notification-v2', content: { id, version: 2, type: 'group.announcement', title: '公告', message: 'hi', link: 'group:grp_ttl' } });
+
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 't1', evt('n_t1'));
+  assert.equal(t.notifications[0].change.friendName, '群组1');
+  assert.equal(groupCalls, 1);
+
+  // 1 小时内: 缓存命中, 不再请求
+  cur += 3600 * 1000 - 1;
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 't2', evt('n_t2'));
+  assert.equal(t.notifications[1].change.friendName, '群组1');
+  assert.equal(groupCalls, 1, '1 小时内走缓存');
+
+  // 超过 1 小时: 重查
+  cur += 2;
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 't3', evt('n_t3'));
+  assert.equal(t.notifications[2].change.friendName, '群组2');
+  assert.equal(groupCalls, 2, '超过 1 小时重新查询');
+});
+
 test('群组公告群名解析: 失败兜底未知群组并退避, 成功后缓存复用', async () => {
   let cur = 1000000;
   const t = setup({ now: () => cur });
