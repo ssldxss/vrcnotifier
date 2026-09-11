@@ -79,10 +79,18 @@ function createApp({
     return worldNameSvc ? worldNameSvc.peek(row.world_id) : null;
   }
 
+  // 读接口就是"需要显示"的触发点: 顺带让世界名模块去补(不阻塞本次响应)。
+  // 命中缓存时立即返回; 缺失/过期则后台查, 查到走 world-name SSE 推给前端定点更新。
+  function kickWorldName(worldId) {
+    if (!worldNameSvc || !worldId || worldId === 'private') return;
+    worldNameSvc.get(worldId).catch(() => {}); // get 保证不抛出, 这里只是兜底
+  }
+
   // 好友行附带头像 key(前端零解析)
   function friendRow(f) {
     const out = { ...f };
     out.world_name = worldNameOf(f);
+    kickWorldName(f.world_id);
     out.avatarKey = f.avatar_thumb_url && avatarCache ? avatarCache.thumbKeyFromUrl(f.avatar_thumb_url) : null;
     return out;
   }
@@ -100,6 +108,7 @@ function createApp({
     const out = maskUser(row);
     if (!out) return null;
     out.world_name = worldNameOf(out);
+    kickWorldName(out.world_id);
     const thumbUrl = out.avatar_thumb_url || toThumbUrl(out.avatar_url);
     out.avatarKey = thumbUrl && avatarCache ? avatarCache.thumbKeyFromUrl(thumbUrl) : null;
     return out;

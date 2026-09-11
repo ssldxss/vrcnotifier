@@ -232,6 +232,71 @@ test('auth: /api routes require token regardless of path casing', async (t) => {
 //   字面以 /api/ 开头            → 门卫必拦(401)
 //   字面不以 /api/ 开头(百分号编码/双斜杠/点段等) → 路由同样匹配不到(404)
 // 绝不允许出现第三种「跳过门卫却又命中处理器」的结果。
+// SSE 读取一条指定事件; 带硬超时, 保证拿不到也不会把测试挂住
+async function sseOnce(t, eventName, ms = 3000) {
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), ms);
+  try {
+    const res = await fetch(t.base + '/api/events', { headers: authHeaders(t), signal: ac.signal });
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) return null;
+      buf += dec.decode(value, { stream: true });
+      let idx;
+      while ((idx = buf.indexOf('\n\n')) >= 0) {
+        const chunk = buf.slice(0, idx);
+        buf = buf.slice(idx + 2);
+        const ev = /event: (.+)/.exec(chunk);
+        if (!ev || ev[1].trim() !== eventName) continue;
+        const dt = /data: (.+)/.exec(chunk);
+        return dt ? JSON.parse(dt[1]) : null;
+      }
+    }
+  } catch (e) {
+    return null; // 超时/中断
+  } finally {
+    clearTimeout(timer);
+    try { ac.abort(); } catch (e) { /* ignore */ }
+  }
+}
+
+test('世界名按需查询: 读接口不等名字, 查到后走 world-name SSE 推给前端', async (t) => {
+  let worldCalls = 0;
+  const ctx = setup({ onlineFriends: [{ id: 'usr_f1', displayName: 'F1', location: 'wrld_a:1~region(us)', status: 'active', last_platform: 'web' }] });
+  ctx.vrcapi.world = async (id) => { worldCalls++; return { id, name: '世界_' + id }; };
+  // 开放的 SSE 连接会让 close() 一直等待, 必须先强制断开
+  t.after(async () => { ctx.server.closeAllConnections?.(); await close(ctx); });
+
+  const login = await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: false });
+  assert.equal(login.status, 200);
+  assert.equal(worldCalls, 0, '登录/首屏快照阶段不查世界名');
+  assert.equal(ctx.db.getFriend(ctx.db.getUserByVrcId('usr_me').id, 'usr_f1').world_id, 'wrld_a');
+
+  // 先连上 SSE, 再触发读接口
+  const pending = sseOnce(ctx, 'world-name');
+  await new Promise((r) => setTimeout(r, 100));
+
+  const r = await get(ctx, '/api/friends');
+  assert.equal(r.status, 200);
+  const f = r.data.friends.find((x) => x.friend_vrchat_id === 'usr_f1');
+  assert.equal(f.world_id, 'wrld_a', '世界编号一直有');
+  assert.equal(f.world_name, null, '本次响应不等世界名');
+
+  const evt = await pending;
+  assert.ok(evt, '应通过 SSE 收到 world-name');
+  assert.deepEqual(evt, { worldId: 'wrld_a', worldName: '世界_wrld_a' });
+  assert.equal(worldCalls, 1, '只查一次');
+
+  // 名字进缓存后, 下一次读接口同步带上
+  const r2 = await get(ctx, '/api/friends');
+  const f2 = r2.data.friends.find((x) => x.friend_vrchat_id === 'usr_f1');
+  assert.equal(f2.world_name, '世界_wrld_a', '缓存命中后读接口同步补名字');
+  assert.equal(worldCalls, 1, '缓存命中不重复查');
+});
+
 test('auth: percent-encoded and variant paths cannot bypass access token', async (t) => {
   const ctx = setup({ accessToken: 'secret123' });
   // 原始连接需显式清理: close() 会等待全部连接断开, 悬挂连接会挂住测试。
