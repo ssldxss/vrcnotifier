@@ -7,6 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { createDb } = require('../src/db');
 const { createMonitor } = require('../src/monitor');
+const { createWorldName } = require('../src/world');
 const { CookieJar } = require('../src/cookiejar');
 const { createAvatarCache } = require('../src/avatar');
 const { createApp } = require('../src/server');
@@ -64,10 +65,16 @@ function setup(opts = {}) {
     sendAll: async (user, change) => { notifications.push({ user, change }); return { qq: { ok: true } }; },
     sendTest: async (user, kind) => ({ ok: true, kind, user: user.qq_app_secret })
   };
+  const nowFn = opts.now || (() => 1000000);
+  const worldName = opts.worldNameModule || createWorldName({
+    db, logger: opts.logger || silent, now: nowFn, bus,
+    fetchWorld: (id) => vrcapi.world(id),
+    config: { ratePerMinute: 0, ...(opts.worldName || {}) }
+  });
   const monitor = createMonitor({
-    db, notifier, pipeline, bus,
+    db, notifier, pipeline, worldName, bus,
     logger: opts.logger || silent,
-    now: opts.now || (() => 1000000),
+    now: nowFn,
     config: { confirmDelayMs: 30000, dedupeWindowMs: 30000, snapshotIntervalMs: 3600000, watchdogMs: 600000 }
   });
   const sessionStore = new Map();
@@ -232,6 +239,71 @@ test('auth: /api routes require token regardless of path casing', async (t) => {
 //   字面以 /api/ 开头            → 门卫必拦(401)
 //   字面不以 /api/ 开头(百分号编码/双斜杠/点段等) → 路由同样匹配不到(404)
 // 绝不允许出现第三种「跳过门卫却又命中处理器」的结果。
+// SSE 读取一条指定事件; 带硬超时, 保证拿不到也不会把测试挂住
+async function sseOnce(t, eventName, ms = 3000) {
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), ms);
+  try {
+    const res = await fetch(t.base + '/api/events', { headers: authHeaders(t), signal: ac.signal });
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) return null;
+      buf += dec.decode(value, { stream: true });
+      let idx;
+      while ((idx = buf.indexOf('\n\n')) >= 0) {
+        const chunk = buf.slice(0, idx);
+        buf = buf.slice(idx + 2);
+        const ev = /event: (.+)/.exec(chunk);
+        if (!ev || ev[1].trim() !== eventName) continue;
+        const dt = /data: (.+)/.exec(chunk);
+        return dt ? JSON.parse(dt[1]) : null;
+      }
+    }
+  } catch (e) {
+    return null; // 超时/中断
+  } finally {
+    clearTimeout(timer);
+    try { ac.abort(); } catch (e) { /* ignore */ }
+  }
+}
+
+test('世界名按需查询: 读接口不等名字, 查到后走 world-name SSE 推给前端', async (t) => {
+  let worldCalls = 0;
+  const ctx = setup({ onlineFriends: [{ id: 'usr_f1', displayName: 'F1', location: 'wrld_a:1~region(us)', status: 'active', last_platform: 'web' }] });
+  ctx.vrcapi.world = async (id) => { worldCalls++; return { id, name: '世界_' + id }; };
+  // 开放的 SSE 连接会让 close() 一直等待, 必须先强制断开
+  t.after(async () => { ctx.server.closeAllConnections?.(); await close(ctx); });
+
+  const login = await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: false });
+  assert.equal(login.status, 200);
+  assert.equal(worldCalls, 0, '登录/首屏快照阶段不查世界名');
+  assert.equal(ctx.db.getFriend(ctx.db.getUserByVrcId('usr_me').id, 'usr_f1').world_id, 'wrld_a');
+
+  // 先连上 SSE, 再触发读接口
+  const pending = sseOnce(ctx, 'world-name');
+  await new Promise((r) => setTimeout(r, 100));
+
+  const r = await get(ctx, '/api/friends');
+  assert.equal(r.status, 200);
+  const f = r.data.friends.find((x) => x.friend_vrchat_id === 'usr_f1');
+  assert.equal(f.world_id, 'wrld_a', '世界编号一直有');
+  assert.equal(f.world_name, null, '本次响应不等世界名');
+
+  const evt = await pending;
+  assert.ok(evt, '应通过 SSE 收到 world-name');
+  assert.deepEqual(evt, { worldId: 'wrld_a', worldName: '世界_wrld_a' });
+  assert.equal(worldCalls, 1, '只查一次');
+
+  // 名字进缓存后, 下一次读接口同步带上
+  const r2 = await get(ctx, '/api/friends');
+  const f2 = r2.data.friends.find((x) => x.friend_vrchat_id === 'usr_f1');
+  assert.equal(f2.world_name, '世界_wrld_a', '缓存命中后读接口同步补名字');
+  assert.equal(worldCalls, 1, '缓存命中不重复查');
+});
+
 test('auth: percent-encoded and variant paths cannot bypass access token', async (t) => {
   const ctx = setup({ accessToken: 'secret123' });
   // 原始连接需显式清理: close() 会等待全部连接断开, 悬挂连接会挂住测试。
@@ -301,6 +373,8 @@ test('login/session expose own presence fields and avatarKey', async (t) => {
     }
   });
   t.after(() => close(ctx));
+  // 快照不再解析世界名: 预置缓存, 读接口从缓存补名字
+  ctx.db.upsertWorldCache('wrld_me', '世界_wrld_me', Date.now());
   const r = await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: false });
   assert.equal(r.status, 200);
   assert.equal(r.data.user.avatarKey, 'file_me-111_1_256');
@@ -310,11 +384,11 @@ test('login/session expose own presence fields and avatarKey', async (t) => {
   assert.equal(row.status_description, '摸鱼');
   assert.equal(row.state, 'online');
   assert.equal(row.world_id, 'wrld_me');
-  assert.equal(row.world_name, '世界_wrld_me');
+  assert.equal(row.world_name, undefined, 'users 表已无 world_name 列, 名字由世界名缓存提供');
   assert.equal(row.platform, 'standalonewindows');
   const s = await get(ctx, '/api/session');
   assert.equal(s.data.user.state, 'online');
-  assert.equal(s.data.user.world_name, '世界_wrld_me');
+  assert.equal(s.data.user.world_name, '世界_wrld_me', '/api/session 从世界名缓存补名字');
   assert.equal(s.data.user.platform, 'standalonewindows');
   assert.equal(s.data.user.status_description, '摸鱼');
   assert.equal(s.data.user.avatarKey, 'file_me-111_1_256');
@@ -590,7 +664,8 @@ test('saved session auto-restores on fresh app instance (GET /api/session)', asy
   };
   const notifier2 = { sendAll: async () => ({}), sendTest: async () => ({}) };
   const pipeline2 = { connect: () => {}, disconnect: () => {}, forceReconnect: () => {}, isConnected: () => true, lastMessageAt: () => Date.now(), status: () => ({ connected: true }) };
-  const monitor2 = createMonitor({ db: ctx.db, notifier: notifier2, pipeline: pipeline2, bus, logger: silent, now: ctx.monitor.now || (() => 1000000), config: {} });
+  const worldName2 = createWorldName({ db: ctx.db, logger: silent, now: () => 1000000, bus, fetchWorld: (id) => vrcapi2.world(id), config: { ratePerMinute: 0 } });
+  const monitor2 = createMonitor({ db: ctx.db, notifier: notifier2, pipeline: pipeline2, worldName: worldName2, bus, logger: silent, now: ctx.monitor.now || (() => 1000000), config: {} });
   const store2 = new Map();
   const { app: app2 } = createApp({
     db: ctx.db, notifier: notifier2, pipeline: pipeline2, monitor: monitor2, sessionStore: store2,

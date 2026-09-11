@@ -69,7 +69,7 @@ function applyChange(prevDb, incoming, opts = {}) {
     state: prevDb.state || 'offline',
     status: prevDb.status || 'active',
     worldId: prevDb.worldId ?? prevDb.world_id ?? null,
-    worldName: prevDb.worldName ?? prevDb.world_name ?? null,
+    worldName: prevDb.worldName ?? null, // 世界名不再入库, 由 monitor 从世界名缓存同步取好传进来
     statusDescription: prevDb.statusDescription ?? prevDb.status_description ?? null,
     platform: prevDb.platform || 'unknown'
   };
@@ -86,7 +86,7 @@ function applyChange(prevDb, incoming, opts = {}) {
     state: next.state,
     status: next.status,
     world_id: next.worldId,
-    world_name: next.worldName,
+    // 世界名不入库(由 world_cache 按需提供); next.worldName 仅供通知文案使用
     status_description: next.statusDescription,
     platform: next.platform,
     pending_state: null,

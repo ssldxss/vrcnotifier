@@ -4,27 +4,32 @@
 const { EventEmitter } = require('node:events');
 const { applyChange } = require('./state');
 const { parseLocation } = require('./location');
-const { formatLocalTime, createLogger, trustLevelFromTags } = require('./util');
+const { formatLocalTime, createLogger, trustLevelFromTags, withDeadline } = require('./util');
 const { isMissingCredentials, isUnauthorized } = require('./vrcapi');
 const { STARTUP_TEXT } = require('./qq-commands');
 
-function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger = null, now = Date.now, worldFetcher = null }) {
+function createMonitor({ db, notifier, pipeline, worldName, bus = null, config = {}, logger = null, now = Date.now }) {
   const log = logger || createLogger('monitor');
   const events = bus || new EventEmitter();
   const sessions = new Map();      // vrchat_user_id -> { vrcapi, user }
 
+  // 世界名查询(全项目唯一入口, 见 src/world.js)。与其他依赖一样由 index.js 注入;
+  // 模块管查询/缓存/失败兜底, 等待由各调用点自己设上限。
+  if (!worldName) throw new Error('monitor: 缺少 worldName');
+  const worldNames = worldName;
+
   const confirmDelayMs = config.confirmDelayMs ?? 30000;
   const dedupeWindowMs = config.dedupeWindowMs ?? 30000;
-  const WORLD_CACHE_OK_TTL_MS = 365 * 24 * 60 * 60 * 1000; // 成功名称缓存 1 年
-  const WORLD_NAME_RETRY_BASE_MS = config.worldNameRetryBaseMs ?? 5000; // 与 WS 重连一致的退避起步
-  const WORLD_NAME_RETRY_MAX_MS = config.worldNameRetryMaxMs ?? 3600 * 1000; // 退避封顶 1h, 封顶后保持不回退
-  const UNKNOWN_WORLD_NAME = '未知世界';
+  const GROUP_CACHE_OK_TTL_MS = 3600 * 1000; // 群组名成功缓存 1 小时(与世界名一致)
+  const GROUP_NAME_RETRY_BASE_MS = config.groupNameRetryBaseMs ?? 5000; // 群组名退避起步(与世界名曾经的实现一致)
+  const GROUP_NAME_RETRY_MAX_MS = config.groupNameRetryMaxMs ?? 3600 * 1000; // 群组名退避封顶 1h
   const UNKNOWN_GROUP_NAME = '未知群组';
+  // 需求方等待世界名的上限: 超时用缓存里的旧名字兜底, 查询继续在后台跑完(不阻塞上游链路)
+  const WORLD_NAME_WAIT_MS = config.worldWaitMs ?? 3000;
   const RECOVERY_TEXT = '# ✅ 服务已恢复\n好友监控运行中\n输入任意消息即可查看在线列表';
   const snapshotIntervalMs = config.snapshotIntervalMs ?? 3600 * 1000;
   const watchdogMs = config.watchdogMs ?? 3600 * 1000;
   const watchdogCheckMs = config.watchdogCheckMs ?? 60 * 1000;
-  const maxWorldResolvesPerSnapshot = config.maxWorldResolvesPerSnapshot ?? 6;
   const statusCoalesceMs = config.statusCoalesceMs ?? 3000; // 状态变化+切世界合并窗口
   const faultNotifyMs = config.faultNotifyMs ?? 5 * 60 * 1000; // 故障(WS 断开/401)持续超过 5 分钟才通知
 
@@ -218,55 +223,33 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
   }
 
   // ---------- 世界名 ----------
-  function worldCacheFresh(worldId) {
-    const c = db.getWorldCache(worldId);
-    if (!c) return null;
-    if (c.world_name === UNKNOWN_WORLD_NAME) {
-      // 未知世界: 退避期内视为有效, 到期后可重试
-      return now() < (c.retry_at || 0) ? c : null;
-    }
-    return now() - c.updated_at < WORLD_CACHE_OK_TTL_MS ? c : null;
+  // 查询/缓存/失败兜底全在 src/world.js; 这里只负责"等多久"。
+  // 超时用 peek 的旧名字先顶上, 查询继续在后台跑完(查到会写缓存并推 SSE)。
+  // 调用点自行处理 private/offline/traveling 等哨兵值, 本函数只吃真实世界编号。
+  /** world_id -> 当前缓存里的显示名(同步, 不发请求); private 是哨兵值, 就地写死 */
+  function prevWorldName(worldId) {
+    if (!worldId) return null;
+    return worldId === 'private' ? '私密世界' : worldNames.peek(worldId);
   }
 
-  async function resolveWorldName(vrcapi, worldId) {
-    if (!worldId || worldId === 'private' || worldId === 'offline' || worldId === 'traveling') return null;
-    const cached = worldCacheFresh(worldId);
-    if (cached) return cached.world_name;
-    const rec = db.getWorldCache(worldId);
-    const failCount = rec ? (rec.fail_count || 0) : 0;
-    let name = UNKNOWN_WORLD_NAME;
-    const fetchWorld = worldFetcher
-      ? (id) => worldFetcher.world(id)
-      : (id) => vrcapi.world(id, { noRetry: true }); // 生产走独立无 Cookie 世界模块; 测试可回退注入的 vrcapi.world
-    try {
-      const w = await fetchWorld(worldId); // 世界名查询失败不阻塞快照, 缓存未知世界
-      if (w && w.name) {
-        name = w.name;
-        log.debug(`[world] 世界名获取成功 worldId=${worldId} name=${name}`);
-      }
-    } catch (e) {
-      log.warn(`[world] 世界 ${worldId} 名称获取失败: ${e.message}`);
-    }
-    if (name === UNKNOWN_WORLD_NAME) {
-      // 失败: 指数退避安排下次重试, 达到上限 1h 后保持不回退, 直到成功清零
-      const next = failCount + 1;
-      const interval = Math.min(WORLD_NAME_RETRY_BASE_MS * 2 ** (next - 1), WORLD_NAME_RETRY_MAX_MS);
-      db.upsertWorldCache(worldId, name, now(), next, now() + interval);
-    } else {
-      db.upsertWorldCache(worldId, name, now(), 0, 0);
-    }
-    return name;
+  function lookupWorldName(worldId) {
+    return withDeadline(
+      worldNames.get(worldId),
+      WORLD_NAME_WAIT_MS,
+      () => worldNames.peek(worldId)
+    );
   }
 
   // ---------- 群组名 ----------
-  // 与世界名同构: 成功缓存 1 年, 失败指数退避(封顶 1h), 退避期内沿用"未知群组"
+  // 与世界名同构: 成功缓存 1 小时, 失败指数退避(封顶 1h), 退避期内沿用"未知群组"
+  // (世界名已迁到 src/world.js 按需查询; 群组名暂时保持原实现, 只改 TTL)
   function groupCacheFresh(groupId) {
     const c = db.getGroupCache(groupId);
     if (!c) return null;
     if (c.group_name === UNKNOWN_GROUP_NAME) {
       return now() < (c.retry_at || 0) ? c : null;
     }
-    return now() - c.updated_at < WORLD_CACHE_OK_TTL_MS ? c : null;
+    return now() - c.updated_at < GROUP_CACHE_OK_TTL_MS ? c : null;
   }
 
   async function resolveGroupName(vrcapi, groupId, selfVrcId = null) {
@@ -303,7 +286,7 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
     }
     if (name === UNKNOWN_GROUP_NAME) {
       const next = failCount + 1;
-      const interval = Math.min(WORLD_NAME_RETRY_BASE_MS * 2 ** (next - 1), WORLD_NAME_RETRY_MAX_MS);
+      const interval = Math.min(GROUP_NAME_RETRY_BASE_MS * 2 ** (next - 1), GROUP_NAME_RETRY_MAX_MS);
       db.upsertGroupCache(groupId, name, now(), next, now() + interval);
     } else {
       db.upsertGroupCache(groupId, name, now(), 0, 0);
@@ -423,7 +406,8 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
     if (vrcapi && kindOf('invite', 'requestInvite')) {
       const worldInfo = worldInfoFromNotification(n);
       if (worldInfo && (worldInfo.worldId || worldInfo.worldName)) {
-        notificationWorld = worldInfo.worldName || await resolveWorldName(vrcapi, worldInfo.worldId);
+        notificationWorld = worldInfo.worldName
+          || (worldInfo.worldId ? await lookupWorldName(worldInfo.worldId) : null);
       } else if (rawCategory === 'invite') {
         log.warn(`[monitor] 邀请通知无世界信息 id=${n.id} link=${n.link || '-'} details=${JSON.stringify(n.details || null)}`);
       }
@@ -605,7 +589,9 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
       db.updateFriendProfile(existed.id, { displayName: input.displayName, avatarUrl: input.avatarUrl, avatarThumbUrl: thumbUrl, trustLevel: input.trustLevel });
     }
     const cur = db.getFriend(user.id, friendVrcId);
-    const result = applyChange(cur, {
+    // 世界名不再入库: 状态机要的"旧世界名"从世界名缓存同步取(peek, 不发请求);
+    // private 是哨兵值, 缓存里没有, 就地写死
+    const result = applyChange({ ...cur, worldName: prevWorldName(cur.world_id) }, {
       state: input.state, status: input.status, worldId: input.worldId,
       worldName: input.worldName, statusDescription: input.statusDescription, platform: input.platform
     }, { now, confirmDelayMs });
@@ -656,7 +642,7 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
         state: pick(input.state, cur.state),
         status: pick(input.status, cur.status),
         worldId: pick(input.worldId, cur.world_id),
-        worldName: pick(input.worldName, cur.world_name),
+        worldName: pick(input.worldName, prevWorldName(cur.world_id)),
         statusDescription: pick(input.statusDescription, cur.status_description),
         platform: pick(input.platform, cur.platform)
       };
@@ -693,7 +679,7 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
           const id = content.user?.id || content.userId;
           const loc = parseLocation(content.location);
           const worldId = loc.isReal ? loc.worldId : (content.location === 'private' ? 'private' : null);
-          const worldName = worldId && worldId !== 'private' ? await resolveWorldName(vrcapi, worldId) : (worldId === 'private' ? '私密世界' : null);
+          const worldName = worldId === 'private' ? '私密世界' : (worldId ? await lookupWorldName(worldId) : null);
           await applyFriendInput(user, id, {
             state: 'online', status: content.user?.status || 'active',
             statusDescription: content.user?.statusDescription || null,
@@ -726,7 +712,9 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
           const existing = db.getFriend(user.id, id);
           const traveling = content.location === 'traveling';
           const worldId = loc.isReal ? loc.worldId : (content.location === 'private' ? 'private' : (traveling && existing ? existing.world_id : null));
-          const worldName = worldId && worldId !== 'private' ? await resolveWorldName(vrcapi, worldId) : (worldId === 'private' ? '私密世界' : (traveling && existing ? existing.world_name : null));
+          const worldName = worldId === 'private' ? '私密世界'
+            : worldId ? await lookupWorldName(worldId)
+              : (traveling && existing ? worldNames.peek(existing.world_id) : null);
           await applyFriendInput(user, id, {
             state: 'online', status: content.user?.status || 'active',
             statusDescription: content.user?.statusDescription || null,
@@ -777,7 +765,9 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
           const traveling = content.location === 'traveling';
           const state = deriveSelfState(content.location, u.state);
           const worldId = loc.isReal ? loc.worldId : (content.location === 'private' ? 'private' : (traveling && existing ? existing.world_id : null));
-          const worldName = worldId && worldId !== 'private' ? await resolveWorldName(vrcapi, worldId) : (worldId === 'private' ? '私密世界' : (traveling && existing ? existing.world_name : null));
+          const worldName = worldId === 'private' ? '私密世界'
+            : worldId ? await lookupWorldName(worldId)
+              : (traveling && existing ? worldNames.peek(existing.world_id) : null);
           await applySelfInput(user, {
             state,
             status: u.status && u.status !== 'offline' ? u.status : 'active',
@@ -886,7 +876,9 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
         const traveling = !hasWorld && !isPrivate && String(pres.travelingToWorld || '') !== '';
         const existingSelf = db.getUserByVrcId(userId);
         const selfWorldId = hasWorld ? worldRaw : (isPrivate ? 'private' : (traveling && existingSelf ? existingSelf.world_id : null));
-        const selfWorldName = selfWorldId && selfWorldId !== 'private' ? await resolveWorldName(vrcapi, selfWorldId) : (selfWorldId === 'private' ? '私密世界' : (traveling && existingSelf ? existingSelf.world_name : null));
+        // 快照不查世界名(按需查询): 只同步看一眼缓存里现有的名字, 缺失交给前端 SSE / QQ 各自按需触发
+        const selfWorldName = selfWorldId === 'private' ? '私密世界'
+          : selfWorldId ? worldNames.peek(selfWorldId) : null;
         const pseudoLoc = hasWorld ? worldRaw : (isPrivate ? 'private' : (traveling ? 'traveling' : 'offline'));
         await applySelfInput(user, {
           state: deriveSelfState(pseudoLoc, currentUser.state),
@@ -954,7 +946,6 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
         }
       }
 
-      let worldResolves = 0;
       const applyOpts = opts.initial ? { silent: true } : {};
       let processed = 0;
 
@@ -974,21 +965,9 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
           const loc = parseLocation(f.location);
           const existingForTravel = db.getFriend(user.id, id);
           const worldId = loc.isReal ? loc.worldId : (f.location === 'private' ? 'private' : (f.location === 'traveling' && existingForTravel ? existingForTravel.world_id : null));
-          let worldName = null;
-          const cachedW = worldId && worldId !== 'private' ? worldCacheFresh(worldId) : null;
-          if (cachedW) {
-            worldName = cachedW.world_name;
-          } else if (worldId && worldId !== 'private' && worldResolves < maxWorldResolvesPerSnapshot) {
-            const existing = db.getFriend(user.id, id);
-            if (!existing || existing.world_id !== worldId || !existing.world_name) {
-              worldName = await resolveWorldName(vrcapi, worldId);
-              if (worldName && worldName !== worldId) worldResolves++;
-            } else {
-              worldName = existing.world_name;
-            }
-          } else if (worldId === 'private') {
-            worldName = '私密世界';
-          }
+          // 快照不查世界名(按需查询): 只同步看一眼缓存里现有的名字
+          const worldName = worldId === 'private' ? '私密世界'
+            : worldId ? worldNames.peek(worldId) : null;
           await applyFriendInput(user, id, {
             state,
             status: f.status || 'active',
@@ -1094,6 +1073,7 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
     activateUser, deactivateUser, activeUsers, sendShutdownNotice,
     handlePipelineEvent, handleWsReconnect, runSnapshot, runWatchdog,
     startTimers, stopTimers, events,
+    worldName: worldNames, // 供 server 读接口同步补名字(peek)与订阅 world-name 事件
     _debug: { nextAutoReconcileAt: () => (autoTimer ? autoAt : null) }
   };
 }

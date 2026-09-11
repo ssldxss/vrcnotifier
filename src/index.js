@@ -9,7 +9,7 @@ const { createLogger, setLogStream, setFileLog, maskKey, formatLocalTime } = req
 const { createFileLog } = require('./filelog');
 const { createCrypto, resolveMasterKey } = require('./crypto');
 const { createVrcApi, isMissingCredentials, isUnauthorized } = require('./vrcapi');
-const { createWorldFetcher } = require('./world');
+const { createWorldName } = require('./world');
 const { createNotifier } = require('./notify');
 const { createPipelineManager } = require('./pipeline');
 const { createMonitor } = require('./monitor');
@@ -116,6 +116,8 @@ function buildApplication(opts = {}) {
       watchdogCheckMs: opts.watchdogCheckMs ?? 60 * 1000,
       ...(opts.monitor || {})
     },
+    // 世界名查询(见 src/world.js)自身的策略; 未列出的项由模块 DEFAULTS 兜底
+    world: { ...(opts.world || {}) },
     ws: {
       pingIntervalMs: opts.pingIntervalMs ?? 10000,
       pongTimeoutMs: opts.pongTimeoutMs ?? 30000,
@@ -139,10 +141,23 @@ function buildApplication(opts = {}) {
   // 连接状态由 createApp 提供(依赖 pipeline + 自动登录状态), 先占位后注入
   const connectionStatus = { fn: null };
   const authCommandHooks = { fn: null };
+  // 世界名查询: 全项目唯一入口(传输 + 缓存/重试/兜底都在 src/world.js)
+  const worldName = opts.worldName || createWorldName({
+    db, bus, logger, now,
+    baseUrl: config.apiBaseUrl,
+    userAgent: config.userAgent,
+    fetchImpl: opts.fetchImpl || fetch,
+    fetchWorld: opts.fetchWorld,
+    config: config.world
+  });
+
   const qqCommands = createQqCommands({
     db, logger,
     getStatus: (dbId) => (connectionStatus.fn ? connectionStatus.fn(dbId) : null),
-    onCode: (dbId, content) => (authCommandHooks.fn ? authCommandHooks.fn(dbId, content) : null)
+    onCode: (dbId, content) => (authCommandHooks.fn ? authCommandHooks.fn(dbId, content) : null),
+    worldName,
+    // 世界名的等待上限是需求方的事(模块本身从不等待), QQ 与通知路径共用同一个值
+    worldNameWaitMs: config.monitor.worldWaitMs
   });
   const qq = opts.qq || createQqManager({
     db, logger,
@@ -161,12 +176,6 @@ function buildApplication(opts = {}) {
   const notifier = opts.notifier || createNotifier({
     logger, qq,
     getSettings: () => db.getGlobalSettings()
-  });
-  const worldFetcher = opts.worldFetcher || createWorldFetcher({
-    baseUrl: config.apiBaseUrl,
-    userAgent: config.userAgent,
-    fetchImpl: opts.fetchImpl || fetch,
-    logger
   });
   let monitor = null;
   const pipeline = opts.pipeline || createPipelineManager({
@@ -197,8 +206,7 @@ function buildApplication(opts = {}) {
     config: config.ws
   });
   monitor = opts.monitor || createMonitor({
-    db, notifier, pipeline, bus, logger, now,
-    worldFetcher,
+    db, notifier, pipeline, worldName, bus, logger, now,
     config: config.monitor
   });
   const healthMonitor = opts.healthMonitor || createHealthMonitor({
@@ -254,7 +262,7 @@ function buildApplication(opts = {}) {
 
   return {
     app, autoLogin, monitor, pipeline, sessionStore, db, bus,
-    config, avatarCache, qq, logStream, healthMonitor, vrcStatus, fileLog, maskState, worldFetcher
+    config, avatarCache, qq, logStream, healthMonitor, vrcStatus, fileLog, maskState
   };
 }
 

@@ -3,6 +3,7 @@ const assert = require('node:assert');
 const { EventEmitter } = require('node:events');
 const { createDb } = require('../src/db');
 const { createMonitor } = require('../src/monitor');
+const { createWorldName } = require('../src/world');
 
 function setup(opts = {}) {
   const db = createDb(':memory:');
@@ -56,13 +57,21 @@ function setup(opts = {}) {
     lastMessageAt: () => (typeof opts.lastMessageAt === 'function' ? opts.lastMessageAt() : (opts.lastMessageAt ?? Date.now())),
     status: () => ({ connected: true, notified: false })
   };
+  const silentLogger = opts.logger || { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
+  const nowFn = opts.now || (() => 1000000);
+  // 世界名查询模块: 与 index.js 一样注入; 传输层换成假 vrcapi(逐用例可覆盖 vrcapi.world)
+  const worldName = opts.worldNameModule || createWorldName({
+    db, logger: silentLogger, now: nowFn, bus,
+    fetchWorld: (id) => vrcapi.world(id),
+    config: { ratePerMinute: 0, ...(opts.worldName || {}) }
+  });
   const monitor = createMonitor({
-    db, notifier, pipeline, bus,
-    logger: opts.logger || { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
-    now: opts.now || (() => 1000000),
+    db, notifier, pipeline, worldName, bus,
+    logger: silentLogger,
+    now: nowFn,
     config: { confirmDelayMs: opts.confirmDelayMs ?? 30000, dedupeWindowMs: 30000, snapshotIntervalMs: 600000, watchdogMs: 600000, statusCoalesceMs: opts.statusCoalesceMs ?? 3000, faultNotifyMs: opts.faultNotifyMs ?? 300000 }
   });
-  return { db, bus, events, notifications, qqTexts, notifier, vrcapi, pipeline, monitor };
+  return { db, bus, events, notifications, qqTexts, notifier, vrcapi, pipeline, monitor, worldName };
 }
 
 function addUser(db, { vrcId = 'usr_me', displayName = '我' } = {}) {
@@ -124,7 +133,7 @@ test('WS friend-online with private location fills 私密世界 instead of null'
   const f = t.db.getFriend(user.id, 'usr_f1');
   assert.equal(f.state, 'online');
   assert.equal(f.world_id, 'private');
-  assert.equal(f.world_name, '私密世界');
+  assert.equal(f.world_name, undefined, '私密世界不入库, 读的时候就地给');
 });
 
 test('WS friend-update with private location writes private world', async () => {
@@ -136,7 +145,7 @@ test('WS friend-update with private location writes private world', async () => 
   await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'x', { type: 'friend-update', content: { userId: 'usr_f1', user: { id: 'usr_f1', displayName: 'F1', status: 'active', location: 'private' } } });
   const f = t.db.getFriend(user.id, 'usr_f1');
   assert.equal(f.world_id, 'private');
-  assert.equal(f.world_name, '私密世界');
+  assert.equal(f.world_name, undefined, '私密世界不入库, 读的时候就地给');
 });
 
 test('WS friend-add with private location writes private world', async () => {
@@ -148,7 +157,7 @@ test('WS friend-add with private location writes private world', async () => {
   const f = t.db.getFriend(user.id, 'usr_f1');
   assert.equal(f.state, 'online');
   assert.equal(f.world_id, 'private');
-  assert.equal(f.world_name, '私密世界');
+  assert.equal(f.world_name, undefined, '私密世界不入库, 读的时候就地给');
 });
 
 test('WS friend-offline: pending confirm after delay; cancel on revert', async () => {
@@ -510,6 +519,8 @@ test('world -> private -> traveling -> public notifies each world change', async
   const t = setup({ onlineFriends: [onlineFriend('usr_f1')] });
   const user = addUser(t.db);
   addConfig(t.db, user.id, 'usr_f1');
+  // 快照不再解析世界名; 预置一条缓存, 模拟这个名字之前已被按需查过
+  t.db.upsertWorldCache('wrld_a', '世界_wrld_a', 1000000);
   await t.monitor.activateUser(user, t.vrcapi);
   t.notifications.length = 0;
   // wrld_a -> private: notifies (any change)
@@ -749,18 +760,23 @@ test('concurrent snapshot triggers are ignored; auto reconcile slides after any 
   }
 });
 
-test('world name cached in db: repeat lookup skips api', async () => {
+test('世界名按需查询: 快照不查, WS 事件查一次后进缓存', async () => {
   let worldCalls = 0;
   const t = setup({ onlineFriends: [onlineFriend('usr_f1')] });
   t.vrcapi.world = async (id) => { worldCalls++; return { id, name: '世界_' + id }; };
   const user = addUser(t.db);
   addConfig(t.db, user.id, 'usr_f1');
   await t.monitor.activateUser(user, t.vrcapi);
-  assert.equal(worldCalls, 1);
-  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '1', { type: 'friend-location', content: { userId: 'usr_f1', location: 'wrld_a:1~region(us)', user: { id: 'usr_f1', displayName: 'F1', status: 'active' } } });
+  assert.equal(worldCalls, 0, '快照不再解析世界名');
+  const loc = () => ({ type: 'friend-location', content: { userId: 'usr_f1', location: 'wrld_a:1~region(us)', user: { id: 'usr_f1', displayName: 'F1', status: 'active' } } });
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '1', loc());
+  assert.equal(worldCalls, 1, 'WS 事件触发按需查询');
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '2', loc());
   assert.equal(worldCalls, 1, '缓存命中不应再调 API');
   const c = t.db.getWorldCache('wrld_a');
   assert.ok(c && c.world_name === '世界_wrld_a');
+  assert.equal(t.db.getFriend(user.id, 'usr_f1').world_id, 'wrld_a');
+  assert.equal(t.monitor.worldName.peek('wrld_a'), '世界_wrld_a', '名字落在世界名缓存里');
 });
 
 test('snapshot keeps social/custom status when friend offline via API list', async () => {
@@ -779,83 +795,92 @@ test('snapshot keeps social/custom status when friend offline via API list', asy
   assert.equal(f.status_description, '摸鱼中');
 });
 
-test('snapshot resolves world name for unmonitored friends too', async () => {
+test('snapshot 不查世界名: 只同步读缓存, 未监控好友也不发请求', async () => {
   let worldCalls = 0;
   const t = setup({ onlineFriends: [onlineFriend('usr_f1')] });
   t.vrcapi.world = async (id) => { worldCalls++; return { id, name: '世界_' + id }; };
   const user = addUser(t.db);
-  // 不 addConfig: usr_f1 未监控, 世界名也应默认解析
+  // 不 addConfig: usr_f1 未监控
   await t.monitor.activateUser(user, t.vrcapi);
-  assert.equal(worldCalls, 1, '未监控好友也解析世界名');
+  assert.equal(worldCalls, 0, '快照不解析世界名');
   const f = t.db.getFriend(user.id, 'usr_f1');
-  assert.equal(f.world_name, '世界_wrld_a');
-  const c = t.db.getWorldCache('wrld_a');
-  assert.equal(c.world_name, '世界_wrld_a');
+  assert.equal(f.world_id, 'wrld_a', '世界编号照常入库');
+  assert.equal(f.world_name, undefined, '好友行不再存世界名');
+  assert.equal(t.db.getWorldCache('wrld_a'), null, '快照不写世界缓存');
+  // 缓存里已有名字时, 快照同步读出来
+  t.db.upsertWorldCache('wrld_a', '缓存里的名字', 1000000);
+  await t.monitor.runSnapshot(user.vrchat_user_id);
+  assert.equal(t.monitor.worldName.peek('wrld_a'), '缓存里的名字', '快照只同步读缓存, 不发请求');
 });
 
-test('failed world lookup retries with backoff until success', async () => {
+test('世界名网络错误: 就地重试 1 次, 仍失败进冷却 5 分钟(不入库)', async () => {
   let cur = 1000000;
   let fail = true;
   let worldCalls = 0;
-  const t = setup({ now: () => cur, onlineFriends: [onlineFriend('usr_f1')] });
+  const t = setup({ now: () => cur, worldName: { retryDelayMs: 0 }, onlineFriends: [onlineFriend('usr_f1')] });
   t.vrcapi.world = async (id) => { worldCalls++; if (fail) throw new Error('boom'); return { id, name: '世界_' + id }; };
   const user = addUser(t.db);
   addConfig(t.db, user.id, 'usr_f1');
   await t.monitor.activateUser(user, t.vrcapi);
-  assert.equal(worldCalls, 1);
-  let c = t.db.getWorldCache('wrld_a');
-  assert.equal(c.world_name, '未知世界');
-  assert.equal(c.fail_count, 1);
-  // 退避期内(base=5s)不重查
-  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '1', { type: 'friend-location', content: { userId: 'usr_f1', location: 'wrld_a:1', user: { id: 'usr_f1', displayName: 'F1', status: 'active' } } });
-  assert.equal(worldCalls, 1);
-  // 退避到期后重试, 再失败 -> 退避翻倍(10s)
-  cur += 5001;
-  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '2', { type: 'friend-location', content: { userId: 'usr_f1', location: 'wrld_a:1', user: { id: 'usr_f1', displayName: 'F1', status: 'active' } } });
-  assert.equal(worldCalls, 2);
-  c = t.db.getWorldCache('wrld_a');
-  assert.equal(c.fail_count, 2);
-  // 翻倍后的退避期(10s)内不重查
-  cur += 9999;
-  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '3', { type: 'friend-location', content: { userId: 'usr_f1', location: 'wrld_a:1', user: { id: 'usr_f1', displayName: 'F1', status: 'active' } } });
-  assert.equal(worldCalls, 2);
-  // 到期后成功, 清零退避
+  const loc = () => ({ type: 'friend-location', content: { userId: 'usr_f1', location: 'wrld_a:1', user: { id: 'usr_f1', displayName: 'F1', status: 'active' } } });
+
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '1', loc());
+  assert.equal(worldCalls, 2, '首次 + 就地重试 1 次');
+  assert.equal(t.db.getWorldCache('wrld_a'), null, '失败不入库');
+
+  cur += 4 * 60 * 1000;
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '2', loc());
+  assert.equal(worldCalls, 2, '5 分钟冷却期内 0 请求');
+
   fail = false;
-  cur += 2;
-  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '4', { type: 'friend-location', content: { userId: 'usr_f1', location: 'wrld_a:1', user: { id: 'usr_f1', displayName: 'F1', status: 'active' } } });
-  assert.equal(worldCalls, 3);
-  c = t.db.getWorldCache('wrld_a');
-  assert.equal(c.world_name, '世界_wrld_a');
-  assert.equal(c.fail_count, 0);
-  assert.equal(c.retry_at, 0);
-  // 成功后 1 年内不重查
-  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '5', { type: 'friend-location', content: { userId: 'usr_f1', location: 'wrld_a:1', user: { id: 'usr_f1', displayName: 'F1', status: 'active' } } });
-  assert.equal(worldCalls, 3);
+  cur += 2 * 60 * 1000; // 累计超过 5 分钟
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '3', loc());
+  assert.equal(worldCalls, 3, '冷却到期后放行, 这次一次成功');
+  assert.equal(t.db.getWorldCache('wrld_a').world_name, '世界_wrld_a');
 });
 
-test('world name backoff caps at 1h and stays there until success', async () => {
+test('世界名 404: 不重试, 冷却从 5 分钟起指数退避', async () => {
   let cur = 1000000;
   let worldCalls = 0;
-  const t = setup({ now: () => cur, onlineFriends: [onlineFriend('usr_f1')] });
+  const t = setup({ now: () => cur, worldName: { retryDelayMs: 0 }, onlineFriends: [onlineFriend('usr_f1')] });
+  t.vrcapi.world = async () => { worldCalls++; throw Object.assign(new Error('not found'), { status: 404 }); };
+  const user = addUser(t.db);
+  addConfig(t.db, user.id, 'usr_f1');
+  await t.monitor.activateUser(user, t.vrcapi);
+  const loc = () => ({ type: 'friend-location', content: { userId: 'usr_f1', location: 'wrld_gone:1', user: { id: 'usr_f1', displayName: 'F1', status: 'active' } } });
+
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '1', loc());
+  assert.equal(worldCalls, 1, '404 不重试');
+
+  cur += 5 * 60 * 1000 - 1;
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '2', loc());
+  assert.equal(worldCalls, 1, '首次失败冷却 5 分钟, 期内 0 请求');
+
+  cur += 2; // 越过 5 分钟
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '3', loc());
+  assert.equal(worldCalls, 2, '冷却到期后放行');
+
+  // 第二次失败 → 冷却翻倍到 10 分钟
+  cur += 10 * 60 * 1000 - 1;
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '4', loc());
+  assert.equal(worldCalls, 2, '第二次失败后冷却 10 分钟, 未到期仍 0 请求');
+  cur += 2;
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '5', loc());
+  assert.equal(worldCalls, 3, '10 分钟到期后放行');
+});
+
+test('世界名查询失败时沿用缓存里的旧名字(前端/通知不至于变成空白)', async () => {
+  const cur = 1000000;
+  let worldCalls = 0;
+  const t = setup({ now: () => cur, worldName: { retryDelayMs: 0 }, onlineFriends: [onlineFriend('usr_f1')] });
+  t.db.upsertWorldCache('wrld_a', '很久以前的名字', cur - 10 * 3600 * 1000); // 已过期
   t.vrcapi.world = async () => { worldCalls++; throw new Error('boom'); };
   const user = addUser(t.db);
   addConfig(t.db, user.id, 'usr_f1');
-  await t.monitor.activateUser(user, t.vrcapi); // 第 1 次失败: 退避 5s
-  const evt = (i) => ({ type: 'friend-location', content: { userId: 'usr_f1', location: 'wrld_a:1', user: { id: 'usr_f1', displayName: 'F1', status: 'active' } } });
-  // 连续失败直到退避封顶 1h
-  for (let i = 2; i <= 14; i++) {
-    cur += 3600 * 1000 + 1; // 每次推进超过 1h, 必然到期
-    await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'evt' + i, evt(i));
-  }
-  const c = t.db.getWorldCache('wrld_a');
-  assert.equal(c.fail_count, 14);
-  assert.equal(c.retry_at - cur, 3600 * 1000, '达到 1h 后保持 1h 不回退');
-  // 再次失败仍是 1h
-  cur += 3600 * 1000 + 1;
-  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'evt15', evt(15));
-  const c2 = t.db.getWorldCache('wrld_a');
-  assert.equal(c2.fail_count, 15);
-  assert.equal(c2.retry_at - cur, 3600 * 1000, '封顶后每次仍为 1h');
+  await t.monitor.activateUser(user, t.vrcapi);
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '1', { type: 'friend-location', content: { userId: 'usr_f1', location: 'wrld_a:1', user: { id: 'usr_f1', displayName: 'F1', status: 'active' } } });
+  assert.ok(worldCalls >= 1, '过期后确实重查了');
+  assert.equal(t.monitor.worldName.peek('wrld_a'), '很久以前的名字', '重查失败沿用旧名字');
 });
 
 test('WS notification-v2 only pushes invite/boop/group.announcement; update/delete only log; same id dedupes', async () => {
@@ -937,6 +962,34 @@ test('群组公告优先批量获取全部群组名, 未命中才单查', async 
   assert.equal(t.notifications[2].change.friendName, '单查群');
   assert.equal(batchCalls, 2);
   assert.equal(groupCalls, 1);
+});
+
+test('群组名成功缓存 1 小时, 到期后重查', async () => {
+  let cur = 1000000;
+  const t = setup({ now: () => cur });
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+  t.notifications.length = 0;
+  let groupCalls = 0;
+  t.vrcapi.userGroups = async () => [];
+  t.vrcapi.group = async (id) => { groupCalls += 1; return { id, name: '群组' + groupCalls }; };
+  const evt = (id) => ({ type: 'notification-v2', content: { id, version: 2, type: 'group.announcement', title: '公告', message: 'hi', link: 'group:grp_ttl' } });
+
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 't1', evt('n_t1'));
+  assert.equal(t.notifications[0].change.friendName, '群组1');
+  assert.equal(groupCalls, 1);
+
+  // 1 小时内: 缓存命中, 不再请求
+  cur += 3600 * 1000 - 1;
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 't2', evt('n_t2'));
+  assert.equal(t.notifications[1].change.friendName, '群组1');
+  assert.equal(groupCalls, 1, '1 小时内走缓存');
+
+  // 超过 1 小时: 重查
+  cur += 2;
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 't3', evt('n_t3'));
+  assert.equal(t.notifications[2].change.friendName, '群组2');
+  assert.equal(groupCalls, 2, '超过 1 小时重新查询');
 });
 
 test('群组公告群名解析: 失败兜底未知群组并退避, 成功后缓存复用', async () => {
@@ -1209,6 +1262,8 @@ const currentUserOnline = () => ({
 test('self: snapshot stores own info from me() presence without notification', async () => {
   const t = setup({ currentUser: currentUserOnline() });
   const user = addUser(t.db);
+  // 快照不查世界名: 预置缓存后, 自己的世界名同步从缓存读出
+  t.db.upsertWorldCache('wrld_self', '世界_wrld_self', 1000000);
   await t.monitor.activateUser(user, t.vrcapi);
   assert.deepEqual(t.vrcapi.userCalls, [], '快照不再额外请求 users/{id}');
   const me = t.db.getUserByVrcId('usr_me');
@@ -1216,7 +1271,7 @@ test('self: snapshot stores own info from me() presence without notification', a
   assert.equal(me.status, 'join me');
   assert.equal(me.status_description, '摸鱼中');
   assert.equal(me.world_id, 'wrld_self');
-  assert.equal(me.world_name, '世界_wrld_self');
+  assert.equal(t.monitor.worldName.peek('wrld_self'), '世界_wrld_self', '名字由世界名缓存提供');
   assert.equal(me.platform, 'standalonewindows');
   assert.equal(me.avatar_url, 'https://x/me.png');
   assert.equal(me.avatar_thumb_url, 'https://api.vrchat.cloud/api/1/image/file_me/1/256');
@@ -1293,8 +1348,8 @@ test('self: WS user-location real location updates own world', async () => {
   const me = t.db.getUserByVrcId('usr_me');
   assert.equal(me.state, 'online');
   assert.equal(me.world_id, 'wrld_b');
-  assert.equal(me.world_name, '世界_wrld_b');
   assert.equal(me.platform, 'android');
+  assert.equal(t.monitor.worldName.peek('wrld_b'), '世界_wrld_b', '名字落在世界名缓存里');
   assert.ok(t.events.some((e) => e.kind === 'self-state'));
 });
 
@@ -1311,7 +1366,7 @@ test('self: WS user-location offline fills active and clears world', async () =>
   assert.equal(me.state, 'active');
   assert.equal(me.status, 'active');
   assert.equal(me.world_id, null);
-  assert.equal(me.world_name, null);
+  assert.equal(me.world_name, undefined, 'users 表已无 world_name 列');
 });
 
 test('self: WS user-location private fills online + 私密世界', async () => {
@@ -1325,7 +1380,6 @@ test('self: WS user-location private fills online + 私密世界', async () => {
   const me = t.db.getUserByVrcId('usr_me');
   assert.equal(me.state, 'online');
   assert.equal(me.world_id, 'private');
-  assert.equal(me.world_name, '私密世界');
 });
 
 test('self: WS user-location traveling keeps existing world', async () => {
@@ -1339,7 +1393,6 @@ test('self: WS user-location traveling keeps existing world', async () => {
   const me = t.db.getUserByVrcId('usr_me');
   assert.equal(me.state, 'online');
   assert.equal(me.world_id, 'wrld_self');
-  assert.equal(me.world_name, '世界_wrld_self');
 });
 
 // ---------- 已删除好友判定: 快照对账 / pending 验证 / WS 事件三种途径 ----------

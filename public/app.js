@@ -580,6 +580,31 @@ function personParts(p) {
   };
 }
 
+// 世界名按需查到 → 定点更新涉及的那些行(不整页重渲染, 免得触发飞行动画)
+function applyWorldName(worldId, worldName) {
+  if (!worldId || typeof worldName !== 'string') return;
+  let touchedFriends = false;
+  for (const f of friendsCache) {
+    if (f.world_id === worldId && f.world_name !== worldName) { f.world_name = worldName; touchedFriends = true; }
+  }
+  if (myInfo && myInfo.world_id === worldId && myInfo.world_name !== worldName) {
+    myInfo.world_name = worldName;
+    renderSelf();
+  }
+  if (!touchedFriends) return;
+  const list = $('#friendsList');
+  if (!list) return;
+  for (const row of list.querySelectorAll('.friend')) {
+    const f = friendsCache.find((x) => x.friend_vrchat_id === row.dataset.id);
+    if (!f || f.world_id !== worldId) continue;
+    const nameEl = row.querySelector('.name');
+    if (!nameEl) continue;
+    const p = personParts(f);
+    nameEl.className = 'name' + p.nameCls;
+    nameEl.innerHTML = p.name + p.stateHtml;
+  }
+}
+
 function renderSelf() {
   const box = $('#selfInfo');
   if (!myInfo) { box.innerHTML = ''; return; }
@@ -1516,6 +1541,12 @@ function connectEvents() {
   // 事件驱动 UI 刷新(状态渲染已由 'status' 推送, 这里只刷新数据列表)
   evt.addEventListener('notification', () => { scheduleNotifyRefresh(); });
   evt.addEventListener('snapshot', () => { loadFriends(); });
+  // 世界名按需查询: 前端从不等待, 查到一条补一条
+  evt.addEventListener('world-name', (e) => {
+    let d = null;
+    try { d = JSON.parse(e.data); } catch (err) { return; /* 忽略异常帧 */ }
+    if (d) applyWorldName(d.worldId, d.worldName);
+  });
   evt.addEventListener('self-state', () => { /* 'status' 推送已覆盖 */ });
   evt.addEventListener('qq-status', (e) => {
     let d = null;

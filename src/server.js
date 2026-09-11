@@ -40,6 +40,7 @@ function createApp({
   const log = logger || { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
   const app = express();
   const bus = monitor.events;
+  const worldNameSvc = monitor.worldName || null; // 世界名查询模块(读接口同步补名字用)
   const logStreamRef = logStream || getLogStream(); // 后端日志流: 未注入时回退全局
   const fileLogRef = fileLog;      // 本地日志文件(向前翻页数据源)
   const maskRef = maskState;       // 前端流令牌打码状态
@@ -71,9 +72,29 @@ function createApp({
   const reloginRetryMaxMs = config.reloginRetryMaxMs ?? autoLoginRetryMaxMs;
   const reloginRetryJitterMs = config.reloginRetryJitterMs ?? autoLoginRetryJitterMs;
 
+  // 世界名按需查询: 库里只存 world_id, 名字由世界名模块同步提供(peek, 不发请求)。
+  // private 等哨兵值由前端自行显示, 这里只补真实世界编号。
+  function worldNameOf(row) {
+    if (!row || !row.world_id || row.world_id === 'private') return null;
+    return worldNameSvc ? worldNameSvc.peek(row.world_id) : null;
+  }
+
+  // "需要显示"的触发点: 让世界名模块去补缺的名字, 不阻塞本次响应。
+  // 命中缓存时立即返回; 缺失/过期则后台查, 查到走 world-name SSE 推给前端定点更新。
+  // 由路由显式调用, 序列化函数本身保持无副作用。
+  function kickWorldNames(rows) {
+    if (!worldNameSvc) return;
+    const ids = new Set();
+    for (const r of rows || []) {
+      if (r && r.world_id && r.world_id !== 'private') ids.add(r.world_id);
+    }
+    for (const id of ids) worldNameSvc.get(id).catch(() => {}); // get 保证不抛出, 这里只是兜底
+  }
+
   // 好友行附带头像 key(前端零解析)
   function friendRow(f) {
     const out = { ...f };
+    out.world_name = worldNameOf(f);
     out.avatarKey = f.avatar_thumb_url && avatarCache ? avatarCache.thumbKeyFromUrl(f.avatar_thumb_url) : null;
     return out;
   }
@@ -90,6 +111,7 @@ function createApp({
   function selfUserForClient(row) {
     const out = maskUser(row);
     if (!out) return null;
+    out.world_name = worldNameOf(out);
     const thumbUrl = out.avatar_thumb_url || toThumbUrl(out.avatar_url);
     out.avatarKey = thumbUrl && avatarCache ? avatarCache.thumbKeyFromUrl(thumbUrl) : null;
     return out;
@@ -517,7 +539,9 @@ function createApp({
   function statusPayload() {
     const active = monitor.activeUsers();
     const ws = current ? pipeline.status(current.userId) : null;
-    const u = current ? selfUserForClient(db.getUserByDbId(current.dbId)) : null;
+    const selfRow = current ? db.getUserByDbId(current.dbId) : null;
+    kickWorldNames([selfRow]);
+    const u = current ? selfUserForClient(selfRow) : null;
     return {
       ok: true,
       loggedIn: !!current,
@@ -544,6 +568,8 @@ function createApp({
     broadcast('status', statusPayload());
   });
   bus.on('notification', (e) => broadcast('notification', e));
+  // 世界名按需查到名字 → 推给前端定点更新那一行(前端从不等待世界名)
+  bus.on('world-name', (e) => broadcast('world-name', e));
   bus.on('session-expired', ({ userId }) => {
     handleSessionExpired(userId);
     broadcast('session-expired', { userId });
@@ -661,6 +687,7 @@ function createApp({
       if (!result || !result.id) throw new Error('login response missing user');
       const user = await finalizeLogin(vrcapi, result, { rememberMe: !!rememberMe, username: String(username), password: String(password) });
       log.info(`[server] 登录成功: ${user.display_name || user.vrchat_user_id} (rememberMe=${!!rememberMe})`);
+      kickWorldNames([user]);
       return res.json({ ok: true, user: selfUserForClient(user) });
     } catch (e) {
       if (e.status === 401) {
@@ -689,6 +716,7 @@ function createApp({
       pending2fa.delete(tempSessionId);
       const user = await finalizeLogin(pending.vrcapi, currentUser, { rememberMe: pending.rememberMe, username: pending.username, password: pending.password });
       log.info(`[server] 2FA 验证成功: ${user.display_name || user.vrchat_user_id}`);
+      kickWorldNames([user]);
       return res.json({ ok: true, user: selfUserForClient(user) });
     } catch (e) {
       if (e.status === 400 || e.status === 401) {
@@ -757,18 +785,24 @@ function createApp({
     if (!current) {
       try { await tryAutoLogin(); } catch (e) { log.warn(`[server] 自动登录失败: ${e.message}`); }
     }
-    return res.json({ ok: true, loggedIn: !!current, user: current ? selfUserForClient(db.getUserByDbId(current.dbId)) : null });
+    const selfRow = current ? db.getUserByDbId(current.dbId) : null;
+    kickWorldNames([selfRow]);
+    return res.json({ ok: true, loggedIn: !!current, user: current ? selfUserForClient(selfRow) : null });
   });
 
   app.get('/api/me', (req, res) => {
     if (!current) return res.status(401).json({ error: '未登录' });
-    return res.json({ ok: true, user: selfUserForClient(db.getUserByDbId(current.dbId)) });
+    const selfRow = db.getUserByDbId(current.dbId);
+    kickWorldNames([selfRow]);
+    return res.json({ ok: true, user: selfUserForClient(selfRow) });
   });
 
   app.get('/api/friends', (req, res) => {
     if (!current) return res.status(401).json({ error: '未登录' });
     const configs = db.listConfigs(current.dbId);
-    const friends = db.listFriends(current.dbId).map((f) => ({
+    const rows = db.listFriends(current.dbId);
+    kickWorldNames(rows);
+    const friends = rows.map((f) => ({
       ...friendRow(f),
       config: configs.find((c) => c.friend_vrchat_id === f.friend_vrchat_id) || null
     }));
