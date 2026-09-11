@@ -317,6 +317,61 @@ test('world: bus 订阅者抛异常不影响查询结果', async () => {
   assert.equal(await wn.get('wrld_a'), 'X');
 });
 
+// ---------- 失败原因的日志分类 ----------
+
+test('world: 日志按真实错误分类, 不把 429 说成网络错误', async () => {
+  const cases = [
+    ['429', 429, /被限流, HTTP 429/],
+    ['5xx', 503, /服务端错误, HTTP 503/],
+    ['403', 403, /无权限访问, HTTP 403/],
+    ['404', 404, /世界不存在, HTTP 404/],
+    ['网络', -1, /网络错误/]
+  ];
+  for (const [label, status, want] of cases) {
+    const warns = [];
+    const db = createDb(':memory:');
+    const wn = createWorldName({
+      db,
+      logger: { debug() {}, info() {}, warn: (m) => warns.push(m), error() {} },
+      fetchWorld: async () => { throw Object.assign(new Error('boom'), { status }); },
+      sleep: async () => {},
+      config: { ratePerMinute: 0, jitterMs: 0, backoffRetries: 1 }
+    });
+    await wn.get('wrld_x');
+    const fallback = warns[warns.length - 1];
+    assert.match(fallback, want, `${label}: 兜底日志应写明真实原因, 实际: ${fallback}`);
+    assert.ok(!/网络或服务端错误/.test(warns.join('\n')), `${label}: 不应出现笼统的旧文案`);
+  }
+});
+
+test('world: 返回体缺少 name 字段时日志写明是响应问题', async () => {
+  const warns = [];
+  const db = createDb(':memory:');
+  const wn = createWorldName({
+    db,
+    logger: { debug() {}, info() {}, warn: (m) => warns.push(m), error() {} },
+    fetchWorld: async () => ({ id: 'wrld_x' }),
+    sleep: async () => {},
+    config: { ratePerMinute: 0 }
+  });
+  await wn.get('wrld_x');
+  assert.match(warns[warns.length - 1], /响应缺少名称字段/);
+});
+
+test('world: 重试日志的措辞与项目既有写法一致', async () => {
+  const warns = [];
+  const db = createDb(':memory:');
+  const wn = createWorldName({
+    db,
+    logger: { debug() {}, info() {}, warn: (m) => warns.push(m), error() {} },
+    fetchWorld: async () => { throw Object.assign(new Error('fetch failed'), { status: -1 }); },
+    sleep: async () => {},
+    config: { ratePerMinute: 0, retryDelayMs: 500 }
+  });
+  await wn.get('wrld_x');
+  assert.equal(warns[0], '[world] 世界 wrld_x 查询失败(fetch failed), 500ms 后重试(第 1 次)');
+});
+
 // ---------- 调度 ----------
 
 test('world: 并发上限生效', async () => {

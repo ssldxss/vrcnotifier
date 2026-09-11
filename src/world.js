@@ -154,6 +154,18 @@ function createWorldName(opts = {}) {
     return base + Math.floor(Math.random() * cfg.jitterMs);
   }
 
+  // 失败原因分类: 日志里一眼看出是"世界没了"还是"网络抖了"/"被限流"
+  function reasonOf(err) {
+    const status = err && err.status;
+    if (status === 404) return '世界不存在, HTTP 404';
+    if (status === 403) return '无权限访问, HTTP 403';
+    if (status === 429) return '被限流, HTTP 429';
+    if (status === -1) return '网络错误';
+    if (status === -2) return '响应缺少名称字段';
+    if (typeof status === 'number' && status >= 500 && status < 600) return `服务端错误, HTTP ${status}`;
+    return '查询失败';
+  }
+
   // 失败但本地还有旧名字 → 沿用; 没有 → 只能返回空。两种情况分开记日志。
   function logFallback(worldId, oldName, reason, err, ttlMs) {
     const mins = Math.max(1, Math.round(ttlMs / MINUTE_MS));
@@ -190,19 +202,19 @@ function createWorldName(opts = {}) {
         const status = e && e.status;
         if (status === 404 || status === 403) {
           negative.set(worldId, now() + cfg.goneTtlMs);
-          logFallback(worldId, oldName, `世界不存在或无权限, HTTP ${status}`, e, cfg.goneTtlMs);
+          logFallback(worldId, oldName, reasonOf(e), e, cfg.goneTtlMs);
           return oldName;
         }
         if (status === 429 && backoffs < cfg.backoffRetries) {
           const delay = backoffDelay(backoffs);
           backoffs++;
-          log.warn(`[world] 世界 ${worldId} 被限流, ${delay}ms 后重试(第 ${backoffs} 次)`);
+          log.warn(`[world] 世界 ${worldId} 被限流(${e.message}), ${delay}ms 后重试(第 ${backoffs} 次)`);
           await sleepFn(delay);
           continue;
         }
         if (status !== 429 && retries < cfg.maxRetries) {
           retries++;
-          log.warn(`[world] 世界 ${worldId} 查询失败(${e.message}), ${cfg.retryDelayMs}ms 后就地重试(第 ${retries} 次)`);
+          log.warn(`[world] 世界 ${worldId} 查询失败(${e.message}), ${cfg.retryDelayMs}ms 后重试(第 ${retries} 次)`);
           await sleepFn(cfg.retryDelayMs);
           continue;
         }
@@ -210,7 +222,7 @@ function createWorldName(opts = {}) {
       }
     }
     negative.set(worldId, now() + cfg.failureTtlMs);
-    logFallback(worldId, oldName, '网络或服务端错误', lastErr, cfg.failureTtlMs);
+    logFallback(worldId, oldName, reasonOf(lastErr), lastErr, cfg.failureTtlMs);
     return oldName;
   }
 
