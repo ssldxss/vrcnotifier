@@ -63,12 +63,11 @@ CREATE TABLE IF NOT EXISTS qq_bindings (
   updated_at INTEGER NOT NULL,
   PRIMARY KEY (user_id, app_id)
 );
+-- 只存成功解析到的名字(查询失败不入库, 失败冷却记在内存里)
 CREATE TABLE IF NOT EXISTS world_cache (
   world_id TEXT PRIMARY KEY,
   world_name TEXT NOT NULL,
-  updated_at INTEGER NOT NULL,
-  fail_count INTEGER NOT NULL DEFAULT 0,
-  retry_at INTEGER NOT NULL DEFAULT 0
+  updated_at INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS group_cache (
   group_id TEXT PRIMARY KEY,
@@ -122,9 +121,9 @@ function createDb(location = ':memory:', opts = {}) {
   }
   // 旧库补充: friends 表补 avatar_thumb_url 列(已存在则忽略)
   try { db.exec('ALTER TABLE friends ADD COLUMN avatar_thumb_url TEXT'); } catch (e) { /* 已存在 */ }
-  // 旧库补充: world_cache 补失败退避列(已存在则忽略)
-  try { db.exec('ALTER TABLE world_cache ADD COLUMN fail_count INTEGER NOT NULL DEFAULT 0'); } catch (e) { /* 已存在 */ }
-  try { db.exec('ALTER TABLE world_cache ADD COLUMN retry_at INTEGER NOT NULL DEFAULT 0'); } catch (e) { /* 已存在 */ }
+  // 旧库清理: 世界名查询失败不再入库, 失败退避列已无意义(群组名有自己的 group_cache 列, 不受影响)
+  try { db.exec('ALTER TABLE world_cache DROP COLUMN fail_count'); } catch (e) { /* 新库无此列 */ }
+  try { db.exec('ALTER TABLE world_cache DROP COLUMN retry_at'); } catch (e) { /* 新库无此列 */ }
   // 旧库补充: monitor_config 补 favorite 列(已存在则忽略)
   try { db.exec('ALTER TABLE monitor_config ADD COLUMN favorite INTEGER DEFAULT 0'); } catch (e) { /* 已存在 */ }
   // 旧库补充: users 补 status 列(已存在则忽略)
@@ -231,12 +230,11 @@ function createDb(location = ':memory:', opts = {}) {
       ON CONFLICT(key) DO UPDATE SET created_at = excluded.created_at`),
     countNotified: db.prepare('SELECT COUNT(*) AS c FROM notif_dedupe'),
     trimNotified: db.prepare('DELETE FROM notif_dedupe WHERE key IN (SELECT key FROM notif_dedupe ORDER BY created_at ASC, key ASC LIMIT ?)'),
-    getWorldCache: db.prepare('SELECT world_id, world_name, updated_at, fail_count, retry_at FROM world_cache WHERE world_id = ?'),
-    upsertWorldCache: db.prepare(`INSERT INTO world_cache (world_id, world_name, updated_at, fail_count, retry_at)
-      VALUES (?, ?, ?, ?, ?)
+    getWorldCache: db.prepare('SELECT world_id, world_name, updated_at FROM world_cache WHERE world_id = ?'),
+    upsertWorldCache: db.prepare(`INSERT INTO world_cache (world_id, world_name, updated_at)
+      VALUES (?, ?, ?)
       ON CONFLICT(world_id) DO UPDATE SET
-        world_name = excluded.world_name, updated_at = excluded.updated_at,
-        fail_count = excluded.fail_count, retry_at = excluded.retry_at`),
+        world_name = excluded.world_name, updated_at = excluded.updated_at`),
     getGroupCache: db.prepare('SELECT group_id, group_name, updated_at, fail_count, retry_at FROM group_cache WHERE group_id = ?'),
     upsertGroupCache: db.prepare(`INSERT INTO group_cache (group_id, group_name, updated_at, fail_count, retry_at)
       VALUES (?, ?, ?, ?, ?)
@@ -437,7 +435,7 @@ function createDb(location = ':memory:', opts = {}) {
     setSetting(key, value) { stmt.setSetting.run(key, value); },
     // world cache
     getWorldCache(worldId) { const r = stmt.getWorldCache.get(worldId); return r || null; },
-    upsertWorldCache(worldId, worldName, atMs = Date.now(), failCount = 0, retryAt = 0) { stmt.upsertWorldCache.run(worldId, worldName, atMs, failCount, retryAt); },
+    upsertWorldCache(worldId, worldName, atMs = Date.now()) { stmt.upsertWorldCache.run(worldId, worldName, atMs); },
     // dedupe
     markNotified(key, atMs = Date.now()) {
       stmt.markNotified.run(key, atMs);

@@ -69,7 +69,7 @@ function applyChange(prevDb, incoming, opts = {}) {
     state: prevDb.state || 'offline',
     status: prevDb.status || 'active',
     worldId: prevDb.worldId ?? prevDb.world_id ?? null,
-    worldName: prevDb.worldName ?? prevDb.world_name ?? null,
+    worldName: prevDb.worldName ?? null, // 世界名不再入库, 由 monitor 从世界名缓存同步取好传进来
     statusDescription: prevDb.statusDescription ?? prevDb.status_description ?? null,
     platform: prevDb.platform || 'unknown'
   };

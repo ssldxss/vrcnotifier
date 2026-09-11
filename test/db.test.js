@@ -134,6 +134,29 @@ test('friends: instance_id 落库, 状态更新可清空/保留', () => {
   assert.equal(db.getFriend(uid, 'usr_f2').instance_id, '88~region(us)', '显式传入即覆盖');
 });
 
+test('world_cache 旧库迁移: 删掉失败退避列并保留名字', () => {
+  const { DatabaseSync } = require('node:sqlite');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vrcnt-db-mig-'));
+  const dbPath = path.join(dir, 'old.db');
+  const raw = new DatabaseSync(dbPath);
+  raw.exec(`CREATE TABLE world_cache (world_id TEXT PRIMARY KEY, world_name TEXT NOT NULL, updated_at INTEGER NOT NULL,
+    fail_count INTEGER NOT NULL DEFAULT 0, retry_at INTEGER NOT NULL DEFAULT 0)`);
+  raw.exec("INSERT INTO world_cache VALUES ('wrld_ok','真名字',111,0,0)");
+  raw.exec("INSERT INTO world_cache VALUES ('wrld_bad','未知世界',222,7,999)");
+  raw.close();
+
+  const db = createDb(dbPath);
+  const check = new DatabaseSync(dbPath, { readOnly: true });
+  const cols = check.prepare('PRAGMA table_info(world_cache)').all().map((c) => c.name);
+  assert.deepEqual(cols, ['world_id', 'world_name', 'updated_at'], '失败退避列已删除');
+  assert.equal(check.prepare('SELECT COUNT(*) c FROM world_cache').get().c, 1, '历史「未知世界」占位行被清掉');
+  check.close();
+  assert.equal(db.getWorldCache('wrld_ok').world_name, '真名字');
+  assert.equal(db.getWorldCache('wrld_bad'), null);
+  db.close();
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
 test('friends: instance_id 旧库迁移补列不报错', () => {
   // 模拟旧 schema: 先在文件库里建一张没有 instance_id 的 friends 表, 再让 createDb 迁移
   const { DatabaseSync } = require('node:sqlite');
@@ -242,12 +265,15 @@ test('world_cache: upsert, get, overwrite', () => {
   db.upsertWorldCache('wrld_a', 'A2', 2000);
   assert.equal(db.getWorldCache('wrld_a').world_name, 'A2');
   assert.equal(db.getWorldCache('wrld_a').updated_at, 2000);
-  db.upsertWorldCache('wrld_b', '未知世界', 3000);
-  assert.equal(db.getWorldCache('wrld_b').world_name, '未知世界');
-  db.upsertWorldCache('wrld_c', '未知世界', 3000, 3, 9000);
-  const c3 = db.getWorldCache('wrld_c');
-  assert.equal(c3.fail_count, 3);
-  assert.equal(c3.retry_at, 9000);
+  // 失败不入库: 世界缓存只存成功解析到的名字, 表里已无失败退避列
+  const c2 = db.getWorldCache('wrld_a');
+  assert.equal(c2.fail_count, undefined, 'world_cache 已无 fail_count 列');
+  assert.equal(c2.retry_at, undefined, 'world_cache 已无 retry_at 列');
+  // 群组名保持原实现, 自己的失败退避列不受影响
+  db.upsertGroupCache('grp_a', '群A', 3000, 2, 7000);
+  const g = db.getGroupCache('grp_a');
+  assert.equal(g.fail_count, 2);
+  assert.equal(g.retry_at, 7000);
 });
 
 test('createDb creates missing parent directory automatically', () => {

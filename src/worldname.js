@@ -134,7 +134,7 @@ function createWorldName(opts = {}) {
         const w = await schedule(() => fetchWorld(worldId));
         const name = w && w.name ? String(w.name) : null;
         if (!name) throw Object.assign(new Error('世界信息缺少名称字段'), { status: -2 });
-        db.upsertWorldCache(worldId, name, now(), 0, 0);
+        db.upsertWorldCache(worldId, name, now());
         negative.delete(worldId);
         log.debug(`[world] 世界名获取成功 worldId=${worldId} name=${name}`);
         if (bus) {

@@ -30,8 +30,8 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
   const confirmDelayMs = config.confirmDelayMs ?? 30000;
   const dedupeWindowMs = config.dedupeWindowMs ?? 30000;
   const GROUP_CACHE_OK_TTL_MS = 3600 * 1000; // 群组名成功缓存 1 小时(与世界名一致)
-  const WORLD_NAME_RETRY_BASE_MS = config.worldNameRetryBaseMs ?? 5000; // 与 WS 重连一致的退避起步
-  const WORLD_NAME_RETRY_MAX_MS = config.worldNameRetryMaxMs ?? 3600 * 1000; // 退避封顶 1h, 封顶后保持不回退
+  const GROUP_NAME_RETRY_BASE_MS = config.groupNameRetryBaseMs ?? 5000; // 群组名退避起步(与世界名曾经的实现一致)
+  const GROUP_NAME_RETRY_MAX_MS = config.groupNameRetryMaxMs ?? 3600 * 1000; // 群组名退避封顶 1h
   const UNKNOWN_GROUP_NAME = '未知群组';
   // 需求方等待世界名的上限: 超时用缓存里的旧名字兜底, 查询继续在后台跑完(不阻塞上游链路)
   const WORLD_NAME_WAIT_MS = config.worldNameWaitMs ?? 3000;
@@ -295,7 +295,7 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
     }
     if (name === UNKNOWN_GROUP_NAME) {
       const next = failCount + 1;
-      const interval = Math.min(WORLD_NAME_RETRY_BASE_MS * 2 ** (next - 1), WORLD_NAME_RETRY_MAX_MS);
+      const interval = Math.min(GROUP_NAME_RETRY_BASE_MS * 2 ** (next - 1), GROUP_NAME_RETRY_MAX_MS);
       db.upsertGroupCache(groupId, name, now(), next, now() + interval);
     } else {
       db.upsertGroupCache(groupId, name, now(), 0, 0);

@@ -123,8 +123,8 @@ test('applyChange: snapshot upgrade within dedupe still notifies (dedupe handled
   assert.equal(result.notify, true);
 });
 
-test('applyChange reads snake_case db row fields (world change detected)', () => {
-  const prevRow = { state: 'online', status: 'active', world_id: 'wrld_a', world_name: 'A', status_description: null, platform: 'standalonewindows', pending_state: null, pending_at: null };
+test('applyChange 直接吃数据库行(蛇形字段) + monitor 预取好的 worldName', () => {
+  const prevRow = { state: 'online', status: 'active', world_id: 'wrld_a', worldName: 'A', status_description: null, platform: 'standalonewindows', pending_state: null, pending_at: null };
   const r = applyChange(prevRow, { state: 'online', status: 'active', worldId: 'wrld_b', worldName: 'B', statusDescription: null, platform: null }, { now: () => 1000, confirmDelayMs: 30000 });
   assert.equal(r.notify, true);
   assert.equal(r.change.changeType, '切换世界');
@@ -133,7 +133,7 @@ test('applyChange reads snake_case db row fields (world change detected)', () =>
 });
 
 test('applyChange reads status_description from snake_case row', () => {
-  const prevRow = { state: 'online', status: 'active', world_id: 'wrld_a', world_name: 'A', status_description: '旧', platform: 'standalonewindows', pending_state: null, pending_at: null };
+  const prevRow = { state: 'online', status: 'active', world_id: 'wrld_a', worldName: 'A', status_description: '旧', platform: 'standalonewindows', pending_state: null, pending_at: null };
   const r = applyChange(prevRow, { state: 'online', status: 'active', worldId: 'wrld_a', worldName: 'A', statusDescription: '新', platform: null }, { now: () => 1000, confirmDelayMs: 30000 });
   assert.equal(r.notify, true);
   assert.equal(r.change.changeType, '自定义状态');

@@ -257,7 +257,7 @@ function buildApplication(opts = {}) {
 
   return {
     app, autoLogin, monitor, pipeline, sessionStore, db, bus,
-    config, avatarCache, qq, logStream, healthMonitor, vrcStatus, fileLog, maskState, worldFetcher
+    config, avatarCache, qq, logStream, healthMonitor, vrcStatus, fileLog, maskState
   };
 }
 
