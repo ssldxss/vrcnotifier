@@ -1,7 +1,7 @@
 'use strict';
 // QQ 快捷命令: 绑定用户发消息触发, 基于好友表生成文本回复。
 
-const { formatLocalTime } = require('./util');
+const { formatLocalTime, withDeadline } = require('./util');
 
 // 状态圆点与 VRCX 一致: 在线绿/加入我蓝/询问我橙/忙碌红
 const STATUS_EMOJI = { active: '🟢', 'join me': '🔵', 'ask me': '🟠', busy: '🔴' };
@@ -57,8 +57,37 @@ function buildOnlineList(friends) {
   return { text, markdown };
 }
 
-function createQqCommands({ db, logger = null, getStatus = null, onCode = null }) {
+function createQqCommands({ db, logger = null, getStatus = null, onCode = null, getWorldName = null, worldNameWaitMs = 3000 }) {
   const log = logger || { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
+
+  /**
+   * 世界名按需查询: 库里只存 world_id, 名字在这里换。
+   * 在线好友用到的世界一次性并发发起, 共用一个等待上限(不是每人各等一次);
+   * 超时就用缓存里的旧名字/占位符先出结果, 查询继续在后台跑完。
+   */
+  async function fillWorldNames(friends) {
+    const svc = getWorldName ? getWorldName() : null;
+    if (!svc) return friends;
+    const wanted = [...new Set(friends
+      .filter((f) => f.state === 'online' && f.world_id && f.world_id !== 'private')
+      .map((f) => f.world_id))];
+    const resolved = new Map();
+    if (wanted.length) {
+      const names = await withDeadline(
+        Promise.all(wanted.map((id) => svc.get(id))),
+        worldNameWaitMs,
+        () => null
+      );
+      wanted.forEach((id, i) => resolved.set(id, (names && names[i]) || svc.peek(id)));
+    }
+    return friends.map((f) => ({
+      ...f,
+      world_name: f.world_id === 'private' ? '私密世界'
+        : f.world_id ? (resolved.get(f.world_id) ?? null)
+          : null
+    }));
+  }
+
   return async function handleCommand(ctx) {
     const { dbId, content } = ctx;
     // 优先: 两步验证码 / 重发验证码(等待验证会话时由 onCode 消费, 返回 null 则回落在线列表)
@@ -72,10 +101,10 @@ function createQqCommands({ db, logger = null, getStatus = null, onCode = null }
     }
     // 只有在线列表一个功能: 首次提示由绑定消息承担, 任意输入直接输出表格
     const configs = new Map(db.listConfigs(dbId).map((c) => [c.friend_vrchat_id, c]));
-    const friends = db.listFriends(dbId).map((f) => ({
+    const friends = await fillWorldNames(db.listFriends(dbId).map((f) => ({
       ...f,
       favorite: configs.get(f.friend_vrchat_id)?.favorite === 1 ? 1 : 0
-    }));
+    })));
     const reply = buildOnlineList(friends);
     // 连接异常(WS 重连中 / 401 未恢复): 头部提示数据截止时间, 后面仍是原列表
     const st = getStatus ? getStatus(dbId) : null;

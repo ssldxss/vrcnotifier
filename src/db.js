@@ -19,7 +19,6 @@ CREATE TABLE IF NOT EXISTS users (
   platform TEXT,
   state TEXT DEFAULT 'offline',
   world_id TEXT,
-  world_name TEXT,
   last_seen INTEGER,
   remember_me INTEGER DEFAULT 0,
   cookie_data TEXT,
@@ -33,7 +32,7 @@ CREATE TABLE IF NOT EXISTS friends (
   display_name TEXT, avatar_url TEXT, avatar_thumb_url TEXT,
   state TEXT DEFAULT 'offline',
   status TEXT,
-  world_id TEXT, world_name TEXT, instance_id TEXT,
+  world_id TEXT, instance_id TEXT,
   status_description TEXT,
   platform TEXT,
   trust_level TEXT,
@@ -136,7 +135,6 @@ function createDb(location = ':memory:', opts = {}) {
   try { db.exec('ALTER TABLE users ADD COLUMN platform TEXT'); } catch (e) { /* 已存在 */ }
   try { db.exec("ALTER TABLE users ADD COLUMN state TEXT DEFAULT 'offline'"); } catch (e) { /* 已存在 */ }
   try { db.exec('ALTER TABLE users ADD COLUMN world_id TEXT'); } catch (e) { /* 已存在 */ }
-  try { db.exec('ALTER TABLE users ADD COLUMN world_name TEXT'); } catch (e) { /* 已存在 */ }
   try { db.exec('ALTER TABLE users ADD COLUMN last_seen INTEGER'); } catch (e) { /* 已存在 */ }
   // 自动重登用密码(记住我时保存, 与 VRCX 保存凭据同款)
   try { db.exec('ALTER TABLE users ADD COLUMN password TEXT'); } catch (e) { /* 已存在 */ }
@@ -144,6 +142,11 @@ function createDb(location = ':memory:', opts = {}) {
   try { db.exec('ALTER TABLE friends ADD COLUMN trust_level TEXT'); } catch (e) { /* 已存在 */ }
   // 旧库补充: friends 补 instance_id 列(所在实例号, 来自 location 的 worldId:instanceId 解析)
   try { db.exec('ALTER TABLE friends ADD COLUMN instance_id TEXT'); } catch (e) { /* 已存在 */ }
+  // 世界名不再随好友/自己入库(改由 world_cache 按需提供): 删除历史列, 只留 world_id
+  try { db.exec('ALTER TABLE friends DROP COLUMN world_name'); } catch (e) { /* 新库无此列 */ }
+  try { db.exec('ALTER TABLE users DROP COLUMN world_name'); } catch (e) { /* 新库无此列 */ }
+  // world_cache 只保留真实名字: 历史"未知世界"占位行会被新逻辑当成真名字
+  try { db.exec("DELETE FROM world_cache WHERE world_name = '未知世界'"); } catch (e) { /* 忽略 */ }
   const stmt = {
     upsertUser: db.prepare(`INSERT INTO users (vrchat_user_id, username, display_name, avatar_url, avatar_thumb_url, status, status_description, platform, state)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active')
@@ -162,7 +165,7 @@ function createDb(location = ':memory:', opts = {}) {
         updated_at = datetime('now')
         WHERE id = ?`),
     updateSelfPresence: db.prepare(`UPDATE users SET
-        state = ?, status = ?, world_id = ?, world_name = ?, status_description = ?, platform = ?,
+        state = ?, status = ?, world_id = ?, status_description = ?, platform = ?,
         last_seen = ?, updated_at = datetime('now')
         WHERE id = ?`),
     getUserByVrcId: db.prepare('SELECT * FROM users WHERE vrchat_user_id = ?'),
@@ -180,8 +183,8 @@ function createDb(location = ':memory:', opts = {}) {
     clearAllUsers: db.prepare('DELETE FROM users'),
     clearWorldCache: db.prepare('DELETE FROM world_cache'),
     clearGroupCache: db.prepare('DELETE FROM group_cache'),
-    upsertFriend: db.prepare(`INSERT INTO friends (user_id, friend_vrchat_id, display_name, avatar_url, avatar_thumb_url, state, status, world_id, world_name, instance_id, status_description, platform, trust_level, last_seen)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    upsertFriend: db.prepare(`INSERT INTO friends (user_id, friend_vrchat_id, display_name, avatar_url, avatar_thumb_url, state, status, world_id, instance_id, status_description, platform, trust_level, last_seen)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(user_id, friend_vrchat_id) DO UPDATE SET
         display_name = COALESCE(excluded.display_name, friends.display_name),
         avatar_url = COALESCE(excluded.avatar_url, friends.avatar_url),
@@ -189,7 +192,6 @@ function createDb(location = ':memory:', opts = {}) {
         state = excluded.state,
         status = excluded.status,
         world_id = excluded.world_id,
-        world_name = excluded.world_name,
         instance_id = excluded.instance_id,
         status_description = excluded.status_description,
         platform = excluded.platform,
@@ -207,7 +209,7 @@ function createDb(location = ':memory:', opts = {}) {
         updated_at = datetime('now')
         WHERE id = ?`),
     updateFriendState: db.prepare(`UPDATE friends SET
-        state = ?, status = ?, world_id = ?, world_name = ?, instance_id = ?, status_description = ?, platform = ?,
+        state = ?, status = ?, world_id = ?, instance_id = ?, status_description = ?, platform = ?,
         pending_state = ?, pending_at = ?, last_seen = ?, updated_at = datetime('now')
       WHERE id = ?`),
     upsertConfig: db.prepare(`INSERT INTO monitor_config (user_id, friend_vrchat_id, favorite, notify_online, notify_offline, notify_status_change, notify_world_change)
@@ -319,7 +321,7 @@ function createDb(location = ':memory:', opts = {}) {
     },
     updateSelfPresence(rowId, fields) {
       stmt.updateSelfPresence.run(
-        fields.state, fields.status ?? null, fields.worldId ?? null, fields.worldName ?? null,
+        fields.state, fields.status ?? null, fields.worldId ?? null,
         fields.statusDescription ?? null, fields.platform ?? null, fields.lastSeen ?? Date.now(), rowId
       );
     },
@@ -386,7 +388,7 @@ function createDb(location = ':memory:', opts = {}) {
         dbId, friendVrcId,
         fields.displayName ?? null, fields.avatarUrl ?? null, fields.avatarThumbUrl ?? null,
         fields.state ?? (existing ? existing.state : 'offline'),
-        fields.status ?? null, fields.worldId ?? null, fields.worldName ?? null,
+        fields.status ?? null, fields.worldId ?? null,
         fields.instanceId ?? null,
         fields.statusDescription ?? null, fields.platform ?? null,
         fields.trustLevel ?? null,
@@ -402,7 +404,7 @@ function createDb(location = ':memory:', opts = {}) {
     },
     updateFriendState(id, fields) {
       stmt.updateFriendState.run(
-        fields.state, fields.status ?? null, fields.world_id ?? null, fields.world_name ?? null,
+        fields.state, fields.status ?? null, fields.world_id ?? null,
         fields.instance_id ?? null,
         fields.status_description ?? null, fields.platform ?? null,
         fields.pending_state ?? null, fields.pending_at ?? null, fields.last_seen ?? Date.now(), id

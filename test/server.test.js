@@ -312,7 +312,7 @@ test('login/session expose own presence fields and avatarKey', async (t) => {
   assert.equal(row.status_description, '摸鱼');
   assert.equal(row.state, 'online');
   assert.equal(row.world_id, 'wrld_me');
-  assert.equal(row.world_name, '世界_wrld_me', '快照只同步读缓存(peek), 不触发查询');
+  assert.equal(row.world_name, undefined, 'users 表已无 world_name 列, 名字由世界名缓存提供');
   assert.equal(row.platform, 'standalonewindows');
   const s = await get(ctx, '/api/session');
   assert.equal(s.data.user.state, 'online');

@@ -235,6 +235,12 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
   // 查询/缓存/失败兜底全在 src/worldname.js; 这里只负责"等多久"。
   // 超时用 peek 的旧名字先顶上, 查询继续在后台跑完(查到会写缓存并推 SSE)。
   // 调用点自行处理 private/offline/traveling 等哨兵值, 本函数只吃真实世界编号。
+  /** world_id -> 当前缓存里的显示名(同步, 不发请求); private 是哨兵值, 就地写死 */
+  function prevWorldName(worldId) {
+    if (!worldId) return null;
+    return worldId === 'private' ? '私密世界' : worldNames.peek(worldId);
+  }
+
   function lookupWorldName(worldId) {
     return withDeadline(
       worldNames.get(worldId),
@@ -591,7 +597,9 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
       db.updateFriendProfile(existed.id, { displayName: input.displayName, avatarUrl: input.avatarUrl, avatarThumbUrl: thumbUrl, trustLevel: input.trustLevel });
     }
     const cur = db.getFriend(user.id, friendVrcId);
-    const result = applyChange(cur, {
+    // 世界名不再入库: 状态机要的"旧世界名"从世界名缓存同步取(peek, 不发请求);
+    // private 是哨兵值, 缓存里没有, 就地写死
+    const result = applyChange({ ...cur, worldName: prevWorldName(cur.world_id) }, {
       state: input.state, status: input.status, worldId: input.worldId,
       worldName: input.worldName, statusDescription: input.statusDescription, platform: input.platform
     }, { now, confirmDelayMs });
@@ -642,7 +650,7 @@ function createMonitor({ db, notifier, pipeline, bus = null, config = {}, logger
         state: pick(input.state, cur.state),
         status: pick(input.status, cur.status),
         worldId: pick(input.worldId, cur.world_id),
-        worldName: pick(input.worldName, cur.world_name),
+        worldName: pick(input.worldName, prevWorldName(cur.world_id)),
         statusDescription: pick(input.statusDescription, cur.status_description),
         platform: pick(input.platform, cur.platform)
       };

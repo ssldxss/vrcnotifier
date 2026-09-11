@@ -142,7 +142,10 @@ function buildApplication(opts = {}) {
   const qqCommands = createQqCommands({
     db, logger,
     getStatus: (dbId) => (connectionStatus.fn ? connectionStatus.fn(dbId) : null),
-    onCode: (dbId, content) => (authCommandHooks.fn ? authCommandHooks.fn(dbId, content) : null)
+    onCode: (dbId, content) => (authCommandHooks.fn ? authCommandHooks.fn(dbId, content) : null),
+    // monitor 在下方才创建, 用惰性取值避免调整创建顺序
+    getWorldName: () => (monitor ? monitor.worldName : null),
+    worldNameWaitMs: config.monitor.worldNameWaitMs
   });
   const qq = opts.qq || createQqManager({
     db, logger,

@@ -56,7 +56,7 @@ test('users: self profile and presence fields are stored and updated', () => {
   assert.equal(u.state, 'online');
   assert.equal(u.status, 'join me');
   assert.equal(u.world_id, 'wrld_x');
-  assert.equal(u.world_name, 'X世界');
+  assert.equal(u.world_name, undefined, '世界名不再入库(改由 world_cache 按需提供), 传进来也被忽略');
   assert.equal(u.status_description, '开黑');
   assert.equal(u.platform, 'android');
   assert.equal(u.last_seen, 123);
@@ -66,7 +66,6 @@ test('users: self profile and presence fields are stored and updated', () => {
   u = db.getUserByDbId(id);
   assert.equal(u.state, 'online');
   assert.equal(u.world_id, 'wrld_x');
-  assert.equal(u.world_name, 'X世界');
 });
 
 test('cookies: save/clear/remember_me and saved_username', () => {
@@ -110,7 +109,8 @@ test('friends: upsert new/update, list, delete', () => {
   assert.equal(r2.row.state, 'offline');
   assert.equal(db.listFriends(uid).length, 1);
   const f = db.getFriend(uid, 'usr_f1');
-  assert.equal(f.world_name, null);
+  assert.equal(f.world_name, undefined, 'friends 表已无 world_name 列');
+  assert.equal(f.world_id, null);
   db.deleteFriend(uid, 'usr_f1');
   assert.equal(db.listFriends(uid).length, 0);
 });

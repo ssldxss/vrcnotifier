@@ -86,7 +86,7 @@ function applyChange(prevDb, incoming, opts = {}) {
     state: next.state,
     status: next.status,
     world_id: next.worldId,
-    world_name: next.worldName,
+    // 世界名不入库(由 world_cache 按需提供); next.worldName 仅供通知文案使用
     status_description: next.statusDescription,
     platform: next.platform,
     pending_state: null,
