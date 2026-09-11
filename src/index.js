@@ -116,6 +116,8 @@ function buildApplication(opts = {}) {
       watchdogCheckMs: opts.watchdogCheckMs ?? 60 * 1000,
       ...(opts.monitor || {})
     },
+    // 世界名查询(见 src/world.js)自身的策略; 未列出的项由模块 DEFAULTS 兜底
+    world: { ...(opts.world || {}) },
     ws: {
       pingIntervalMs: opts.pingIntervalMs ?? 10000,
       pongTimeoutMs: opts.pongTimeoutMs ?? 30000,
@@ -146,7 +148,7 @@ function buildApplication(opts = {}) {
     userAgent: config.userAgent,
     fetchImpl: opts.fetchImpl || fetch,
     fetchWorld: opts.fetchWorld,
-    config: config.monitor.worldName
+    config: config.world
   });
 
   const qqCommands = createQqCommands({
@@ -154,7 +156,8 @@ function buildApplication(opts = {}) {
     getStatus: (dbId) => (connectionStatus.fn ? connectionStatus.fn(dbId) : null),
     onCode: (dbId, content) => (authCommandHooks.fn ? authCommandHooks.fn(dbId, content) : null),
     worldName,
-    worldNameWaitMs: config.monitor.worldNameWaitMs
+    // 世界名的等待上限是需求方的事(模块本身从不等待), QQ 与通知路径共用同一个值
+    worldNameWaitMs: config.monitor.worldWaitMs
   });
   const qq = opts.qq || createQqManager({
     db, logger,

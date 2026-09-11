@@ -25,7 +25,7 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
   const GROUP_NAME_RETRY_MAX_MS = config.groupNameRetryMaxMs ?? 3600 * 1000; // 群组名退避封顶 1h
   const UNKNOWN_GROUP_NAME = '未知群组';
   // 需求方等待世界名的上限: 超时用缓存里的旧名字兜底, 查询继续在后台跑完(不阻塞上游链路)
-  const WORLD_NAME_WAIT_MS = config.worldNameWaitMs ?? 3000;
+  const WORLD_NAME_WAIT_MS = config.worldWaitMs ?? 3000;
   const RECOVERY_TEXT = '# ✅ 服务已恢复\n好友监控运行中\n输入任意消息即可查看在线列表';
   const snapshotIntervalMs = config.snapshotIntervalMs ?? 3600 * 1000;
   const watchdogMs = config.watchdogMs ?? 3600 * 1000;
