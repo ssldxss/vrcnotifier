@@ -165,11 +165,11 @@ function buildApplication(opts = {}) {
     logger, qq,
     getSettings: () => db.getGlobalSettings()
   });
+  // 无 Cookie 的世界信息查询(传输层); 缓存/重试/兜底由 src/worldname.js 负责
   const worldFetcher = opts.worldFetcher || createWorldFetcher({
     baseUrl: config.apiBaseUrl,
     userAgent: config.userAgent,
-    fetchImpl: opts.fetchImpl || fetch,
-    logger
+    fetchImpl: opts.fetchImpl || fetch
   });
   let monitor = null;
   const pipeline = opts.pipeline || createPipelineManager({

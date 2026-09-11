@@ -5,8 +5,8 @@
 const DEFAULT_API_BASE = 'https://api.vrchat.cloud/api/1';
 const FETCH_TIMEOUT_MS = 8000;
 
-function createWorldFetcher({ baseUrl = DEFAULT_API_BASE, userAgent = 'vrcnotifier/1.0', fetchImpl = fetch, logger = null, timeoutMs = FETCH_TIMEOUT_MS } = {}) {
-  async function world(worldId, opts = {}) {
+function createWorldFetcher({ baseUrl = DEFAULT_API_BASE, userAgent = 'vrcnotifier/1.0', fetchImpl = fetch, timeoutMs = FETCH_TIMEOUT_MS } = {}) {
+  async function world(worldId) {
     const base = String(baseUrl || DEFAULT_API_BASE).replace(/\/+$/, '') + '/';
     const url = new URL(`worlds/${encodeURIComponent(worldId)}`, base);
     const ac = new AbortController();
@@ -18,7 +18,7 @@ function createWorldFetcher({ baseUrl = DEFAULT_API_BASE, userAgent = 'vrcnotifi
           'User-Agent': userAgent,
           'Accept': 'application/json'
         },
-        signal: opts.signal || ac.signal
+        signal: ac.signal
       });
     } catch (e) {
       throw Object.assign(new Error(`世界信息获取失败: ${e.message}`), { status: -1 });
@@ -40,4 +40,4 @@ function createWorldFetcher({ baseUrl = DEFAULT_API_BASE, userAgent = 'vrcnotifi
   return { world };
 }
 
-module.exports = { createWorldFetcher, DEFAULT_API_BASE, FETCH_TIMEOUT_MS };
+module.exports = { createWorldFetcher };
