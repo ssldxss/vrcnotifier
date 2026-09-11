@@ -66,7 +66,7 @@ function harness(opts = {}) {
         .then(() => impl(id))
         .finally(() => { live.active--; });
     },
-    logger: {
+    logger: opts.logger || {
       debug: (m) => logs.push(['debug', m]),
       info: (m) => logs.push(['info', m]),
       warn: (m) => logs.push(['warn', m]),
@@ -315,6 +315,24 @@ test('world: bus 订阅者抛异常不影响查询结果', async () => {
     config: { ratePerMinute: 0 }
   });
   assert.equal(await wn.get('wrld_a'), 'X');
+});
+
+test('world: 成功日志带耗时(含重试与退避的总时间)', async () => {
+  const debugs = [];
+  const t = harness({
+    config: { retryDelayMs: 0 },
+    logger: { debug: (m) => debugs.push(m), info() {}, warn() {}, error() {} }
+  });
+  let n = 0;
+  t.setImpl(async (id) => {
+    t.advance(300);
+    n++;
+    if (n === 1) throw Object.assign(new Error('fetch failed'), { status: -1 });
+    return { id, name: '慢世界' };
+  });
+  await t.wn.get('wrld_slow');
+  assert.equal(debugs.length, 1);
+  assert.match(debugs[0], /世界名获取成功 worldId=wrld_slow name=慢世界 耗时=600ms/, '两次尝试各推进 300ms');
 });
 
 // ---------- 失败原因的日志分类 ----------

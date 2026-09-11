@@ -180,6 +180,7 @@ function createWorldName(opts = {}) {
   // 真正去查: 404/403 立即负缓存; 429 指数退避; 其余就地重试一次; 仍失败进负缓存。
   // 任何情况下都返回一个值(不抛), 避免调用方出现未处理拒绝。
   async function resolveWorld(worldId) {
+    const startedAt = now(); // 含重试与退避的总耗时, 便于排查"名字为什么出来得慢"
     const oldName = peek(worldId);
     let lastErr = null;
     let retries = 0;
@@ -191,7 +192,7 @@ function createWorldName(opts = {}) {
         if (!name) throw Object.assign(new Error('世界信息缺少名称字段'), { status: -2 });
         db.upsertWorldCache(worldId, name, now());
         negative.delete(worldId);
-        log.debug(`[world] 世界名获取成功 worldId=${worldId} name=${name}`);
+        log.debug(`[world] 世界名获取成功 worldId=${worldId} name=${name} 耗时=${now() - startedAt}ms`);
         if (bus) {
           // 订阅者异常不影响查询结果
           try { bus.emit('world-name', { worldId, worldName: name }); } catch (e) { /* ignore */ }
