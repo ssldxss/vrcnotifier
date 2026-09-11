@@ -6,7 +6,7 @@
 //   策略层 —— 缓存 1 小时 / 在途与完成后窗口合并 / 404-403 与网络错误的负缓存 /
 //              重试 / 失败沿用旧名字 / 并发与速率上限 / 日志
 //
-// 不负责等待: get() 返回的 Promise 可能很慢(429 退避最长约 2.5 分钟), 超时由需求方自己 race,
+// 不负责等待: get() 返回的 Promise 可能很慢(被限流时按 1 小时封顶一直重试, 期间不会结束),
 //              超时后查询仍在后台跑完。peek() 供需求方在超时时同步取旧名字兜底。
 // 只接受真实世界编号: private/offline/traveling 等哨兵值由调用方自行处理, 不进本模块。
 
@@ -23,7 +23,6 @@ const DEFAULTS = {
   maxRetries: 1,                  // 就地重试次数上限(网络/超时/5xx)
   backoffBaseMs: 5000,            // 429 指数退避起步
   backoffMaxMs: 60 * MINUTE_MS,   // 退避封顶
-  backoffRetries: 5,              // 429 重试次数上限
   jitterMs: 1000,                 // 退避抖动
   maxConcurrency: 10,             // 同时最多 10 个在途请求
   ratePerMinute: 600,             // 每分钟最多 600 次(<=0 关闭, 测试用)
@@ -159,7 +158,6 @@ function createWorldName(opts = {}) {
     const status = err && err.status;
     if (status === 404) return '世界不存在, HTTP 404';
     if (status === 403) return '无权限访问, HTTP 403';
-    if (status === 429) return '被限流, HTTP 429';
     if (status === -1) return '网络错误';
     if (status === -2) return '响应缺少名称字段';
     if (typeof status === 'number' && status >= 500 && status < 600) return `服务端错误, HTTP ${status}`;
@@ -206,14 +204,16 @@ function createWorldName(opts = {}) {
           logFallback(worldId, oldName, reasonOf(e), e, cfg.goneTtlMs);
           return oldName;
         }
-        if (status === 429 && backoffs < cfg.backoffRetries) {
+        // 429 = 世界还在, 只是"你太快了": 不限次数退避重试, 翻倍到 1 小时封顶后保持
+        // 每小时一次, 直到成功; 不进负缓存 —— 调用方靠 peek 拿旧名字/占位符先顶着
+        if (status === 429) {
           const delay = backoffDelay(backoffs);
           backoffs++;
           log.warn(`[world] 世界 ${worldId} 被限流(${e.message}), ${delay}ms 后重试(第 ${backoffs} 次)`);
           await sleepFn(delay);
           continue;
         }
-        if (status !== 429 && retries < cfg.maxRetries) {
+        if (retries < cfg.maxRetries) {
           retries++;
           log.warn(`[world] 世界 ${worldId} 查询失败(${e.message}), ${cfg.retryDelayMs}ms 后重试(第 ${retries} 次)`);
           await sleepFn(cfg.retryDelayMs);

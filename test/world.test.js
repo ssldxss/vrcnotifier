@@ -73,7 +73,7 @@ function harness(opts = {}) {
       error: (m) => logs.push(['error', m])
     },
     now: () => state.t,
-    sleep: async (ms) => { sleeps.push(ms); },
+    sleep: opts.sleep || (async (ms) => { sleeps.push(ms); }),
     bus: { emit: (name, payload) => events.push({ name, payload }) },
     config: { ratePerMinute: 0, ...(opts.config || {}) }
   });
@@ -265,24 +265,73 @@ test('world: 网络错误且无旧名字 → 返回 null', async () => {
 
 // ---------- 429 ----------
 
-test('world: 429 走指数退避重试(5s 起步翻倍, 封顶 1h)', async () => {
+test('world: 429 不限次数退避重试, 翻倍到 1 小时封顶后保持, 直到成功', async () => {
   const t = harness({ config: { jitterMs: 0 } });
-  t.setImpl(failWith(429));
-  assert.equal(await t.wn.get('wrld_rate'), null);
-  assert.equal(t.calls.length, 6, '首次 + 5 次退避重试');
-  assert.deepEqual(t.sleeps, [5000, 10000, 20000, 40000, 80000], '等待序列 5s→10s→20s→40s→80s');
-  assert.match(t.warns().join('\n'), /被限流/);
-  t.advance(61 * 1000);
-  await t.wn.get('wrld_rate');
-  assert.equal(t.calls.length, 12, '退避全失败后进负缓存, 到期才再来一轮');
+  let n = 0;
+  t.setImpl(async (id) => {
+    n++;
+    // 前 12 次都被限流 —— 远超原来的 5 次上限
+    if (n <= 12) throw Object.assign(new Error('Too many requests'), { status: 429 });
+    return { id, name: '终于查到了' };
+  });
+  assert.equal(await t.wn.get('wrld_rate'), '终于查到了', '被限流不放弃, 一直重试到成功');
+  assert.equal(t.calls.length, 13);
+  assert.deepEqual(t.sleeps, [5000, 10000, 20000, 40000, 80000, 160000, 320000, 640000, 1280000, 2560000, 3600000, 3600000],
+    '等待翻倍到 1 小时封顶后保持每小时一次');
+  assert.match(t.warns()[0], /被限流\(Too many requests\), 5000ms 后重试\(第 1 次\)/);
+  assert.match(t.warns()[11], /3600000ms 后重试\(第 12 次\)/);
+  assert.equal(t.db.getWorldCache('wrld_rate').world_name, '终于查到了');
+});
+
+test('world: 429 超过原上限也不会用旧名字草草收场, 链一直挂着等恢复', async () => {
+  const tick = () => new Promise((r) => setImmediate(r));
+  let gate = null; // 每次退避挂住, 由测试逐次放行
+  const t = harness({
+    config: { jitterMs: 0 },
+    sleep: (ms) => { t.sleeps.push(ms); return new Promise((r) => { gate = r; }); }
+  });
+  t.db.upsertWorldCache('wrld_rate', '旧名字', t.state.t - 10 * HOUR);
+  let n = 0;
+  t.setImpl(async (id) => {
+    n++;
+    throw Object.assign(new Error('Too many requests'), { status: 429 });
+  });
+
+  const p = t.wn.get('wrld_rate');
+  let settled = false;
+  p.then(() => { settled = true; });
+  await tick();
+  assert.equal(t.calls.length, 1, '第一次请求已发出');
+  assert.equal(t.wn.peek('wrld_rate'), '旧名字', '退避期间 peek 可拿到旧名字给调用方兜底');
+  assert.equal(t.db.getWorldCache('wrld_rate').world_name, '旧名字', '429 不进负缓存, 缓存行原样保留');
+
+  // 连续放行 6 次 —— 超过原来 5 次的上限
+  for (let i = 0; i < 6; i++) {
+    assert.ok(typeof gate === 'function',
+      `第 ${i + 1} 次放行前应仍在退避重试, 实际已收场(请求 ${t.calls.length} 次)`);
+    const g = gate; gate = null; g(); await tick();
+  }
+  assert.equal(settled, false, '重试超过原上限仍然没有收场');
+  assert.equal(t.calls.length, 7);
+
+  // 限流解除 → 同一条链自然收尾
+  t.setImpl(async (id) => ({ id, name: '恢复了' }));
+  const g = gate; gate = null; g();
+  assert.equal(await p, '恢复了');
+  assert.equal(t.db.getWorldCache('wrld_rate').world_name, '恢复了');
 });
 
 test('world: 429 退避带上抖动', async () => {
   const t = harness();
-  t.setImpl(failWith(429));
+  let n = 0;
+  t.setImpl(async (id) => {
+    n++;
+    if (n <= 3) throw Object.assign(new Error('Too many requests'), { status: 429 });
+    return { id, name: 'X' };
+  });
   await t.wn.get('wrld_rate');
-  const bases = [5000, 10000, 20000, 40000, 80000];
-  assert.equal(t.sleeps.length, 5);
+  const bases = [5000, 10000, 20000];
+  assert.equal(t.sleeps.length, 3);
   t.sleeps.forEach((v, i) => {
     assert.ok(v >= bases[i] && v < bases[i] + 1000, `第 ${i + 1} 次等待 ${v}ms 应落在 [${bases[i]}, ${bases[i] + 1000})`);
   });
@@ -338,8 +387,8 @@ test('world: 成功日志带耗时(含重试与退避的总时间)', async () =>
 // ---------- 失败原因的日志分类 ----------
 
 test('world: 日志按真实错误分类, 不把 429 说成网络错误', async () => {
+  // 注意: 429 不再有"最终失败"这条路(不限次数重试), 所以不在此列
   const cases = [
-    ['429', 429, /被限流, HTTP 429/],
     ['5xx', 503, /服务端错误, HTTP 503/],
     ['403', 403, /无权限访问, HTTP 403/],
     ['404', 404, /世界不存在, HTTP 404/],
@@ -353,7 +402,7 @@ test('world: 日志按真实错误分类, 不把 429 说成网络错误', async 
       logger: { debug() {}, info() {}, warn: (m) => warns.push(m), error() {} },
       fetchWorld: async () => { throw Object.assign(new Error('boom'), { status }); },
       sleep: async () => {},
-      config: { ratePerMinute: 0, jitterMs: 0, backoffRetries: 1 }
+      config: { ratePerMinute: 0, jitterMs: 0 }
     });
     await wn.get('wrld_x');
     const fallback = warns[warns.length - 1];
