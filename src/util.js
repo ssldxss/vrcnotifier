@@ -90,4 +90,17 @@ function createLogger(defaultCategory = 'app', out = console.log) {
   };
 }
 
-module.exports = { formatLocalTime, createLogger, setLogStream, getLogStream, setFileLog, getFileLog, maskKey, trustLevelFromTags };
+/**
+ * 给 Promise 加一个时限: 超时用 onTimeout() 的结果先返回, 原 Promise 继续在后台跑完。
+ * 用于"等待是需求方的事"这类调用(世界名按需查询): 需求方各自设上限, 不阻塞上游链路。
+ */
+function withDeadline(promise, timeoutMs, onTimeout) {
+  let timer = null;
+  const fallback = new Promise((resolve) => {
+    timer = setTimeout(() => { resolve(typeof onTimeout === 'function' ? onTimeout() : onTimeout); }, timeoutMs);
+    if (timer.unref) timer.unref();
+  });
+  return Promise.race([promise, fallback]).finally(() => { if (timer) clearTimeout(timer); });
+}
+
+module.exports = { formatLocalTime, createLogger, setLogStream, getLogStream, setFileLog, getFileLog, maskKey, trustLevelFromTags, withDeadline };

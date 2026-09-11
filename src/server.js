@@ -40,6 +40,7 @@ function createApp({
   const log = logger || { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
   const app = express();
   const bus = monitor.events;
+  const worldNameSvc = monitor.worldName || null; // 世界名查询模块(读接口同步补名字用)
   const logStreamRef = logStream || getLogStream(); // 后端日志流: 未注入时回退全局
   const fileLogRef = fileLog;      // 本地日志文件(向前翻页数据源)
   const maskRef = maskState;       // 前端流令牌打码状态
@@ -71,9 +72,17 @@ function createApp({
   const reloginRetryMaxMs = config.reloginRetryMaxMs ?? autoLoginRetryMaxMs;
   const reloginRetryJitterMs = config.reloginRetryJitterMs ?? autoLoginRetryJitterMs;
 
+  // 世界名按需查询: 库里只存 world_id, 名字由世界名模块同步提供(peek, 不发请求)。
+  // private 等哨兵值由前端自行显示, 这里只补真实世界编号。
+  function worldNameOf(row) {
+    if (!row || !row.world_id || row.world_id === 'private') return null;
+    return worldNameSvc ? worldNameSvc.peek(row.world_id) : null;
+  }
+
   // 好友行附带头像 key(前端零解析)
   function friendRow(f) {
     const out = { ...f };
+    out.world_name = worldNameOf(f);
     out.avatarKey = f.avatar_thumb_url && avatarCache ? avatarCache.thumbKeyFromUrl(f.avatar_thumb_url) : null;
     return out;
   }
@@ -90,6 +99,7 @@ function createApp({
   function selfUserForClient(row) {
     const out = maskUser(row);
     if (!out) return null;
+    out.world_name = worldNameOf(out);
     const thumbUrl = out.avatar_thumb_url || toThumbUrl(out.avatar_url);
     out.avatarKey = thumbUrl && avatarCache ? avatarCache.thumbKeyFromUrl(thumbUrl) : null;
     return out;
@@ -544,6 +554,8 @@ function createApp({
     broadcast('status', statusPayload());
   });
   bus.on('notification', (e) => broadcast('notification', e));
+  // 世界名按需查到名字 → 推给前端定点更新那一行(前端从不等待世界名)
+  bus.on('world-name', (e) => broadcast('world-name', e));
   bus.on('session-expired', ({ userId }) => {
     handleSessionExpired(userId);
     broadcast('session-expired', { userId });

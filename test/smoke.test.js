@@ -115,6 +115,8 @@ test('end-to-end: login → configure → ws event → QQ notification', async (
     qq
   });
   const server = runtime.app.listen(0);
+  // 快照不再解析世界名: 预置缓存, 读接口从缓存补名字
+  runtime.db.upsertWorldCache('wrld_b', '世界B', Date.now());
 
   t.after(async () => {
     try { runtime.monitor.stopTimers(); } catch (e) { /* ignore */ }

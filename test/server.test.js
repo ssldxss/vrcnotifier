@@ -301,6 +301,8 @@ test('login/session expose own presence fields and avatarKey', async (t) => {
     }
   });
   t.after(() => close(ctx));
+  // 快照不再解析世界名: 预置缓存, 读接口从缓存补名字
+  ctx.db.upsertWorldCache('wrld_me', '世界_wrld_me', Date.now());
   const r = await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: false });
   assert.equal(r.status, 200);
   assert.equal(r.data.user.avatarKey, 'file_me-111_1_256');
@@ -310,11 +312,11 @@ test('login/session expose own presence fields and avatarKey', async (t) => {
   assert.equal(row.status_description, '摸鱼');
   assert.equal(row.state, 'online');
   assert.equal(row.world_id, 'wrld_me');
-  assert.equal(row.world_name, '世界_wrld_me');
+  assert.equal(row.world_name, '世界_wrld_me', '快照只同步读缓存(peek), 不触发查询');
   assert.equal(row.platform, 'standalonewindows');
   const s = await get(ctx, '/api/session');
   assert.equal(s.data.user.state, 'online');
-  assert.equal(s.data.user.world_name, '世界_wrld_me');
+  assert.equal(s.data.user.world_name, '世界_wrld_me', '/api/session 从世界名缓存补名字');
   assert.equal(s.data.user.platform, 'standalonewindows');
   assert.equal(s.data.user.status_description, '摸鱼');
   assert.equal(s.data.user.avatarKey, 'file_me-111_1_256');
