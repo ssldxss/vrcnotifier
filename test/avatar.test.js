@@ -167,3 +167,30 @@ test('touchPath 续期后 sweep 不删', async () => {
   assert.equal(c.sweep(), 0);
   assert.equal(fs.existsSync(p), true);
 });
+
+test('缓存文件数超过上限时淘汰最旧的', async () => {
+  const dir = tmpDir();
+  const c = createAvatarCache({ dir, maxFiles: 3, fetchImpl: imgFetch() });
+  for (let i = 1; i <= 3; i++) {
+    await c.ensure(`file_k${i}_1_128`);
+    const t = new Date(Date.now() - (100 - i * 10) * 1000); // k1 最旧, k3 最新
+    fs.utimesSync(path.join(dir, `file_k${i}_1_128`), t, t);
+  }
+  assert.deepEqual(fs.readdirSync(dir).sort(), ['file_k1_1_128', 'file_k2_1_128', 'file_k3_1_128'], '未超限时不动');
+  await c.ensure('file_k4_1_128'); // 第 4 张落盘 -> 超限, 淘汰最旧的 k1
+  assert.deepEqual(fs.readdirSync(dir).sort(), ['file_k2_1_128', 'file_k3_1_128', 'file_k4_1_128']);
+});
+
+test('淘汰时打日志写明淘汰数量和上限', async () => {
+  const dir = tmpDir();
+  const lines = [];
+  const logger = { debug: () => {}, info: (m) => lines.push(String(m)), warn: () => {}, error: () => {} };
+  const c = createAvatarCache({ dir, maxFiles: 2, logger, fetchImpl: imgFetch() });
+  for (let i = 1; i <= 2; i++) {
+    await c.ensure(`file_k${i}_1_128`);
+    const t = new Date(Date.now() - (100 - i * 10) * 1000);
+    fs.utimesSync(path.join(dir, `file_k${i}_1_128`), t, t);
+  }
+  await c.ensure('file_k3_1_128');
+  assert.ok(lines.some((l) => l === '[avatar] 缓存超限, 已淘汰最旧的 1 个 (上限 2)'), `实际日志: ${lines.join(' | ')}`);
+});

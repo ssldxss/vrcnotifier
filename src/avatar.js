@@ -48,7 +48,7 @@ function detectImageType(filePath) {
   }
 }
 
-function createAvatarCache({ dir, logger = null, fetchImpl = fetch, userAgent = 'vrcnotifier/1.0', apiBaseUrl = DEFAULT_API_BASE, ttlMs = 30 * 24 * 3600 * 1000, downloadTimeoutMs = DOWNLOAD_TIMEOUT_MS }) {
+function createAvatarCache({ dir, logger = null, fetchImpl = fetch, userAgent = 'vrcnotifier/1.0', apiBaseUrl = DEFAULT_API_BASE, ttlMs = 30 * 24 * 3600 * 1000, downloadTimeoutMs = DOWNLOAD_TIMEOUT_MS, maxFiles = 2000 }) {
   const log = logger || { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
   const apiBase = String(apiBaseUrl || DEFAULT_API_BASE).replace(/\/+$/, '');
   const inFlight = new Map(); // key -> Promise
@@ -132,12 +132,32 @@ function createAvatarCache({ dir, logger = null, fetchImpl = fetch, userAgent = 
       p = download(key, url)
         .then((info) => {
           log.debug(`[avatar] 已下载并缓存 key=${key} size=${info.size} bytes`);
+          enforceLimit();
           return true;
         })
         .finally(() => inFlight.delete(key));
       inFlight.set(key, p);
     }
     return p;
+  }
+
+  // 缓存文件数超过上限时按 mtime 淘汰最旧的, 只保留最新 maxFiles 个。
+  // 平时只有 readdirSync 这一步; 超限了才逐个 stat 排序。
+  function enforceLimit() {
+    let names;
+    try { names = fs.readdirSync(dir).filter((n) => !n.startsWith('.')); } catch (e) { return 0; }
+    if (names.length <= maxFiles) return 0;
+    const files = [];
+    for (const name of names) {
+      try { files.push({ name, mtimeMs: fs.statSync(path.join(dir, name)).mtimeMs }); } catch (e) { /* 跳过读不到的 */ }
+    }
+    files.sort((a, b) => b.mtimeMs - a.mtimeMs); // 新的在前
+    let removed = 0;
+    for (const f of files.slice(maxFiles)) {
+      try { fs.unlinkSync(path.join(dir, f.name)); removed++; } catch (e) { log.warn(`[avatar] 淘汰失败 ${f.name}: ${e.message}`); }
+    }
+    if (removed > 0) log.info(`[avatar] 缓存超限, 已淘汰最旧的 ${removed} 个 (上限 ${maxFiles})`);
+    return removed;
   }
 
   // 清理超过 ttl 未访问(按 mtime)的缓存文件
