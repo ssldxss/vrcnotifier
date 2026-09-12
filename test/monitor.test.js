@@ -37,7 +37,13 @@ function setup(opts = {}) {
           activeFriends: activeList.map((f) => f.id),
           offlineFriends: offlineList.map((f) => f.id)
         },
-    friends: async ({ offline }) => (offline ? offlineList : [...onlineList, ...activeList]),
+    // 接口语义: offline=true 是含离线的全量名册, 省略/offline=false 只在线好友。
+    // 分页回调逐页报累计条数(真实分页实现在 vrcapi.test.js 覆盖), 这里按同样语义模拟。
+    friends: async ({ offline, onPage }) => {
+      const list = offline ? [...onlineList, ...activeList, ...offlineList] : [...onlineList, ...activeList];
+      if (onPage) for (let i = 0; i < list.length; i += 100) onPage(Math.min(i + 100, list.length));
+      return list;
+    },
     world: async (id) => ({ id, name: `世界_${id}` }),
     group: async (id) => ({ id, name: `群组_${id}` }),
     userGroups: async () => [],
@@ -1526,4 +1532,32 @@ test('pending 到期验证内部抛错: 接住并记录日志, 不穿透', async
     logs.some((m) => m.includes('pending 到期验证异常') && m.includes('database is locked')),
     '定时器回调内部异常被接住并记录: ' + JSON.stringify(logs)
   );
+});
+
+// ---------- 登录进度(前端等待页): 只有首次对账才上报 ----------
+test('首次对账上报登录进度: 名册总数 + 好友拉取累计', async () => {
+  const t = setup({
+    onlineFriends: [onlineFriend('usr_on')],
+    offlineFriends: [offlineFriend('usr_o1'), offlineFriend('usr_o2'), offlineFriend('usr_o3')]
+  });
+  const progress = [];
+  t.bus.on('sync-progress', (e) => progress.push(e));
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+  assert.deepEqual(progress.map((p) => p.stage), ['roster', 'friends'],
+    '实际: ' + JSON.stringify(progress));
+  assert.equal(progress[0].userId, 'usr_me');
+  assert.equal(progress[0].total, 4, '总数来自 me() 的好友名册');
+  assert.equal(progress[1].fetched, 4, '逐页回调累计已拉数量');
+  assert.equal(progress[1].total, 4);
+});
+
+test('常规对账不上报登录进度(否则会平白弹出等待页)', async () => {
+  const t = setup({ onlineFriends: [onlineFriend('usr_on')], offlineFriends: [offlineFriend('usr_o1')] });
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+  const progress = [];
+  t.bus.on('sync-progress', (e) => progress.push(e));
+  await t.monitor.runSnapshot('usr_me');
+  assert.deepEqual(progress, [], '实际: ' + JSON.stringify(progress));
 });

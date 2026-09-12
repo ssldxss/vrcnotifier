@@ -28,6 +28,12 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
   const WORLD_NAME_WAIT_MS = config.worldWaitMs ?? 3000;
   const RECOVERY_TEXT = '# ✅ 服务已恢复\n好友监控运行中\n输入任意消息即可查看在线列表';
   const snapshotIntervalMs = config.snapshotIntervalMs ?? 3600 * 1000;
+
+  // 登录进度(仅首次对账上报): 前端等待页照它逐行点亮。语义阶段, 不绑具体 HTTP 请求 ——
+  // 密码直登与 2FA 两条路的请求序列不同, 绑请求会错位。
+  function emitProgress(userId, payload) {
+    events.emit('sync-progress', { userId, at: now(), ...payload });
+  }
   const watchdogMs = config.watchdogMs ?? 3600 * 1000;
   const watchdogCheckMs = config.watchdogCheckMs ?? 60 * 1000;
   const statusCoalesceMs = config.statusCoalesceMs ?? 3000; // 状态变化+切世界合并窗口
@@ -912,6 +918,7 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
       const friendIds = Array.isArray(currentUser.friends)
         ? [...new Set(currentUser.friends)]
         : [...new Set([...arr(currentUser.onlineFriends), ...arr(currentUser.activeFriends), ...arr(currentUser.offlineFriends)])];
+      if (opts.initial) emitProgress(userId, { stage: 'roster', total: friendIds.length });
 
       // ③ 在线+活动好友的详情: 一次 /friends?offline=false(离线好友 0 请求)
       const needDetails = new Set();
@@ -937,8 +944,15 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
       if (opts.initial) {
         try {
           offlineSeed = new Map();
-          const list = await vrcapi.friends({ offline: true, noRetry: opts.noRetry });
+          const list = await vrcapi.friends({
+            offline: true,
+            noRetry: opts.noRetry,
+            onPage: (n) => emitProgress(userId, { stage: 'friends', fetched: n, total: friendIds.length })
+          });
           for (const f of list) if (f && f.id) offlineSeed.set(f.id, f);
+          // 用于坐实接口语义: 名册数(me().friends)与本次实际拉回条数. 两者不等说明
+          // offline=true 并非全量, 前端百分比的分子分母要跟着换(见 server 的 roster/friends 事件)。
+          log.info(`[monitor] 首次对账好友资料: 名册 ${friendIds.length} 人, 拉回 ${list.length} 条`);
         } catch (e) {
           if (handleAuth401(e, userId)) return { ok: false, error: e.message };
           log.warn(`[monitor] 首次快照离线名册获取失败, 跳过离线好友资料补全: ${e.message}`);

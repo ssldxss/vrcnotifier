@@ -271,6 +271,46 @@ async function sseOnce(t, eventName, ms = 3000) {
   }
 }
 
+// SSE 收集器: 先连上再触发动作(否则事件会漏), 后台持续读, 用例结束后必须 stop()
+async function sseCollect(t, eventName) {
+  const ac = new AbortController();
+  const res = await fetch(t.base + '/api/events', { headers: authHeaders(t), signal: ac.signal });
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  const events = [];
+  let buf = '';
+  (async () => {
+    try {
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) return;
+        buf += dec.decode(value, { stream: true });
+        let idx;
+        while ((idx = buf.indexOf('\n\n')) >= 0) {
+          const chunk = buf.slice(0, idx);
+          buf = buf.slice(idx + 2);
+          const ev = /event: (.+)/.exec(chunk);
+          if (!ev || ev[1].trim() !== eventName) continue;
+          const dt = /data: (.+)/.exec(chunk);
+          if (dt) { try { events.push(JSON.parse(dt[1])); } catch (e) { /* 忽略异常帧 */ } }
+        }
+      }
+    } catch (e) { /* abort / 连接关闭 */ }
+  })();
+  return {
+    events,
+    async until(pred, ms = 2000) {
+      const deadline = Date.now() + ms;
+      while (Date.now() < deadline) {
+        if (pred(events)) return true;
+        await new Promise((r) => setTimeout(r, 20));
+      }
+      return false;
+    },
+    stop() { try { ac.abort(); } catch (e) { /* ignore */ } }
+  };
+}
+
 test('世界名按需查询: 读接口不等名字, 查到后走 world-name SSE 推给前端', async (t) => {
   let worldCalls = 0;
   const ctx = setup({ onlineFriends: [{ id: 'usr_f1', displayName: 'F1', location: 'wrld_a:1~region(us)', status: 'active', last_platform: 'web' }] });
@@ -413,6 +453,76 @@ test('login with 2FA: temp session then verify code completes login', async (t) 
   // 重复使用 tempSessionId 失效
   const again = await post(ctx, '/api/login/2fa', { tempSessionId: tempId, code: '000000', kind: 'emailOtp' });
   assert.equal(again.status, 400);
+});
+
+test('登录进度: 2FA 验证完成后经 SSE 推送各阶段(前端等待页照它点亮)', async (t) => {
+  const ctx = setup({
+    loginResult: { requiresTwoFactorAuth: ['emailOtp'] },
+    offlineFriends: [{ id: 'usr_f1', displayName: 'F1', location: 'offline', status: 'active' }]
+  });
+  // 开放的 SSE 连接会让 close() 一直等待, 必须先强制断开
+  t.after(async () => { ctx.server.closeAllConnections?.(); await close(ctx); });
+  const sse = await sseCollect(ctx, 'login-progress');
+  try {
+    const first = await post(ctx, '/api/login', { username: 'me', password: 'pw' });
+    assert.equal(first.data.requiresTwoFactorAuth[0], 'emailOtp');
+    assert.deepEqual(sse.events, [], '取验证码阶段不应有进度(还没验过)');
+    const v = await post(ctx, '/api/login/2fa', { tempSessionId: first.data.tempSessionId, code: '123456', kind: 'emailOtp' });
+    assert.equal(v.status, 200);
+    await sse.until((list) => list.some((e) => e.stage === 'roster'));
+    assert.deepEqual(sse.events.map((e) => e.stage).slice(0, 2), ['verified', 'roster'],
+      '实际: ' + JSON.stringify(sse.events));
+    assert.equal(sse.events[0].userId, 'usr_me');
+    assert.equal(sse.events[0].stage, 'verified', '验证完成(淡入等待页)先于同步');
+    assert.equal(sse.events[1].total, 1, '名册总数随事件带出, 前端拿它当百分比分母');
+  } finally { sse.stop(); }
+});
+
+test('2FA 日志顺序: 先记验证通过再记快照完成', async (t) => {
+  const logs = [];
+  const logger = { debug: (...a) => logs.push(a.join(' ')), info: (...a) => logs.push(a.join(' ')), warn: (...a) => logs.push(a.join(' ')), error: (...a) => logs.push(a.join(' ')) };
+  const ctx = setup({ loginResult: { requiresTwoFactorAuth: ['emailOtp'] }, logger });
+  t.after(() => close(ctx));
+  const first = await post(ctx, '/api/login', { username: 'me', password: 'pw' });
+  const v = await post(ctx, '/api/login/2fa', { tempSessionId: first.data.tempSessionId, code: '123456', kind: 'emailOtp' });
+  assert.equal(v.status, 200);
+  const pass = logs.findIndex((l) => l.includes('2FA 验证通过'));
+  const snap = logs.findIndex((l) => l.includes('快照完成'));
+  assert.ok(pass >= 0, '应记「2FA 验证通过」: ' + JSON.stringify(logs));
+  assert.ok(snap >= 0, '应记「快照完成」: ' + JSON.stringify(logs));
+  assert.ok(pass < snap, '验证通过必须排在快照完成之前(否则等待页与日志对不上)');
+});
+
+test('2FA 验证通过但落地失败: 提示同步失败, 不说验证码错误', async (t) => {
+  const ctx = setup({ loginResult: { requiresTwoFactorAuth: ['emailOtp'] } });
+  t.after(() => close(ctx));
+  ctx.monitor.activateUser = async () => { throw new Error('磁盘故障'); };
+  const first = await post(ctx, '/api/login', { username: 'me', password: 'pw' });
+  const v = await post(ctx, '/api/login/2fa', { tempSessionId: first.data.tempSessionId, code: '123456', kind: 'emailOtp' });
+  assert.equal(v.status, 500);
+  assert.equal(v.data.error, '验证码正确, 但同步数据失败, 请重试');
+});
+
+test('密码直登也推 verified 进度(等待页对两条登录路都要能淡入)', async (t) => {
+  const ctx = setup({});
+  t.after(async () => { ctx.server.closeAllConnections?.(); await close(ctx); });
+  const sse = await sseCollect(ctx, 'login-progress');
+  try {
+    const r = await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: false });
+    assert.equal(r.status, 200);
+    await sse.until((list) => list.some((e) => e.stage === 'roster'));
+    assert.equal(sse.events[0].stage, 'verified', '实际: ' + JSON.stringify(sse.events));
+    assert.equal(sse.events[0].userId, 'usr_me');
+  } finally { sse.stop(); }
+});
+
+test('密码直登通过但落地失败: 提示同步失败, 不说登录失败', async (t) => {
+  const ctx = setup({});
+  t.after(() => close(ctx));
+  ctx.monitor.activateUser = async () => { throw new Error('磁盘故障'); };
+  const r = await post(ctx, '/api/login', { username: 'me', password: 'pw' });
+  assert.equal(r.status, 500);
+  assert.equal(r.data.error, '登录已通过, 但同步数据失败, 请重试');
 });
 
 test('login with 429 always returns rate-limit guidance (even with email text)', async (t) => {

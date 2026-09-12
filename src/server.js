@@ -599,6 +599,8 @@ function createApp({
     broadcast('status', statusPayload());
   });
   bus.on('ws-failure', (e) => broadcast('ws-failure', e));
+  // 登录进度: 登录路由与 monitor 都往 bus 上发, 这里统一转 SSE(前端等待页照它逐行点亮)
+  bus.on('sync-progress', (e) => broadcast('login-progress', e));
   bus.on('ws-open', () => broadcast('status', statusPayload()));
   bus.on('ws-close', () => broadcast('status', statusPayload()));
   bus.on('self-state', ({ userId }) => {
@@ -699,8 +701,9 @@ function createApp({
       if (now() - p.createdAt > pending2faTtlMs) pending2fa.delete(id);
     }
     const vrcapi = vrcapiFactory();
+    let result;
     try {
-      const result = await vrcapi.login(String(username), String(password));
+      result = await vrcapi.login(String(username), String(password));
       if (result && Array.isArray(result.requiresTwoFactorAuth)) {
         const tempSessionId = randomBytes(8).toString('hex');
         pending2fa.set(tempSessionId, { vrcapi, username: String(username), password: String(password), rememberMe: !!rememberMe, createdAt: now() });
@@ -708,10 +711,6 @@ function createApp({
         return res.json({ ok: true, requiresTwoFactorAuth: result.requiresTwoFactorAuth, tempSessionId });
       }
       if (!result || !result.id) throw new Error('login response missing user');
-      const user = await finalizeLogin(vrcapi, result, { rememberMe: !!rememberMe, username: String(username), password: String(password) });
-      log.info(`[server] 登录成功: ${user.display_name || user.vrchat_user_id} (rememberMe=${!!rememberMe})`);
-      kickWorldNames([user]);
-      return res.json({ ok: true, user: selfUserForClient(user) });
     } catch (e) {
       if (e.status === 401) {
         log.warn('[server] 登录失败: 用户名或密码错误');
@@ -725,6 +724,18 @@ function createApp({
       log.error(`[server] 登录失败: ${e.message}`);
       return res.status(500).json({ error: '登录失败, 请稍后重试' });
     }
+    // VRChat 已经接受凭据: 日志与进度都打在这一刻, 不等后面的好友同步 ——
+    // 前端等待页照它逐行点亮, 打在同步之后会与界面顺序错位。
+    log.info(`[server] 登录成功: ${result.displayName || result.id} (rememberMe=${!!rememberMe}), 开始同步好友`);
+    bus.emit('sync-progress', { userId: result.id, stage: 'verified', at: now() });
+    try {
+      const user = await finalizeLogin(vrcapi, result, { rememberMe: !!rememberMe, username: String(username), password: String(password) });
+      kickWorldNames([user]);
+      return res.json({ ok: true, user: selfUserForClient(user) });
+    } catch (e) {
+      log.error(`[server] 登录已通过但落地失败: ${e.message}`);
+      return res.status(500).json({ error: '登录已通过, 但同步数据失败, 请重试' });
+    }
   });
 
   app.post('/api/login/2fa', async (req, res) => {
@@ -732,15 +743,11 @@ function createApp({
     if (!tempSessionId || !code) return res.status(400).json({ error: '缺少参数' });
     const pending = pending2fa.get(tempSessionId);
     if (!pending) return res.status(400).json({ error: '登录会话已过期, 请重新登录' });
+    let currentUser;
     try {
       await pending.vrcapi.verify2fa(String(kind || 'emailOtp').toLowerCase(), String(code));
-      const currentUser = await pending.vrcapi.me();
+      currentUser = await pending.vrcapi.me();
       if (!currentUser || !currentUser.id) throw new Error('2fa verify missing user');
-      pending2fa.delete(tempSessionId);
-      const user = await finalizeLogin(pending.vrcapi, currentUser, { rememberMe: pending.rememberMe, username: pending.username, password: pending.password });
-      log.info(`[server] 2FA 验证成功: ${user.display_name || user.vrchat_user_id}`);
-      kickWorldNames([user]);
-      return res.json({ ok: true, user: selfUserForClient(user) });
     } catch (e) {
       if (e.status === 400 || e.status === 401) {
         log.warn('[server] 2FA 验证失败: 验证码错误或已过期');
@@ -753,6 +760,19 @@ function createApp({
       }
       log.error(`[server] 2FA 验证失败: ${e.message}`);
       return res.status(500).json({ error: '验证失败, 请重试' });
+    }
+    pending2fa.delete(tempSessionId);
+    // 验证码已通过(VRChat 2xx)且拿到用户信息: 此刻记日志并让前端淡入等待页,
+    // 后面的好友同步要花几秒(好友多时几十秒), 不该压在这两行日志之前。
+    log.info(`[server] 2FA 验证通过: ${currentUser.displayName || currentUser.id}, 开始同步好友`);
+    bus.emit('sync-progress', { userId: currentUser.id, stage: 'verified', at: now() });
+    try {
+      const user = await finalizeLogin(pending.vrcapi, currentUser, { rememberMe: pending.rememberMe, username: pending.username, password: pending.password });
+      kickWorldNames([user]);
+      return res.json({ ok: true, user: selfUserForClient(user) });
+    } catch (e) {
+      log.error(`[server] 2FA 已通过但落地失败: ${e.message}`);
+      return res.status(500).json({ error: '验证码正确, 但同步数据失败, 请重试' });
     }
   });
 

@@ -298,3 +298,22 @@ test('every api call logs the endpoint', async () => {
     assert.ok(joined.includes('GET /auth/user/friends'), 'logs friends endpoint');
   } finally { server.close(); }
 });
+
+test('friends 分页时逐页回调累计数量(登录进度按它算百分比)', async () => {
+  const server = await startMockApi({
+    '/api/1/auth/user/friends': ({ url }, res) => {
+      const offset = Number(url.searchParams.get('offset') || 0);
+      const n = Number(url.searchParams.get('n') || 100);
+      const all = Array.from({ length: 250 }, (_, i) => ({ id: `usr_${i}` }));
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(all.slice(offset, offset + n)));
+    }
+  });
+  try {
+    const v = api(server);
+    const seen = [];
+    const friends = await v.friends({ offline: true, onPage: (got) => seen.push(got) });
+    assert.equal(friends.length, 250);
+    assert.deepEqual(seen, [100, 200, 250]); // 每页拉完一次, 报的是累计已拉数量
+  } finally { server.close(); }
+});

@@ -180,6 +180,44 @@ test('end-to-end: login → configure → ws event → QQ notification', async (
   assert.equal(ui.status, 404);
 });
 
+test('登录进度: 取到实时连接凭据(GET /auth)后上报 auth 阶段', async (t) => {
+  const api = await startMockApi();
+  const ws = await startMockWs();
+  const runtime = buildApplication({
+    logger: silent,
+    dbPath: ':memory:',
+    apiBaseUrl: api.base + '/api/1',
+    wsBaseUrl: ws.url,
+    accessToken: 'smoke-token'
+  });
+  const server = runtime.app.listen(0);
+  t.after(async () => {
+    try { runtime.monitor.stopTimers(); } catch (e) { /* ignore */ }
+    try { runtime.healthMonitor.stop(); } catch (e) { /* ignore */ }
+    for (const { user } of runtime.monitor.activeUsers()) {
+      try { runtime.monitor.deactivateUser(user.vrchat_user_id); } catch (e) { /* ignore */ }
+    }
+    await new Promise((r) => server.close(r));
+    await new Promise((r) => api.server.close(r));
+    await new Promise((r) => ws.wss.close(r));
+  });
+
+  const progress = [];
+  runtime.bus.on('sync-progress', (e) => progress.push(e));
+  const base = 'http://127.0.0.1:' + server.address().port;
+  const res = await fetch(base + '/api/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer smoke-token' },
+    body: JSON.stringify({ username: 'me', password: 'pw', rememberMe: false })
+  });
+  assert.equal((await res.json()).ok, true);
+
+  const auth = await waitFor(() => progress.find((p) => p.stage === 'auth'), 4000, 20);
+  assert.ok(auth, '未上报 auth 阶段: ' + JSON.stringify(progress));
+  assert.equal(auth.userId, 'usr_me');
+  assert.equal(progress[0].stage, 'verified', '第一件事是凭据已验证: ' + JSON.stringify(progress));
+});
+
 test('buildApplication starts periodic snapshot timer', async (t) => {
   const api = await startMockApi();
   const ws = await startMockWs();

@@ -186,6 +186,9 @@ function buildApplication(opts = {}) {
       if (!vrcapi) return { status: 'error', reason: 'no active session' };
       try {
         const r = await vrcapi.authToken();
+        // 登录进度第 1 行「验证信息」= 这里取到实时连接凭据(GET /auth 成功)。
+        // WS 重连也会走这里, 但前端只在等待登录时才显示等待页, 多报无副作用。
+        if (r && r.token) bus.emit('sync-progress', { userId, stage: 'auth', at: now() });
         return r && r.token ? { status: 'ok', token: r.token } : { status: 'error', reason: 'no token' };
       } catch (e) {
         // 401 分流: cookie 作废(换 IP) → 自动重登; 会话挂起 → 只重过 2FA

@@ -145,8 +145,9 @@ function createVrcApi({ baseUrl = 'https://api.vrchat.cloud/api/1', userAgent = 
     return request('/auth', { noRetry: true });
   }
 
-  /** 好友列表(分页拉全量); offline=true 仅离线 */
-  async function friends({ offline = false, pageSize = 100, noRetry = false } = {}) {
+  /** 好友列表(分页拉全量); offline=true 含离线好友, 省略/offline=false 只在线。
+   *  onPage(累计已拉条数) 每页回调一次, 供登录进度展示。 */
+  async function friends({ offline = false, pageSize = 100, noRetry = false, onPage } = {}) {
     const all = [];
     let offset = 0;
     for (;;) {
@@ -156,6 +157,7 @@ function createVrcApi({ baseUrl = 'https://api.vrchat.cloud/api/1', userAgent = 
       });
       if (!Array.isArray(page) || page.length === 0) break;
       all.push(...page);
+      if (onPage) onPage(all.length);
       if (page.length < pageSize) break;
       offset += page.length;
     }

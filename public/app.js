@@ -116,6 +116,7 @@ async function api(method, path, body, opts = {}) {
   }
   if (res.status === 401 && !opts.noAuth && headers['Authorization'] && path !== '/api/login' && path !== '/api/login/2fa') {
     const errMsg = String((data && data.error) || '');
+    bootHide(true); // 会话没了: 等待页必须收掉, 否则盖着登录页
     if (errMsg.includes('未登录')) {
       showView('login'); // 会话未登录: 回登录页, 不停轮询/SSE
     } else {
@@ -450,9 +451,19 @@ $('#loginBtn').addEventListener('click', async () => {
   const password = $('#loginPass').value;
   if (!username || !password) { $('#loginMsg').textContent = '请输入用户名和密码'; return; }
   $('#loginMsg').textContent = '登录中...';
-  const r = await api('POST', '/api/login', {
-    username, password, rememberMe: $('#rememberMe').checked
-  });
+  loginWaiting = true; // 允许后端「验证通过」事件把等待页淡进来
+  let r;
+  try {
+    r = await api('POST', '/api/login', {
+      username, password, rememberMe: $('#rememberMe').checked
+    });
+  } catch (e) {
+    loginWaiting = false;
+    bootHide(true);
+    $('#loginMsg').textContent = e.message;
+    return;
+  }
+  loginWaiting = false;
   if (r.data.requiresTwoFactorAuth) {
     tempSessionId = r.data.tempSessionId;
     twofaKind = r.data.requiresTwoFactorAuth[0] || 'emailOtp';
@@ -464,8 +475,9 @@ $('#loginBtn').addEventListener('click', async () => {
   }
   if (r.data.ok) {
     currentUser = r.data.user;
-    enterMain();
+    enterMain({ fromLogin: true }); // 等待页在用时由 enterMain 接着走完(等数据+首屏头像, 再淡出)
   } else {
+    bootHide(true);
     $('#loginMsg').textContent = r.data.error || '登录失败';
   }
 });
@@ -474,11 +486,22 @@ $('#twofaBtn').addEventListener('click', async () => {
   const code = $('#twofaCode').value.trim();
   if (!code) { $('#twofaMsg').textContent = '请输入验证码'; return; }
   $('#twofaMsg').textContent = '验证中...';
-  const r = await api('POST', '/api/login/2fa', { tempSessionId, code, kind: twofaKind });
+  loginWaiting = true;
+  let r;
+  try {
+    r = await api('POST', '/api/login/2fa', { tempSessionId, code, kind: twofaKind });
+  } catch (e) {
+    loginWaiting = false;
+    bootHide(true);
+    $('#twofaMsg').textContent = e.message;
+    return;
+  }
+  loginWaiting = false;
   if (r.data.ok) {
     currentUser = r.data.user;
-    enterMain();
+    enterMain({ fromLogin: true });
   } else {
+    bootHide(true); // 验证码错: 等待页收掉, 原地报错重试
     $('#twofaMsg').textContent = r.data.error || '验证失败';
   }
 });
@@ -533,21 +556,240 @@ $('#relogin2faCancel').addEventListener('click', () => {
   $('#twofaReloginModal').classList.add('hidden');
 });
 
-function enterMain() {
+function enterMain(opts = {}) {
   showView('main');
   myInfo = currentUser;
   renderSelf();
   $('#logoutBtn').classList.remove('hidden');
-  loadAll();
+  // 登录进来固定看好友监控页, 不恢复上次停在哪(刷新页面才恢复)
+  if (opts.fromLogin) switchTab('tab-friends', { instant: true });
+  const ready = loadAll();
   loadBackendLogs({ tail: 100 }); // 初始日志尾部(SSE 已在登录页/此处建立, 去重+补齐机制防丢行)
   connectEvents();
+  if (bootActive) {
+    // 响应回来了 = 快照已完成: 前三行直接判完成(事件丢了也不会卡住), 第 4 行等主界面数据 + 首屏头像
+    bootMark(0); bootMark(1); bootMark(2);
+    bootPctTarget = 100; // 快照已结束, 百分比收尾到 100(末页事件丢了也不会停在半截)
+    bootWaitReady(ready);
+  }
 }
 
 function loadAll() {
-  loadFriends();
-  loadSettings();
-  loadStatus();
-  loadWsStats();
+  // 返回 Promise 供登录等待页判断"前端就绪"(唯一调用点是 enterMain)
+  return Promise.allSettled([loadFriends(), loadSettings(), loadStatus(), loadWsStats()]);
+}
+
+// ---------- 登录等待页 ----------
+// 时机全部由后端 SSE 决定: 「验证通过」才淡入(不是点提交就出现), 「取到实时连接凭据」点亮第 1 行,
+// 「读到好友名册」点亮第 2 行; 第 3 行按实际拉取条数追赶百分比; 响应回来后才等前端就绪(第 4 行)。
+// 这块展板只读事件、绝不用事件决定跳转 —— 跳转仍由 /api/login 的响应决定,
+// 所以丢事件/断线最坏只是少点亮一格, 不会把人卡在等待页。
+const BOOT_MIN_STEP_MS = 350;   // 每行最短停留: 登录再快也要把这一步放完
+const BOOT_READY_MIN_MS = 900;  // 「等待前端就绪」最少停留(数据/头像再快也别一闪而过)
+const BOOT_READY_MS = 3000;     // 该行总上限: 主界面数据 + 首屏头像, 到点就走
+const BOOT_PCT_STEP_MS = 200;   // 百分比每步间隔(有间隔地跳, 不是一步到位)
+const BOOT_HOLD_DONE_MS = 900;  // 「初始化完成」停留
+const BOOT_FADE_MS = 600;       // 淡出时长(与 CSS .boot-screen.out 一致)
+const BOOT_STEPS = ['bootStep0', 'bootStep1', 'bootStep2', 'bootStep3'];
+let bootActive = false;         // 等待页是否在场(在场时展板才理会进度事件)
+let bootPointer = -1;           // 当前正在跑的是第几行(黄字)
+let bootStepAt = 0;             // 该行开始时间(最短停留用)
+let bootMarks = [false, false, false, false]; // 各行的真实完成标记
+let bootPct = 0;                // 已展示的百分比
+let bootPctTarget = 0;          // 真实百分比(只增不减)
+let bootTimer = null;           // 推进定时器
+let bootPctTimer = null;        // 百分比追赶定时器
+let bootHideTimer = null;       // 淡出收尾定时器
+let bootToken = 0;              // 每次显示自增: 上一轮的异步回调据此作废
+let loginWaiting = false;       // 正在等某个登录请求的响应(只有这时才理会 verified)
+
+function bootSleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+
+// 滚跳(与 WS 计数同款): 旧值向上滚出、新值从下滚入。CJK 不适用 ch 定宽, 由 .roll-wrap 裁剪。
+function rollSwap(el, text) {
+  if (!el || el.textContent === String(text)) return;
+  const wrap = el.parentElement;
+  if (!wrap) { el.textContent = String(text); return; }
+  for (const old of wrap.querySelectorAll(':scope > .roll-old')) old.remove();
+  const old = document.createElement('span');
+  old.className = 'roll-old';
+  old.textContent = el.textContent;
+  el.textContent = String(text);
+  el.getAnimations().forEach((a) => a.cancel()); // 打断进行中的动画, 避免叠加抖动
+  el.classList.remove('roll');
+  void el.offsetWidth;                            // 强制重排, 重启动画
+  el.classList.add('roll');
+  wrap.appendChild(old);
+  old.addEventListener('animationend', () => old.remove(), { once: true });
+  setTimeout(() => old.remove(), 600);            // 兜底: 动画被打断也不会留下残留层
+}
+
+function bootShow() {
+  if (bootActive) return;
+  bootActive = true;
+  bootToken++;
+  bootPointer = 0;
+  bootStepAt = Date.now();
+  bootMarks = [false, false, false, false];
+  bootPct = 0;
+  bootPctTarget = 0;
+  $('#bootPct').textContent = '';
+  $('#bootStep3 .boot-val').textContent = ''; // 上一轮留下的"头像 x/y"要清掉
+  $('#bootTitle').textContent = '正在初始化';
+  $('#bootTitleWrap').classList.remove('done');
+  for (const id of BOOT_STEPS) $('#' + id).classList.remove('on', 'ok');
+  $('#' + BOOT_STEPS[0]).classList.add('on');
+  const scr = $('#bootScreen');
+  scr.classList.remove('hidden', 'out');
+  void scr.offsetWidth; // 强制重排: 让 opacity 过渡从 0 开始
+  scr.classList.add('show');
+  if (!bootTimer) bootTimer = setInterval(bootTick, 60);
+}
+
+function bootHide(immediate) {
+  if (!bootActive) return;
+  bootActive = false;
+  bootToken++;
+  if (bootTimer) { clearInterval(bootTimer); bootTimer = null; }
+  if (bootPctTimer) { clearInterval(bootPctTimer); bootPctTimer = null; }
+  if (bootHideTimer) { clearTimeout(bootHideTimer); bootHideTimer = null; }
+  const scr = $('#bootScreen');
+  scr.classList.remove('show');
+  const finish = () => { scr.classList.add('hidden'); scr.classList.remove('out'); };
+  if (immediate) { finish(); return; }
+  scr.classList.add('out');
+  bootHideTimer = setTimeout(finish, BOOT_FADE_MS);
+}
+
+function bootMark(i) { bootMarks[i] = true; }
+
+function bootPercent(fetched, total) {
+  const t = total > 0 ? (fetched / total) * 100 : 0;
+  bootPctTarget = Math.max(bootPctTarget, Math.min(100, t));
+}
+
+// 推进: 当前行"真做完了 && 停够最短时间(第 3 行还要等百分比动画追平)"才转绿, 下一行转黄
+function bootTick() {
+  if (!bootActive) return;
+  const i = bootPointer;
+  if (i < 0 || i > 3) return;
+  if (!bootMarks[i]) return;
+  if (Date.now() - bootStepAt < BOOT_MIN_STEP_MS) return;
+  if (i === 2 && bootPct < bootPctTarget) return;
+  $('#' + BOOT_STEPS[i]).classList.remove('on');
+  $('#' + BOOT_STEPS[i]).classList.add('ok');
+  bootPointer = i + 1;
+  bootStepAt = Date.now();
+  if (bootPointer > 3) { bootDone(); return; }
+  $('#' + BOOT_STEPS[bootPointer]).classList.add('on');
+  if (bootPointer === 2) bootPctStart();
+}
+
+function bootPctStart() {
+  if (bootPctTimer) return;
+  rollSwap($('#bootPct'), '0%');
+  bootPctTimer = setInterval(() => {
+    if (!bootActive) { clearInterval(bootPctTimer); bootPctTimer = null; return; }
+    if (bootPct >= bootPctTarget) return;
+    const step = Math.max(1, Math.ceil((bootPctTarget - bootPct) / 4)); // 分几步追上, 有间隔地跳
+    bootPct = Math.min(bootPctTarget, bootPct + step);
+    rollSwap($('#bootPct'), Math.round(bootPct) + '%');
+  }, BOOT_PCT_STEP_MS);
+}
+
+async function bootDone() {
+  if (!bootActive) return;
+  const tok = bootToken;
+  rollSwap($('#bootTitle'), '初始化完成');
+  $('#bootTitleWrap').classList.add('done'); // 大字转绿
+  await bootSleep(BOOT_HOLD_DONE_MS);
+  if (tok !== bootToken || !bootActive) return;
+  // 淡出的同时重放整页入场动画(概览条/页签/卡片/好友行), 就是刷新页面那套观感
+  replayPageEntrance();
+  bootHide();
+}
+
+// 快照已完成: 等主界面数据 + 首屏可见头像, 先到先走, 最多 BOOT_READY_MS;
+// 但这一步本身至少停 BOOT_READY_MIN_MS, 否则快的时候一眨眼就过去了
+async function bootWaitReady(dataPromise) {
+  if (!bootActive) return;
+  const tok = bootToken;
+  const startedAt = Date.now();
+  const deadline = startedAt + BOOT_READY_MS;
+  const val = $('#bootStep3 .boot-val');
+  try { await dataPromise; } catch (e) { /* 接口失败也照走, 到点即放行 */ }
+  if (tok !== bootToken || !bootActive) return;
+  // 头像逐个落定: 把"在等什么"显示出来, 否则这一步看不出在等
+  await waitImages(firstScreenAvatars(), Math.max(0, deadline - Date.now()), (done, total) => {
+    if (tok !== bootToken) return;
+    val.textContent = '头像 ' + done + '/' + total;
+  });
+  if (tok !== bootToken || !bootActive) return;
+  const rest = BOOT_READY_MIN_MS - (Date.now() - startedAt);
+  if (rest > 0) await bootSleep(rest);
+  if (tok !== bootToken || !bootActive) return;
+  bootMark(3);
+}
+
+// 首屏可见的头像: 折叠分组里的 <img loading=lazy> 浏览器根本不会请求, 不能算进来
+function firstScreenAvatars() {
+  const vh = window.innerHeight || 800;
+  const out = [];
+  for (const img of document.querySelectorAll('#friendsList img.avatar')) {
+    if (img.closest('.group-body.collapsed')) continue;
+    const r = img.getBoundingClientRect();
+    if (!r.width || !r.height) continue;
+    if (r.top > vh + 120) break; // DOM 顺序即从上到下
+    if (r.bottom > -120) out.push(img);
+  }
+  return out;
+}
+
+function waitImages(imgs, ms, onTick) {
+  return new Promise((resolve) => {
+    if (!imgs.length || ms <= 0) { resolve(); return; }
+    const total = imgs.length;
+    let settledCount = 0;
+    let finished = false;
+    const timer = setTimeout(() => { finished = true; resolve(); }, ms); // 超时兜底: 慢图不等了
+    const one = () => {
+      settledCount++;
+      if (onTick) onTick(settledCount, total);
+      if (settledCount >= total && !finished) { finished = true; clearTimeout(timer); resolve(); }
+    };
+    for (const img of imgs) {
+      if (img.complete) { one(); continue; } // 已在缓存里: 立即算落定, 也要计数
+      img.addEventListener('load', one, { once: true });
+      img.addEventListener('error', one, { once: true });
+    }
+  });
+}
+
+// 淡出时重放整页入场: 概览条/页签/卡片靠重启 CSS 动画, 好友行靠重新编号 .enter
+function replayPageEntrance() {
+  const targets = [];
+  for (const sel of ['#mainView .overview-item', '#mainView .tabs', '#mainView .card', '.site-mark']) {
+    targets.push(...document.querySelectorAll(sel));
+  }
+  for (const el of targets) el.style.animation = 'none';
+  const list = $('#friendsList');
+  list.querySelectorAll('.enter').forEach((el) => el.classList.remove('enter'));
+  void document.body.offsetWidth; // 一次强制重排, 让上面的清零生效(动画才会从头播)
+  for (const el of targets) el.style.animation = '';
+  markFriendsEntrance();
+}
+
+// SSE 进度事件 → 展板。只认语义阶段, 不绑具体 HTTP 请求(两条登录路的请求序列不一样)
+function bootProgress(d) {
+  if (!d || !d.stage) return;
+  if (d.stage === 'verified') {
+    if (loginWaiting) bootShow(); // 淡入时机: 凭据已验证+拿到用户信息, 不是点提交时
+    return;
+  }
+  if (!bootActive) return; // 主界面上的 auth(WS 重连)之类一律忽略
+  if (d.stage === 'auth') bootMark(0);
+  else if (d.stage === 'roster') bootMark(1);
+  else if (d.stage === 'friends') bootPercent(d.fetched, d.total);
 }
 
 // ---------- 好友与监控配置 ----------
@@ -1539,6 +1781,12 @@ function connectEvents() {
     if (lastLogSeq != null) loadBackendLogs({ after: lastLogSeq });
     loadWsStats();
   };
+  // 登录进度(后端在验证通过/取凭据/读名册/拉好友各阶段推送): 等待页照它逐行点亮
+  evt.addEventListener('login-progress', (e) => {
+    let d = null;
+    try { d = JSON.parse(e.data); } catch (err) { return; /* 忽略异常帧 */ }
+    bootProgress(d);
+  });
   // 事件驱动 UI 刷新(状态渲染已由 'status' 推送, 这里只刷新数据列表)
   evt.addEventListener('notification', () => { scheduleNotifyRefresh(); });
   evt.addEventListener('snapshot', () => { loadFriends(); });
