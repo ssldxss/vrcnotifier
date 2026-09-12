@@ -166,6 +166,20 @@ test('sweep 按 mtime 清理过期文件, 保留近期访问的', async () => {
   assert.equal(fs.existsSync(freshP), true);
 });
 
+test('sweep 也会清掉过期的临时文件', () => {
+  const dir = tmpDir();
+  const c = createAvatarCache({ dir, ttlMs: 1000 });
+  const stale = path.join(dir, '.file_x_1_128.999.111.tmp'); // 崩溃遗留: 正常只活到 rename 为止
+  const fresh = path.join(dir, '.file_y_1_128.999.222.tmp');
+  fs.writeFileSync(stale, 'X');
+  fs.writeFileSync(fresh, 'Y');
+  const old = new Date(Date.now() - 5000);
+  fs.utimesSync(stale, old, old);
+  assert.equal(c.sweep(), 1);
+  assert.equal(fs.existsSync(stale), false, '过期的临时文件应被清掉');
+  assert.equal(fs.existsSync(fresh), true, '没过期的不动');
+});
+
 test('touchPath 续期后 sweep 不删', async () => {
   const dir = tmpDir();
   const c = createAvatarCache({ dir, ttlMs: 1000, fetchImpl: imgFetch() });
@@ -176,6 +190,18 @@ test('touchPath 续期后 sweep 不删', async () => {
   assert.equal(c.touchPath(p), true, '访问应刷新 mtime');
   assert.equal(c.sweep(), 0);
   assert.equal(fs.existsSync(p), true);
+});
+
+test('clear 删掉目录里的全部内容, 目录本身保留', () => {
+  const dir = tmpDir();
+  const c = createAvatarCache({ dir });
+  fs.writeFileSync(path.join(dir, KEY), 'A');
+  fs.writeFileSync(path.join(dir, '.file_x_1_128.123.456.tmp'), 'B'); // 崩溃遗留的临时文件
+  fs.mkdirSync(path.join(dir, 'sub'));
+  fs.writeFileSync(path.join(dir, 'sub', 'inner'), 'C');
+  assert.equal(c.clear(), 3, '点文件与子目录也要算进去');
+  assert.deepEqual(fs.readdirSync(dir), [], '目录应被清空');
+  assert.equal(fs.existsSync(dir), true, '目录本身要保留');
 });
 
 test('缓存文件数超过上限时淘汰最旧的', async () => {

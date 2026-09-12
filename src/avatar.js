@@ -165,13 +165,13 @@ function createAvatarCache({ dir, logger = null, fetchImpl = fetch, userAgent = 
     return removed;
   }
 
-  // 清理超过 ttl 未访问(按 mtime)的缓存文件
+  // 清理超过 ttl 未访问(按 mtime)的缓存文件。点文件(原子写盘的临时文件)一视同仁:
+  // 临时文件正常只活到 rename 为止, 超过 ttl 还留着的必然是崩溃遗留。
   function sweep() {
     ensureDir();
     const now = Date.now();
     let removed = 0;
     for (const name of fs.readdirSync(dir)) {
-      if (name.startsWith('.')) continue;
       const p = path.join(dir, name);
       let st;
       try { st = fs.statSync(p); } catch (e) { continue; }
@@ -184,13 +184,14 @@ function createAvatarCache({ dir, logger = null, fetchImpl = fetch, userAgent = 
     return removed;
   }
 
-  // 清空全部缓存文件(登出"清除缓存"用)
+  // 清空缓存目录的全部内容(登出"清除缓存"用): 目录本身保留, 里面递归删干净。
+  // 保留目录是为了不留「目录短暂不存在」的窗口 —— 并发中的下载正往这里写临时文件。
   function clear() {
     ensureDir();
     let removed = 0;
     for (const name of fs.readdirSync(dir)) {
-      if (name.startsWith('.')) continue;
-      try { fs.unlinkSync(path.join(dir, name)); removed++; } catch (e) { /* 跳过无法删除的文件 */ }
+      try { fs.rmSync(path.join(dir, name), { recursive: true, force: true }); removed++; }
+      catch (e) { log.warn(`[avatar] 清空失败 ${name}: ${e.message}`); }
     }
     if (removed > 0) log.info(`[avatar] 已清空缓存 ${removed} 个`);
     return removed;

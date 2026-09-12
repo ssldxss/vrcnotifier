@@ -482,6 +482,8 @@ test('logout with clearFriends/clearCache clears all data except settings and wo
   ctx.db.upsertWorldCache('wrld_1', '世界一');
   const avatarFile = path.join(ctx.avatarCache.dir, 'file_test_1_128');
   fs.writeFileSync(avatarFile, 'fake-image');
+  const avatarTmp = path.join(ctx.avatarCache.dir, '.file_test_1_128.999.111.tmp');
+  fs.writeFileSync(avatarTmp, 'leftover'); // 崩溃遗留的临时文件
   const r = await post(ctx, '/api/logout', { clearFriends: true, clearCache: true });
   assert.equal(r.data.ok, true);
   assert.equal(ctx.db.listFriends(dbId).length, 0, '好友数据已清除');
@@ -492,6 +494,7 @@ test('logout with clearFriends/clearCache clears all data except settings and wo
   assert.equal(ctx.db.getSetting('qq_enabled'), '1', '设置表保留');
   assert.equal(ctx.db.getWorldCache('wrld_1'), null, '世界名缓存已清除');
   assert.equal(fs.existsSync(avatarFile), false, '头像缓存文件已清除');
+  assert.equal(fs.existsSync(avatarTmp), false, '临时文件也要清除');
 });
 
 test('logout without clear options keeps all data', async (t) => {
