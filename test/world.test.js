@@ -174,6 +174,52 @@ test('world: 成功后缓存新鲜, 再要不会重复请求', async () => {
   assert.equal(t.calls.length, 1);
 });
 
+// ---------- 公开响应里没有名称(合法但无名字) ----------
+
+test('world: name 是空串时用世界编号兜底, 不重试也不升级冷却', async () => {
+  const t = harness();
+  let calls = 0;
+  t.setImpl(async (id) => { calls++; return { id, name: '' }; });
+
+  assert.equal(await t.wn.get('wrld_noname'), 'wrld_noname', '空名字用世界编号兜底, 便于区分');
+  assert.equal(calls, 1, '空串是合法响应, 不该重试');
+  assert.deepEqual(t.sleeps, [], '不该等 500ms 再打一次');
+  assert.equal(t.db.getWorldCache('wrld_noname').world_name, 'wrld_noname', '缓存里存的就是编号');
+  assert.ok(!/失败/.test(t.warns().join('\n')), '不算失败, 不该记 warn');
+  assert.deepEqual(t.events, [{ name: 'world-name', payload: { worldId: 'wrld_noname', worldName: 'wrld_noname' } }],
+    '兜底编号也推 SSE, 前端那行随之显示编号');
+
+  assert.equal(t.wn.peek('wrld_noname'), 'wrld_noname', 'peek 也能拿到兜底值');
+  await t.wn.get('wrld_noname');
+  assert.equal(calls, 1, '后续走缓存, 不再打请求');
+});
+
+test('world: 空名字的兜底编号也按 1 小时缓存, 过期后重查能拿到真名', async () => {
+  const t = harness();
+  let calls = 0;
+  t.setImpl(async (id) => { calls++; return { id, name: '' }; });
+  assert.equal(await t.wn.get('wrld_noname'), 'wrld_noname');
+
+  t.advance(60 * 60 * 1000 - 1);
+  assert.equal(await t.wn.get('wrld_noname'), 'wrld_noname');
+  assert.equal(calls, 1, '1 小时内走缓存');
+
+  // VRChat 后来把名字补上了 → 过期重查就能刷新
+  t.setImpl(async (id) => { calls++; return { id, name: '终于有名字了' }; });
+  t.advance(2);
+  assert.equal(await t.wn.get('wrld_noname'), '终于有名字了', '名字补上后能刷新');
+  assert.equal(calls, 2);
+});
+
+test('world: name 是全空白也按无名字处理, 同样用编号兜底', async () => {
+  const t = harness();
+  let calls = 0;
+  t.setImpl(async (id) => { calls++; return { id, name: '   ' }; });
+  assert.equal(await t.wn.get('wrld_blank'), 'wrld_blank');
+  assert.equal(calls, 1, '全空白也算没有名字, 不重试');
+  assert.equal(t.db.getWorldCache('wrld_blank').world_name, 'wrld_blank', '缓存编号而不是空白');
+});
+
 // ---------- 404 / 403 ----------
 
 test('world: 失败后进冷却, 冷却期内重复调用立即返回且 0 请求', async () => {

@@ -8,6 +8,7 @@
 //
 // 不负责等待: get() 最多做一次尝试(网络抖动时多试一次)就返回, 不会长时间挂起;
 //              需要更短时限的需求方自己 race(超时后用 peek() 取旧名字兜底)。
+// 名字缺失: 响应里没有 name 字段才算异常; 空名字直接用世界编号入库(照常按 TTL 缓存)。
 // 失败不挂着重试: 世界名是"即时请求", 晚报到的结果没有消费者 —— 等到 5 秒、10 秒后
 //              再重试时调用方早走了。所以改为把"多久之后才允许再问"做指数退避:
 //              同一个世界连续失败 → 冷却 5min→10min→20min→…→1h 封顶, 成功一次即归零;
@@ -206,8 +207,14 @@ function createWorldName(opts = {}) {
     for (;;) {
       try {
         const w = await schedule(() => doFetch(worldId));
-        const name = w && w.name ? String(w.name) : null;
-        if (!name) throw Object.assign(new Error('世界信息缺少名称字段'), { status: -2 });
+        // 只有"响应里没有 name 字段"才算异常(重试一次); 空串/空白是【合法但无名字】——
+        // VRChat 对个别世界(即使 releaseStatus=public)的公开响应就是空名字, 重试也不会变
+        if (!w || w.name === undefined || w.name === null) {
+          throw Object.assign(new Error('世界信息缺少名称字段'), { status: -2 });
+        }
+        // 空名字直接用世界编号入库(与 VRCX 的 worldName || worldId 一致), 照常按 TTL 缓存
+        const raw = String(w.name);
+        const name = raw.trim() === '' ? worldId : raw;
         db.upsertWorldCache(worldId, name, now());
         negative.delete(worldId);
         log.debug(`[world] 世界名获取成功 worldId=${worldId} name=${name} 耗时=${now() - startedAt}ms`);
