@@ -337,8 +337,8 @@ function tmpDb() {
 function seedDb(dbPath) {
   const db = createDb(dbPath);
   const uid = db.upsertUser('usr_me', { username: 'me', displayName: '我' });
-  db.upsertFriend(uid, 'usr_f1', { displayName: 'F1', state: 'online' });
-  db.setFriendConfig(uid, 'usr_f1', { favorite: true, notifyOnline: true });
+  db.upsertFriend('usr_f1', { displayName: 'F1', state: 'online' });
+  db.setFriendConfig('usr_f1', { favorite: true, notifyOnline: true });
   db.upsertQqBinding({ appId: 'app1', openid: 'openid_keep', nickname: '小明', at: 7 });
   db.updateGlobalSettings({ qq_enabled: 1, qq_app_id: 'app1', qq_app_secret: 'sec', notify_boop: 1 });
   db.setSetting('access_token', 'tok-keep');
@@ -378,7 +378,7 @@ test('数据被清到只剩设置(QQ 配置 + 登录凭据)后, 重启仍能正�
   assert.equal(runtime.db.getGlobalSettings().notify_boop, 1, '全局通知设置还在');
   assert.equal(runtime.db.getQqBinding('app1'), null, 'QQ 绑定属于数据, 已随表清掉');
   assert.equal(runtime.db.listUsers().length, 0, '用户已清空');
-  assert.equal(runtime.db.listFriends(1).length, 0, '好友已清空');
+  assert.equal(runtime.db.listFriends().length, 0, '好友已清空');
 
   // schema 是新形状: 配置列在 friends 上, monitor_config 已经不存在
   const chk = new DatabaseSync(dbPath, { readOnly: true });
@@ -412,9 +412,9 @@ test('数据表被整个删掉后, 重启会重建 schema 并继续可用', asyn
 
   // 重建出来的表可正常读写
   const uid = runtime.db.upsertUser('usr_new', { username: 'n', displayName: 'N' });
-  runtime.db.upsertFriend(uid, 'usr_n1', { displayName: 'N1', state: 'online' });
-  runtime.db.setFriendConfig(uid, 'usr_n1', { notifyOnline: true });
-  assert.equal(runtime.db.getFriend(uid, 'usr_n1').notify_online, 1, '重建后好友配置可写可读');
+  runtime.db.upsertFriend('usr_n1', { displayName: 'N1', state: 'online' });
+  runtime.db.setFriendConfig('usr_n1', { notifyOnline: true });
+  assert.equal(runtime.db.getFriend('usr_n1').notify_online, 1, '重建后好友配置可写可读');
   runtime.db.upsertQqBinding({ appId: 'app2', openid: 'o2', nickname: 'n2', at: 9 });
   assert.equal(runtime.db.getQqBinding('app2').openid, 'o2', '重建后 QQ 绑定可写可读');
 });

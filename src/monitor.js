@@ -298,7 +298,7 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
   async function dispatchNotification(user, friendVrcId, change) {
     if (!change) return;
     // 无总开关: 所有好友可被监控; 配置就存在好友行上, 新好友默认全 0(不通知)
-    const friend = db.getFriend(user.id, friendVrcId);
+    const friend = db.getFriend(friendVrcId);
     if (!friend) return;
     if (change.notifyField && friend[change.notifyField] !== 1) return;
 
@@ -394,7 +394,7 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
     if (db.isDuplicate(key, dedupeWindowMs, now())) return;
     db.markNotified(key, now());
 
-    let sender = n.senderUserId ? (db.getFriend(user.id, n.senderUserId) || {}).display_name || n.senderUserId : 'VRChat';
+    let sender = n.senderUserId ? (db.getFriend(n.senderUserId) || {}).display_name || n.senderUserId : 'VRChat';
     const rawCategory = kinds[0] || kinds[1] || '';
     const title = n.title || categoryLabel(rawCategory) || 'VRChat通知';
     const message = n.message || '';
@@ -494,7 +494,7 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
     }
     bucket.friends.add(friendVrcId);
     // deadline 以库里的 pending_at 为准(重挂时保持原始到期点, 不随每轮 me() 扫描顺延)
-    const friend = db.getFriend(user.id, friendVrcId);
+    const friend = db.getFriend(friendVrcId);
     const pendingAt = friend && friend.pending_at ? friend.pending_at : now();
     if (bucket.oldestPendingAt === null || pendingAt < bucket.oldestPendingAt) bucket.oldestPendingAt = pendingAt;
     if (bucket.timer) clearTimeout(bucket.timer);
@@ -540,8 +540,8 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
     };
     for (const id of friendIds) {
       if (isDeleted(id)) {
-        const f = db.getFriend(user.id, id);
-        db.deleteFriend(user.id, id);
+        const f = db.getFriend(id);
+        db.deleteFriend(id);
         clearPendingCheck(user, id);
         log.info(`[monitor] pending 验证 ${id}${f && f.display_name ? `(${f.display_name})` : ''}: 不在好友名册, 视为已删除好友, 已移除记录`);
         continue;
@@ -569,10 +569,10 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
   async function applyFriendInput(user, friendVrcId, input, opts = {}) {
     // 头像统一走 /api/1/image/ 缩略图: 优先显式缩略图 URL, 缺失时由原图 URL 转换
     const thumbUrl = input.avatarThumbUrl || null;
-    const existed = db.getFriend(user.id, friendVrcId);
+    const existed = db.getFriend(friendVrcId);
     if (!existed) {
       // 首见: 直接按当前情况入库, 不比较不通知(变化才有通知)
-      db.upsertFriend(user.id, friendVrcId, {
+      db.upsertFriend(friendVrcId, {
         state: input.state || 'offline', status: input.status || null,
         worldId: input.worldId || null, worldName: input.worldName || null,
         instanceId: input.instanceId ?? null,
@@ -587,7 +587,7 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
     if (input.displayName !== undefined || input.avatarUrl !== undefined || input.avatarThumbUrl !== undefined || input.trustLevel !== undefined) {
       db.updateFriendProfile(existed.id, { displayName: input.displayName, avatarUrl: input.avatarUrl, avatarThumbUrl: thumbUrl, trustLevel: input.trustLevel });
     }
-    const cur = db.getFriend(user.id, friendVrcId);
+    const cur = db.getFriend(friendVrcId);
     // 世界名不再入库: 状态机要的"旧世界名"从世界名缓存同步取(peek, 不发请求);
     // private 是哨兵值, 缓存里没有, 就地写死
     const result = applyChange({ ...cur, worldName: prevWorldName(cur.world_id) }, {
@@ -708,7 +708,7 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
         case 'friend-location': {
           const id = content.user?.id || content.userId;
           const loc = parseLocation(content.location);
-          const existing = db.getFriend(user.id, id);
+          const existing = db.getFriend(id);
           const traveling = content.location === 'traveling';
           const worldId = loc.isReal ? loc.worldId : (content.location === 'private' ? 'private' : (traveling && existing ? existing.world_id : null));
           const worldName = worldId === 'private' ? '私密世界'
@@ -727,7 +727,7 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
         case 'friend-update': {
           const u = content.user;
           if (!u || !u.id) break;
-          const existing = db.getFriend(user.id, u.id);
+          const existing = db.getFriend(u.id);
           const loc = u.location !== undefined ? parseLocation(u.location) : null;
           const world = loc && !loc.isReal && u.location === 'private' ? { worldId: 'private', worldName: '私密世界' } : {};
           // 实例号: 真实实例更新, private 清空, traveling/缺省保留旧值(undefined)
@@ -796,8 +796,8 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
         }
         case 'friend-delete': {
           const id = content.userId;
-          const f = db.getFriend(user.id, id);
-          db.deleteFriend(user.id, id);
+          const f = db.getFriend(id);
+          db.deleteFriend(id);
           clearPendingCheck(user, id); // 已删好友不再参与 pending 到期验证
           log.info(`[monitor] 好友 ${f && f.display_name ? `${f.display_name}(${id})` : id} 已删除, 已移除记录`);
           break;
@@ -962,7 +962,7 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
             continue;
           }
           const loc = parseLocation(f.location);
-          const existingForTravel = db.getFriend(user.id, id);
+          const existingForTravel = db.getFriend(id);
           const worldId = loc.isReal ? loc.worldId : (f.location === 'private' ? 'private' : (f.location === 'traveling' && existingForTravel ? existingForTravel.world_id : null));
           // 快照不查世界名(按需查询): 只同步看一眼缓存里现有的名字
           const worldName = worldId === 'private' ? '私密世界'
@@ -1000,10 +1000,10 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
       if (arraysOk) {
         const known = new Set(friendIds);
         const rosterOk = Array.isArray(currentUser.friends);
-        for (const f of db.listFriends(user.id)) {
+        for (const f of db.listFriends()) {
           if (known.has(f.friend_vrchat_id)) continue;
           if (rosterOk) {
-            db.deleteFriend(user.id, f.friend_vrchat_id);
+            db.deleteFriend(f.friend_vrchat_id);
             clearPendingCheck(user, f.friend_vrchat_id);
             log.info(`[monitor] 快照对账 ${f.friend_vrchat_id}${f.display_name ? `(${f.display_name})` : ''} 不在好友名册, 视为已删除好友, 已移除记录`);
           } else {

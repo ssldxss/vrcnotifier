@@ -281,7 +281,7 @@ test('世界名按需查询: 读接口不等名字, 查到后走 world-name SSE 
   const login = await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: false });
   assert.equal(login.status, 200);
   assert.equal(worldCalls, 0, '登录/首屏快照阶段不查世界名');
-  assert.equal(ctx.db.getFriend(ctx.db.getUserByVrcId('usr_me').id, 'usr_f1').world_id, 'wrld_a');
+  assert.equal(ctx.db.getFriend('usr_f1').world_id, 'wrld_a');
 
   // 先连上 SSE, 再触发读接口
   const pending = sseOnce(ctx, 'world-name');
@@ -442,6 +442,19 @@ test('login with plain 429 returns rate-limit guidance', async (t) => {
   assert.equal(r.data.error, '登录过于频繁/失败过多, 请稍后再试');
 });
 
+test('换账号登录: 名册拿不到时也不会把上一个账号的好友留下', async (t) => {
+  const ctx = setup({ onlineFriends: [{ id: 'usr_f1', displayName: 'F1', location: 'wrld_a:1', status: 'active' }] });
+  t.after(() => close(ctx));
+  await post(ctx, '/api/login', { username: 'me', password: 'pw' });
+  assert.equal(ctx.db.listFriends().length, 1, '第一个账号的好友已入库');
+  // 同一个进程里直接登录另一个账号(没有先登出)
+  ctx.vrcapi.login = async () => ({ id: 'usr_other', displayName: '别人', currentAvatarImageUrl: null });
+  // 新账号的名册缺失: 快照「数据不全不判删」, 此时只能靠登录时的守卫
+  ctx.vrcapi.me = async () => ({ id: 'usr_other', displayName: '别人', onlineFriends: [], activeFriends: [], offlineFriends: [] });
+  await post(ctx, '/api/login', { username: 'other', password: 'pw' });
+  assert.equal(ctx.db.listFriends().length, 0, '上一个账号的好友不该留给新账号');
+});
+
 test('logout deactivates session and clears saved cookies', async (t) => {
   const ctx = setup();
   t.after(() => close(ctx));
@@ -471,8 +484,8 @@ test('登出必删账号数据(好友含配置/用户/去重); 勾缓存清缓�
   t.after(() => close(ctx));
   await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: true });
   const dbId = ctx.db.getUserByVrcId('usr_me').id;
-  ctx.db.upsertFriend(dbId, 'usr_f1', { displayName: 'F1', state: 'online' });
-  ctx.db.setFriendConfig(dbId, 'usr_f1', { favorite: true });
+  ctx.db.upsertFriend('usr_f1', { displayName: 'F1', state: 'online' });
+  ctx.db.setFriendConfig('usr_f1', { favorite: true });
   ctx.db.upsertQqBinding({ appId: 'app1', openid: 'open1' });
   ctx.db.markNotified('k1', 999999);
   ctx.db.setSetting('qq_enabled', '1');
@@ -484,8 +497,8 @@ test('登出必删账号数据(好友含配置/用户/去重); 勾缓存清缓�
   fs.writeFileSync(avatarTmp, 'leftover'); // 崩溃遗留的临时文件
   const r = await post(ctx, '/api/logout', { clearCache: true });
   assert.equal(r.data.ok, true);
-  assert.equal(ctx.db.listFriends(dbId).length, 0, '好友必删, 不需要勾选');
-  assert.equal(ctx.db.getFriend(dbId, 'usr_f1'), null, '好友连它的配置一起清除');
+  assert.equal(ctx.db.listFriends().length, 0, '好友必删, 不需要勾选');
+  assert.equal(ctx.db.getFriend('usr_f1'), null, '好友连它的配置一起清除');
   assert.equal(ctx.db.listUsers().length, 0, '用户必删');
   assert.equal(ctx.db.isDuplicate('k1', 60000, 1000000), false, '通知去重必删');
   assert.equal(ctx.db.getWorldCache('wrld_1'), null, '世界名缓存已清除');
@@ -501,12 +514,12 @@ test('登出不做任何勾选: 账号数据照样删, 缓存与设置留着', a
   t.after(() => close(ctx));
   await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: true });
   const dbId = ctx.db.getUserByVrcId('usr_me').id;
-  ctx.db.upsertFriend(dbId, 'usr_f1', { displayName: 'F1', state: 'online' });
+  ctx.db.upsertFriend('usr_f1', { displayName: 'F1', state: 'online' });
   ctx.db.upsertQqBinding({ appId: 'app1', openid: 'open1' });
   ctx.db.setSetting('qq_enabled', '1');
   ctx.db.upsertWorldCache('wrld_1', '世界一');
   await post(ctx, '/api/logout', {});
-  assert.equal(ctx.db.listFriends(dbId).length, 0, '好友必删(不再需要勾选)');
+  assert.equal(ctx.db.listFriends().length, 0, '好友必删(不再需要勾选)');
   assert.equal(ctx.db.listUsers().length, 0, '用户必删');
   assert.equal(ctx.db.getSetting('qq_enabled'), '1', '设置留着');
   assert.ok(ctx.db.getQqBinding('app1'), 'QQ 绑定留着');
@@ -644,9 +657,8 @@ test('saving cookies for another user replaces the previous saved cookie', async
   // 换一个账号登录
   ctx.vrcapi.login = async () => ({ id: 'usr_B', displayName: 'B', currentAvatarImageUrl: null });
   await post(ctx, '/api/login', { username: 'other', password: 'pw', rememberMe: true });
-  const a = ctx.db.getUserByVrcId('usr_me');
-  assert.equal(a.cookie_data, null);
-  assert.equal(a.remember_me, 0);
+  // 换账号时旧账号整行被清除(比逐列置空更彻底): 全局只留一个账号的数据
+  assert.equal(ctx.db.getUserByVrcId('usr_me'), null, '旧账号的行已清除');
   const b = ctx.db.getUserByVrcId('usr_B');
   assert.ok(b.cookie_data);
   assert.equal(b.remember_me, 1);

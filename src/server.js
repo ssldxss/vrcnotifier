@@ -192,6 +192,14 @@ function createApp({
       current = null;
     }
     const userId = currentUser.id;
+    // 好友是全局的(不带账号列), 所以库里那份好友属于谁只能看 users 表:
+    // 表里已经坐着别的账号, 说明这批好友不属于现在登录的人, 先清掉再拉新的。
+    // 正常换账号会先登出(登出已清), 这道是兜底 —— 尤其是新账号名册拿不到时,
+    // 快照「数据不全不判删」不会清理, 只能靠这里。
+    if (db.listUsers().length > 0 && !db.getUserByVrcId(userId)) {
+      const wiped = db.clearAccountData();
+      log.info(`[server] 登录账号与库中数据不符(${userId}), 已清除上一个账号的数据: 好友 ${wiped.friends}, 去重 ${wiped.dedupe}, 用户 ${wiped.users}`);
+    }
     const dbId = db.upsertUser(userId, {
       username,
       displayName: currentUser.displayName || null,
@@ -818,7 +826,7 @@ function createApp({
 
   app.get('/api/friends', (req, res) => {
     if (!current) return res.status(401).json({ error: '未登录' });
-    const rows = db.listFriends(current.dbId);
+    const rows = db.listFriends();
     kickWorldNames(rows);
     const friends = rows.map(friendRow);
     return res.json({ ok: true, friends });
@@ -868,14 +876,14 @@ function createApp({
     app.put('/api/friends/:friendId/config', (req, res) => {
     if (!current) return res.status(401).json({ error: '未登录' });
     const body = req.body || {};
-    db.setFriendConfig(current.dbId, req.params.friendId, {
+    db.setFriendConfig(req.params.friendId, {
       favorite: !!body.favorite,
       notifyOnline: body.notifyOnline !== undefined ? !!body.notifyOnline : true,
       notifyOffline: body.notifyOffline !== undefined ? !!body.notifyOffline : true,
       notifyStatusChange: body.notifyStatusChange !== undefined ? !!body.notifyStatusChange : true,
       notifyWorldChange: body.notifyWorldChange !== undefined ? !!body.notifyWorldChange : true
     });
-    const cfg = db.getFriend(current.dbId, req.params.friendId);
+    const cfg = db.getFriend(req.params.friendId);
     log.debug(`[server] 更新监控配置: 好友=${(cfg && cfg.display_name) || req.params.friendId}, 特别关注=${cfg ? (cfg.favorite ? '开' : '关') : '?'}, 上线=${cfg ? cfg.notify_online : '?'}, 下线=${cfg ? cfg.notify_offline : '?'}, 状态=${cfg ? cfg.notify_status_change : '?'}, 世界=${cfg ? cfg.notify_world_change : '?'}`);
     return res.json({ ok: true, config: configOf(cfg) });
   });

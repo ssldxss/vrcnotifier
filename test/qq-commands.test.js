@@ -92,8 +92,8 @@ function fakeWorldName(names = {}) {
 test('createQqCommands: 任意输入都直接输出在线列表', async () => {
   const db = createDb(':memory:');
   const id = db.upsertUser('usr_me', { username: 'me', displayName: '我', avatarUrl: null });
-  db.upsertFriend(id, 'usr_a', { displayName: 'Alice', state: 'online', status: 'active', worldId: 'wrld_x' });
-  db.upsertFriend(id, 'usr_b', { displayName: 'Bob', state: 'offline', status: 'busy', worldId: null });
+  db.upsertFriend('usr_a', { displayName: 'Alice', state: 'online', status: 'active', worldId: 'wrld_x' });
+  db.upsertFriend('usr_b', { displayName: 'Bob', state: 'offline', status: 'busy', worldId: null });
   const svc = fakeWorldName({ wrld_x: 'WorldX' });
   const handler = createQqCommands({ db, logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} }, worldName: svc });
   // 任意输入都直接输出在线列表(首次提示由绑定消息承担)
@@ -112,8 +112,8 @@ test('createQqCommands: 任意输入都直接输出在线列表', async () => {
 test('createQqCommands: 世界名等不到时先用占位符出结果, 不拖住回复', async () => {
   const db = createDb(':memory:');
   const id = db.upsertUser('usr_me', { username: 'me', displayName: '我', avatarUrl: null });
-  db.upsertFriend(id, 'usr_a', { displayName: 'Alice', state: 'online', status: 'active', worldId: 'wrld_slow' });
-  db.upsertFriend(id, 'usr_b', { displayName: 'Bob', state: 'online', status: 'active', worldId: 'private' });
+  db.upsertFriend('usr_a', { displayName: 'Alice', state: 'online', status: 'active', worldId: 'wrld_slow' });
+  db.upsertFriend('usr_b', { displayName: 'Bob', state: 'online', status: 'active', worldId: 'private' });
   const svc = fakeWorldName();
   svc.get = () => new Promise(() => {}); // 永远不返回
   const t0 = Date.now();
@@ -131,7 +131,7 @@ test('createQqCommands: 世界名等不到时先用占位符出结果, 不拖住
 test('createQqCommands: 等待超时后用缓存里的旧名字兜底', async () => {
   const db = createDb(':memory:');
   const id = db.upsertUser('usr_me', { username: 'me', displayName: '我', avatarUrl: null });
-  db.upsertFriend(id, 'usr_a', { displayName: 'Alice', state: 'online', status: 'active', worldId: 'wrld_slow' });
+  db.upsertFriend('usr_a', { displayName: 'Alice', state: 'online', status: 'active', worldId: 'wrld_slow' });
   const svc = fakeWorldName({ wrld_slow: '很久以前的名字' });
   svc.get = () => new Promise(() => {});
   const handler = createQqCommands({
@@ -145,7 +145,7 @@ test('createQqCommands: 等待超时后用缓存里的旧名字兜底', async ()
 test('createQqCommands: 连接异常时头部提示"当前未连接, 数据截止至断开时间"', async () => {
   const db = createDb(':memory:');
   const id = db.upsertUser('usr_me', { username: 'me', displayName: '我', avatarUrl: null });
-  db.upsertFriend(id, 'usr_a', { displayName: 'Alice', state: 'online', status: 'active', worldId: 'wrld_x' });
+  db.upsertFriend('usr_a', { displayName: 'Alice', state: 'online', status: 'active', worldId: 'wrld_x' });
   const svc = fakeWorldName({ wrld_x: 'WorldX' });
   const silent = { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
   // 连接正常: 无提示
@@ -171,7 +171,7 @@ test('createQqCommands: 连接异常时头部提示"当前未连接, 数据截�
 test('createQqCommands: onCode 优先处理验证码, 返回 null 时回落到在线列表', async () => {
   const db = createDb(':memory:');
   const id = db.upsertUser('usr_me', { username: 'me', displayName: '我', avatarUrl: null });
-  db.upsertFriend(id, 'usr_a', { displayName: 'Alice', state: 'online', status: 'active', worldId: 'wrld_x' });
+  db.upsertFriend('usr_a', { displayName: 'Alice', state: 'online', status: 'active', worldId: 'wrld_x' });
   const svc = fakeWorldName({ wrld_x: 'WorldX' });
   const silent = { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
   const calls = [];

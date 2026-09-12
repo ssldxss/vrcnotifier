@@ -25,9 +25,9 @@ CREATE TABLE IF NOT EXISTS users (
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))
 );
+-- 好友是全局的(同时只有一个 VRC 账号在跑): 不带账号列, 一人一行
 CREATE TABLE IF NOT EXISTS friends (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id INTEGER NOT NULL,
   friend_vrchat_id TEXT NOT NULL,
   display_name TEXT, avatar_url TEXT, avatar_thumb_url TEXT,
   state TEXT DEFAULT 'offline',
@@ -46,7 +46,7 @@ CREATE TABLE IF NOT EXISTS friends (
   notify_world_change INTEGER DEFAULT 0,
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now')),
-  UNIQUE(user_id, friend_vrchat_id)
+  UNIQUE(friend_vrchat_id)
 );
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT DEFAULT (datetime('now')));
 CREATE TABLE IF NOT EXISTS notif_dedupe (key TEXT PRIMARY KEY, created_at INTEGER);
@@ -179,6 +179,42 @@ function createDb(location = ':memory:', opts = {}) {
       throw e;
     }
   }
+  // 好友改为全局(同时只有一个 VRC 账号在跑): 旧库删掉 user_id, 唯一键换成 friend_vrchat_id。
+  // 这里必须排在 monitor_config 迁移之后 —— 那块还要用 friends.user_id 关联旧配置。
+  // SQLite 不能删掉参与唯一约束的列, 只能重建表; 同一好友被两个账号各存过一行时取最近更新的那条。
+  if (db.prepare('PRAGMA table_info(friends)').all().some((c) => c.name === 'user_id')) {
+    // 重建要按列名搬数据, 先把很旧的库里可能缺的列补齐(幂等)
+    for (const col of ['status_description TEXT', 'platform TEXT', 'pending_state TEXT', 'pending_at INTEGER', 'last_seen INTEGER']) {
+      try { db.exec(`ALTER TABLE friends ADD COLUMN ${col}`); } catch (e) { /* 已存在 */ }
+    }
+    db.exec('BEGIN');
+    try {
+      db.exec(`CREATE TABLE friends_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        friend_vrchat_id TEXT NOT NULL,
+        display_name TEXT, avatar_url TEXT, avatar_thumb_url TEXT,
+        state TEXT DEFAULT 'offline', status TEXT,
+        world_id TEXT, instance_id TEXT, status_description TEXT, platform TEXT, trust_level TEXT,
+        pending_state TEXT, pending_at INTEGER, last_seen INTEGER,
+        favorite INTEGER DEFAULT 0, notify_online INTEGER DEFAULT 0, notify_offline INTEGER DEFAULT 0,
+        notify_status_change INTEGER DEFAULT 0, notify_world_change INTEGER DEFAULT 0,
+        created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')),
+        UNIQUE(friend_vrchat_id))`);
+      db.exec(`INSERT INTO friends_new (friend_vrchat_id, display_name, avatar_url, avatar_thumb_url, state, status,
+          world_id, instance_id, status_description, platform, trust_level, pending_state, pending_at, last_seen,
+          favorite, notify_online, notify_offline, notify_status_change, notify_world_change, created_at, updated_at)
+        SELECT friend_vrchat_id, display_name, avatar_url, avatar_thumb_url, state, status,
+          world_id, instance_id, status_description, platform, trust_level, pending_state, pending_at, last_seen,
+          favorite, notify_online, notify_offline, notify_status_change, notify_world_change, created_at, MAX(updated_at)
+        FROM friends GROUP BY friend_vrchat_id`);
+      db.exec('DROP TABLE friends');
+      db.exec('ALTER TABLE friends_new RENAME TO friends');
+      db.exec('COMMIT');
+    } catch (e) {
+      try { db.exec('ROLLBACK'); } catch (e2) { /* ignore */ }
+      throw e;
+    }
+  }
   const stmt = {
     upsertUser: db.prepare(`INSERT INTO users (vrchat_user_id, username, display_name, avatar_url, avatar_thumb_url, status, status_description, platform, state)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active')
@@ -214,9 +250,9 @@ function createDb(location = ':memory:', opts = {}) {
     clearAllUsers: db.prepare('DELETE FROM users'),
     clearWorldCache: db.prepare('DELETE FROM world_cache'),
     clearGroupCache: db.prepare('DELETE FROM group_cache'),
-    upsertFriend: db.prepare(`INSERT INTO friends (user_id, friend_vrchat_id, display_name, avatar_url, avatar_thumb_url, state, status, world_id, instance_id, status_description, platform, trust_level, last_seen)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(user_id, friend_vrchat_id) DO UPDATE SET
+    upsertFriend: db.prepare(`INSERT INTO friends (friend_vrchat_id, display_name, avatar_url, avatar_thumb_url, state, status, world_id, instance_id, status_description, platform, trust_level, last_seen)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(friend_vrchat_id) DO UPDATE SET
         display_name = COALESCE(excluded.display_name, friends.display_name),
         avatar_url = COALESCE(excluded.avatar_url, friends.avatar_url),
         avatar_thumb_url = COALESCE(excluded.avatar_thumb_url, friends.avatar_thumb_url),
@@ -229,9 +265,9 @@ function createDb(location = ':memory:', opts = {}) {
         trust_level = COALESCE(excluded.trust_level, friends.trust_level),
         last_seen = excluded.last_seen,
         updated_at = datetime('now')`),
-    getFriend: db.prepare('SELECT * FROM friends WHERE user_id = ? AND friend_vrchat_id = ?'),
-    listFriends: db.prepare('SELECT * FROM friends WHERE user_id = ? ORDER BY display_name'),
-    deleteFriend: db.prepare('DELETE FROM friends WHERE user_id = ? AND friend_vrchat_id = ?'),
+    getFriend: db.prepare('SELECT * FROM friends WHERE friend_vrchat_id = ?'),
+    listFriends: db.prepare('SELECT * FROM friends ORDER BY display_name'),
+    deleteFriend: db.prepare('DELETE FROM friends WHERE friend_vrchat_id = ?'),
     updateFriendProfile: db.prepare(`UPDATE friends SET
         display_name = COALESCE(?, display_name),
         avatar_url = COALESCE(?, avatar_url),
@@ -246,7 +282,7 @@ function createDb(location = ':memory:', opts = {}) {
     setFriendConfig: db.prepare(`UPDATE friends SET
         favorite = ?, notify_online = ?, notify_offline = ?, notify_status_change = ?, notify_world_change = ?,
         updated_at = datetime('now')
-      WHERE user_id = ? AND friend_vrchat_id = ?`),
+      WHERE friend_vrchat_id = ?`),
     getSetting: db.prepare('SELECT value FROM settings WHERE key = ?'),
     setSetting: db.prepare(`INSERT INTO settings (key, value) VALUES (?, ?)
       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')`),
@@ -421,11 +457,11 @@ function createDb(location = ':memory:', opts = {}) {
         throw e;
       }
     },
-    // friends
-    upsertFriend(dbId, friendVrcId, fields) {
-      const existing = stmt.getFriend.get(dbId, friendVrcId);
+    // friends(全局: 同时只有一个 VRC 账号, 好友不带账号列)
+    upsertFriend(friendVrcId, fields) {
+      const existing = stmt.getFriend.get(friendVrcId);
       stmt.upsertFriend.run(
-        dbId, friendVrcId,
+        friendVrcId,
         fields.displayName ?? null, fields.avatarUrl ?? null, fields.avatarThumbUrl ?? null,
         fields.state ?? (existing ? existing.state : 'offline'),
         fields.status ?? null, fields.worldId ?? null,
@@ -434,11 +470,11 @@ function createDb(location = ':memory:', opts = {}) {
         fields.trustLevel ?? null,
         fields.lastSeen ?? Date.now()
       );
-      return { isNew: !existing, row: stmt.getFriend.get(dbId, friendVrcId) };
+      return { isNew: !existing, row: stmt.getFriend.get(friendVrcId) };
     },
-    getFriend: (dbId, friendVrcId) => stmt.getFriend.get(dbId, friendVrcId) || null,
-    listFriends: (dbId) => stmt.listFriends.all(dbId),
-    deleteFriend(dbId, friendVrcId) { stmt.deleteFriend.run(dbId, friendVrcId); },
+    getFriend: (friendVrcId) => stmt.getFriend.get(friendVrcId) || null,
+    listFriends: () => stmt.listFriends.all(),
+    deleteFriend(friendVrcId) { stmt.deleteFriend.run(friendVrcId); },
     updateFriendProfile(rowId, { displayName, avatarUrl, avatarThumbUrl, trustLevel }) {
       stmt.updateFriendProfile.run(displayName ?? null, avatarUrl ?? null, avatarThumbUrl ?? null, trustLevel ?? null, rowId);
     },
@@ -451,8 +487,8 @@ function createDb(location = ':memory:', opts = {}) {
       );
     },
     // 逐好友通知配置(存在 friends 行上)。不传的字段按 false 处理 —— 整组覆盖写。
-    setFriendConfig(dbId, friendVrcId, { favorite = false, notifyOnline = false, notifyOffline = false, notifyStatusChange = false, notifyWorldChange = false } = {}) {
-      stmt.setFriendConfig.run(favorite ? 1 : 0, notifyOnline ? 1 : 0, notifyOffline ? 1 : 0, notifyStatusChange ? 1 : 0, notifyWorldChange ? 1 : 0, dbId, friendVrcId);
+    setFriendConfig(friendVrcId, { favorite = false, notifyOnline = false, notifyOffline = false, notifyStatusChange = false, notifyWorldChange = false } = {}) {
+      stmt.setFriendConfig.run(favorite ? 1 : 0, notifyOnline ? 1 : 0, notifyOffline ? 1 : 0, notifyStatusChange ? 1 : 0, notifyWorldChange ? 1 : 0, friendVrcId);
     },
     // 登出必清: 好友(含逐好友配置)/通知去重/用户 —— 都跟着账号走, 换个账号就没有意义了。
     // QQ 绑定与设置是全局的, 不在这里清(绑定归"彻底重置", 见 clearSettings)。

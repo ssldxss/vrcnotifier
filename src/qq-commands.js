@@ -101,7 +101,7 @@ function createQqCommands({ db, worldName = null, logger = null, getStatus = nul
     }
     // 只有在线列表一个功能: 首次提示由绑定消息承担, 任意输入直接输出表格
     // favorite 直接来自好友行(原先要另外查 monitor_config)
-    const friends = await fillWorldNames(db.listFriends(dbId));
+    const friends = await fillWorldNames(db.listFriends());
     const reply = buildOnlineList(friends);
     // 连接异常(WS 重连中 / 401 未恢复): 头部提示数据截止时间, 后面仍是原列表
     const st = getStatus ? getStatus(dbId) : null;
