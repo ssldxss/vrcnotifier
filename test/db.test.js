@@ -263,16 +263,81 @@ test('friends: avatar_thumb_url stored and updated via profile', () => {
   assert.equal(db2.getFriend(uid2, 'usr_f1').avatar_thumb_url, 'b');
 });
 
-test('monitor_config: upsert, list, favorite', () => {
+test('好友配置存在 friends 表里: 新好友默认全关, setFriendConfig 覆盖写入', () => {
   const db = newDb();
   const uid = db.upsertUser('usr_1', { username: 'u1', displayName: 'n', avatarUrl: null });
-  db.upsertConfig(uid, 'usr_f1', { favorite: true, notifyOnline: false, notifyOffline: true });
-  db.upsertConfig(uid, 'usr_f2', {});
-  let configs = db.listConfigs(uid);
-  assert.equal(configs.length, 2);
-  const c = db.getConfig(uid, 'usr_f1');
+  db.upsertFriend(uid, 'usr_f1', { displayName: 'F1', state: 'online' });
+  const fresh = db.getFriend(uid, 'usr_f1');
+  // 语义与旧版一致: 没有配置就等于不通知(旧版是没有 monitor_config 行), 所以默认全是 0
+  assert.equal(fresh.favorite, 0, '新好友默认不特别关注');
+  assert.equal(fresh.notify_online, 0, '新好友默认不推上线');
+  assert.equal(fresh.notify_offline, 0);
+  assert.equal(fresh.notify_status_change, 0);
+  assert.equal(fresh.notify_world_change, 0);
+  db.setFriendConfig(uid, 'usr_f1', { favorite: true, notifyOnline: true, notifyOffline: false, notifyStatusChange: true, notifyWorldChange: false });
+  const c = db.getFriend(uid, 'usr_f1');
   assert.equal(c.favorite, 1);
-  assert.equal(c.notify_online, 0);
+  assert.equal(c.notify_online, 1);
+  assert.equal(c.notify_offline, 0);
+  assert.equal(c.notify_status_change, 1);
+  assert.equal(c.notify_world_change, 0);
+});
+
+test('setFriendConfig 只改配置列, 不碰好友资料', () => {
+  const db = newDb();
+  const uid = db.upsertUser('usr_1', { username: 'u1', displayName: 'n', avatarUrl: null });
+  db.upsertFriend(uid, 'usr_f1', { displayName: 'F1', state: 'online', avatarUrl: 'https://a/1.png', trustLevel: 'Trusted' });
+  db.setFriendConfig(uid, 'usr_f1', { favorite: true });
+  const f = db.getFriend(uid, 'usr_f1');
+  assert.equal(f.display_name, 'F1');
+  assert.equal(f.avatar_url, 'https://a/1.png');
+  assert.equal(f.trust_level, 'Trusted');
+  assert.equal(f.state, 'online');
+});
+
+test('快照 upsert 好友资料不会冲掉已设的通知配置', () => {
+  const db = newDb();
+  const uid = db.upsertUser('usr_1', { username: 'u1', displayName: 'n', avatarUrl: null });
+  db.upsertFriend(uid, 'usr_f1', { displayName: 'F1', state: 'offline' });
+  db.setFriendConfig(uid, 'usr_f1', { favorite: true, notifyOnline: true });
+  // 模拟后续快照反复更新好友资料
+  db.upsertFriend(uid, 'usr_f1', { displayName: 'F1改名', state: 'online' });
+  db.upsertFriend(uid, 'usr_f1', { displayName: 'F1再改名', state: 'offline' });
+  const f = db.getFriend(uid, 'usr_f1');
+  assert.equal(f.favorite, 1, '特别关注不能被快照冲掉');
+  assert.equal(f.notify_online, 1, '通知开关不能被快照冲掉');
+  assert.equal(f.display_name, 'F1再改名', '资料照常更新');
+});
+
+test('monitor_config 旧库迁移: 配置并进 friends, 旧表删除', () => {
+  const { DatabaseSync } = require('node:sqlite');
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'vrcnt-db-')), 'old.db');
+  const old = new DatabaseSync(file);
+  old.exec(`CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, vrchat_user_id TEXT UNIQUE, username TEXT, saved_username TEXT, display_name TEXT, avatar_url TEXT, avatar_thumb_url TEXT, status TEXT, remember_me INTEGER DEFAULT 0, cookie_data TEXT, password TEXT, created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')));`);
+  old.exec(`CREATE TABLE friends (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, friend_vrchat_id TEXT NOT NULL, display_name TEXT, state TEXT DEFAULT 'offline', status TEXT, world_id TEXT, instance_id TEXT, status_description TEXT, platform TEXT, avatar_url TEXT, avatar_thumb_url TEXT, trust_level TEXT, pending_state TEXT, pending_at INTEGER, last_seen INTEGER, created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')), UNIQUE(user_id, friend_vrchat_id));`);
+  old.exec(`CREATE TABLE monitor_config (user_id INTEGER NOT NULL, friend_vrchat_id TEXT NOT NULL, favorite INTEGER DEFAULT 0, notify_online INTEGER DEFAULT 1, notify_offline INTEGER DEFAULT 1, notify_status_change INTEGER DEFAULT 1, notify_world_change INTEGER DEFAULT 1, updated_at TEXT DEFAULT (datetime('now')), PRIMARY KEY (user_id, friend_vrchat_id));`);
+  old.exec(`INSERT INTO users (vrchat_user_id, username, display_name) VALUES ('usr_me','me','我');`);
+  old.exec(`INSERT INTO friends (user_id, friend_vrchat_id, display_name, state) VALUES (1,'usr_f1','F1','online'), (1,'usr_f2','F2','offline');`);
+  // f1 有配置, f2 没有(旧语义: 不通知)
+  old.exec(`INSERT INTO monitor_config (user_id, friend_vrchat_id, favorite, notify_online, notify_offline, notify_status_change, notify_world_change) VALUES (1,'usr_f1',1,1,0,1,0);`);
+  old.close();
+
+  const db = createDb(file);
+  const f1 = db.getFriend(1, 'usr_f1');
+  assert.equal(f1.favorite, 1, '旧配置的特别关注搬过来了');
+  assert.equal(f1.notify_online, 1);
+  assert.equal(f1.notify_offline, 0);
+  assert.equal(f1.notify_status_change, 1);
+  assert.equal(f1.notify_world_change, 0);
+  const f2 = db.getFriend(1, 'usr_f2');
+  assert.equal(f2.favorite, 0, '本来就没有配置的好友保持全关');
+  assert.equal(f2.notify_online, 0, '旧语义是"无配置=不通知", 迁移后不能变成 1');
+
+  const chk = new DatabaseSync(file);
+  const tables = chk.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((r) => r.name);
+  chk.close();
+  assert.ok(!tables.includes('monitor_config'), 'monitor_config 表已删除');
+  db.close?.();
 });
 
 test('settings get/set and notif dedupe window', () => {
@@ -416,17 +481,17 @@ test('加密: 密钥不符时读取按未保存处理, 探测标记可解不可�
 });
 
 test('清库: wipeAllExceptToken 清空全部数据但保留 access_token', () => {
+  // 这条同时守着 wipeAllExceptToken 里的表清单 —— 表被删掉后忘改清单会在这里炸
   const db = newDb({ crypto: testCrypt() });
   const id = db.upsertUser('usr_w', { username: 'w', displayName: 'W' });
   db.upsertFriend(id, 'usr_f', { displayName: 'F', state: 'online', trustLevel: 'User' });
-  db.upsertConfig(id, 'usr_f', {});
+  db.setFriendConfig(id, 'usr_f', { favorite: true });
   db.upsertQqBinding({ appId: 'a', openid: 'o', nickname: 'n', at: 1 });
   db.setSetting('access_token', 'tok-keep');
   db.setSetting('qq_enabled', '1');
   db.wipeAllExceptToken();
   assert.equal(db.listUsers().length, 0);
-  assert.equal(db.listFriends(id).length, 0);
-  assert.equal(db.listConfigs(id).length, 0);
+  assert.equal(db.listFriends(id).length, 0, '好友连配置一起清掉');
   assert.equal(db.getQqBinding('a'), null);
   assert.equal(db.getSetting('access_token'), 'tok-keep', '访问令牌保留');
   assert.equal(db.getSetting('qq_enabled'), null, '其余设置清空');

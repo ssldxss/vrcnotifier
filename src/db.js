@@ -38,20 +38,15 @@ CREATE TABLE IF NOT EXISTS friends (
   trust_level TEXT,
   pending_state TEXT, pending_at INTEGER,
   last_seen INTEGER,
+  -- 逐好友的通知配置(原先在独立的 monitor_config 表, 现在与好友同生共死): 默认全 0 = 不通知
+  favorite INTEGER DEFAULT 0,
+  notify_online INTEGER DEFAULT 0,
+  notify_offline INTEGER DEFAULT 0,
+  notify_status_change INTEGER DEFAULT 0,
+  notify_world_change INTEGER DEFAULT 0,
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now')),
   UNIQUE(user_id, friend_vrchat_id)
-);
-CREATE TABLE IF NOT EXISTS monitor_config (
-  user_id INTEGER NOT NULL,
-  friend_vrchat_id TEXT NOT NULL,
-  favorite INTEGER DEFAULT 0,
-  notify_online INTEGER DEFAULT 1,
-  notify_offline INTEGER DEFAULT 1,
-  notify_status_change INTEGER DEFAULT 1,
-  notify_world_change INTEGER DEFAULT 1,
-  updated_at TEXT DEFAULT (datetime('now')),
-  PRIMARY KEY (user_id, friend_vrchat_id)
 );
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT DEFAULT (datetime('now')));
 CREATE TABLE IF NOT EXISTS notif_dedupe (key TEXT PRIMARY KEY, created_at INTEGER);
@@ -96,6 +91,9 @@ const LEGACY_NOTIFY_COLUMNS = [
 
 const MAX_DEDUPE_ROWS = 100000;
 
+// 逐好友的通知配置列(原 monitor_config 表的内容, 现在直接挂在 friends 行上)
+const FRIEND_CONFIG_COLS = ['favorite', 'notify_online', 'notify_offline', 'notify_status_change', 'notify_world_change'];
+
 function createDb(location = ':memory:', opts = {}) {
   // 数据库文件路径的父目录不存在时先创建(如删除 data/ 后重启)
   if (location !== ':memory:') {
@@ -122,8 +120,28 @@ function createDb(location = ':memory:', opts = {}) {
   // 旧库清理: 世界名查询失败不再入库, 失败退避列已无意义(群组名有自己的 group_cache 列, 不受影响)
   try { db.exec('ALTER TABLE world_cache DROP COLUMN fail_count'); } catch (e) { /* 新库无此列 */ }
   try { db.exec('ALTER TABLE world_cache DROP COLUMN retry_at'); } catch (e) { /* 新库无此列 */ }
-  // 旧库补充: monitor_config 补 favorite 列(已存在则忽略)
-  try { db.exec('ALTER TABLE monitor_config ADD COLUMN favorite INTEGER DEFAULT 0'); } catch (e) { /* 已存在 */ }
+  // 逐好友通知配置并入 friends(原先在独立的 monitor_config 表): 先给 friends 补列, 再把旧表数据搬过来, 最后删表。
+  // 旧语义是「没有配置行 = 不通知」, 所以补列默认 0, 只有真正有配置行的好友才会被搬成 1。
+  for (const col of FRIEND_CONFIG_COLS) {
+    try { db.exec(`ALTER TABLE friends ADD COLUMN ${col} INTEGER DEFAULT 0`); } catch (e) { /* 已存在 */ }
+  }
+  if (db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='monitor_config'").all().length) {
+    db.exec('BEGIN');
+    try {
+      // 很旧的库 monitor_config 可能还没有 favorite 列, 先补上再搬
+      try { db.exec('ALTER TABLE monitor_config ADD COLUMN favorite INTEGER DEFAULT 0'); } catch (e) { /* 已有 */ }
+      for (const col of FRIEND_CONFIG_COLS) {
+        db.exec(`UPDATE friends SET ${col} = COALESCE((
+          SELECT mc.${col} FROM monitor_config mc
+          WHERE mc.user_id = friends.user_id AND mc.friend_vrchat_id = friends.friend_vrchat_id), ${col})`);
+      }
+      db.exec('DROP TABLE monitor_config');
+      db.exec('COMMIT');
+    } catch (e) {
+      try { db.exec('ROLLBACK'); } catch (e2) { /* ignore */ }
+      throw e;
+    }
+  }
   // 旧库补充: users 补 status 列(已存在则忽略)
   try { db.exec('ALTER TABLE users ADD COLUMN status TEXT'); } catch (e) { /* 已存在 */ }
   // 旧库补充: users 补自己在线状态列(已存在则忽略)
@@ -191,7 +209,6 @@ function createDb(location = ':memory:', opts = {}) {
     clearCookies: db.prepare("UPDATE users SET cookie_data = NULL, remember_me = 0, saved_username = NULL, password = NULL, updated_at = datetime('now') WHERE id = ?"),
     savePassword: db.prepare("UPDATE users SET password = ?, updated_at = datetime('now') WHERE id = ?"),
     clearAllFriends: db.prepare('DELETE FROM friends'),
-    clearAllConfigs: db.prepare('DELETE FROM monitor_config'),
     clearAllDedupe: db.prepare('DELETE FROM notif_dedupe'),
     clearAllBindings: db.prepare('DELETE FROM qq_bindings'),
     clearAllUsers: db.prepare('DELETE FROM users'),
@@ -226,17 +243,10 @@ function createDb(location = ':memory:', opts = {}) {
         state = ?, status = ?, world_id = ?, instance_id = ?, status_description = ?, platform = ?,
         pending_state = ?, pending_at = ?, last_seen = ?, updated_at = datetime('now')
       WHERE id = ?`),
-    upsertConfig: db.prepare(`INSERT INTO monitor_config (user_id, friend_vrchat_id, favorite, notify_online, notify_offline, notify_status_change, notify_world_change)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(user_id, friend_vrchat_id) DO UPDATE SET
-        favorite = excluded.favorite,
-        notify_online = excluded.notify_online,
-        notify_offline = excluded.notify_offline,
-        notify_status_change = excluded.notify_status_change,
-        notify_world_change = excluded.notify_world_change,
-        updated_at = datetime('now')`),
-    getConfig: db.prepare('SELECT * FROM monitor_config WHERE user_id = ? AND friend_vrchat_id = ?'),
-    listConfigs: db.prepare('SELECT * FROM monitor_config WHERE user_id = ?'),
+    setFriendConfig: db.prepare(`UPDATE friends SET
+        favorite = ?, notify_online = ?, notify_offline = ?, notify_status_change = ?, notify_world_change = ?,
+        updated_at = datetime('now')
+      WHERE user_id = ? AND friend_vrchat_id = ?`),
     getSetting: db.prepare('SELECT value FROM settings WHERE key = ?'),
     setSetting: db.prepare(`INSERT INTO settings (key, value) VALUES (?, ?)
       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')`),
@@ -381,7 +391,7 @@ function createDb(location = ':memory:', opts = {}) {
     wipeAllExceptToken() {
       db.exec('BEGIN');
       try {
-        for (const t of ['users', 'friends', 'monitor_config', 'qq_bindings', 'notif_dedupe', 'world_cache', 'group_cache']) {
+        for (const t of ['users', 'friends', 'qq_bindings', 'notif_dedupe', 'world_cache', 'group_cache']) {
           db.prepare('DELETE FROM ' + t).run();
         }
         const token = stmt.getSetting.get('access_token');
@@ -423,21 +433,18 @@ function createDb(location = ':memory:', opts = {}) {
         fields.pending_state ?? null, fields.pending_at ?? null, fields.last_seen ?? Date.now(), id
       );
     },
-    // monitor config
-    upsertConfig(dbId, friendVrcId, { favorite = false, notifyOnline = true, notifyOffline = true, notifyStatusChange = true, notifyWorldChange = true }) {
-      stmt.upsertConfig.run(dbId, friendVrcId, favorite ? 1 : 0, notifyOnline ? 1 : 0, notifyOffline ? 1 : 0, notifyStatusChange ? 1 : 0, notifyWorldChange ? 1 : 0);
+    // 逐好友通知配置(存在 friends 行上)。不传的字段按 false 处理 —— 整组覆盖写。
+    setFriendConfig(dbId, friendVrcId, { favorite = false, notifyOnline = false, notifyOffline = false, notifyStatusChange = false, notifyWorldChange = false } = {}) {
+      stmt.setFriendConfig.run(favorite ? 1 : 0, notifyOnline ? 1 : 0, notifyOffline ? 1 : 0, notifyStatusChange ? 1 : 0, notifyWorldChange ? 1 : 0, dbId, friendVrcId);
     },
-    getConfig: (dbId, friendVrcId) => stmt.getConfig.get(dbId, friendVrcId) || null,
-    listConfigs: (dbId) => stmt.listConfigs.all(dbId),
-    // 登出全清: 除 settings 与世界名缓存外的全部数据(好友/监控配置/通知去重/QQ绑定/用户)
+    // 登出全清: 除 settings 与世界名缓存外的全部数据(好友(含配置)/通知去重/QQ绑定/用户)
     clearFriends() {
       const friends = stmt.clearAllFriends.run();
-      const configs = stmt.clearAllConfigs.run();
       const dedupe = stmt.clearAllDedupe.run();
       const bindings = stmt.clearAllBindings.run();
       const users = stmt.clearAllUsers.run();
       return {
-        friends: friends.changes, configs: configs.changes,
+        friends: friends.changes,
         dedupe: dedupe.changes, bindings: bindings.changes, users: users.changes
       };
     },

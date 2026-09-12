@@ -91,11 +91,26 @@ function createApp({
     for (const id of ids) worldNameSvc.get(id).catch(() => {}); // get 保证不抛出, 这里只是兜底
   }
 
-  // 好友行附带头像 key(前端零解析)
+  // 逐好友通知配置: 原先存在独立的 monitor_config 表, 现在直接挂在 friends 行上。
+  // 保持 config 嵌套形状不变(前端按 f.config.x 读), 好友不存在时返回 null。
+  function configOf(f) {
+    if (!f) return null;
+    return {
+      friend_vrchat_id: f.friend_vrchat_id,
+      favorite: f.favorite,
+      notify_online: f.notify_online,
+      notify_offline: f.notify_offline,
+      notify_status_change: f.notify_status_change,
+      notify_world_change: f.notify_world_change
+    };
+  }
+
+  // 好友行附带头像 key 与通知配置(前端零解析)
   function friendRow(f) {
     const out = { ...f };
     out.world_name = worldNameOf(f);
     out.avatarKey = f.avatar_thumb_url && avatarCache ? avatarCache.thumbKeyFromUrl(f.avatar_thumb_url) : null;
+    out.config = configOf(f);
     return out;
   }
 
@@ -799,13 +814,9 @@ function createApp({
 
   app.get('/api/friends', (req, res) => {
     if (!current) return res.status(401).json({ error: '未登录' });
-    const configs = db.listConfigs(current.dbId);
     const rows = db.listFriends(current.dbId);
     kickWorldNames(rows);
-    const friends = rows.map((f) => ({
-      ...friendRow(f),
-      config: configs.find((c) => c.friend_vrchat_id === f.friend_vrchat_id) || null
-    }));
+    const friends = rows.map(friendRow);
     return res.json({ ok: true, friends });
   });
 
@@ -853,17 +864,16 @@ function createApp({
     app.put('/api/friends/:friendId/config', (req, res) => {
     if (!current) return res.status(401).json({ error: '未登录' });
     const body = req.body || {};
-    db.upsertConfig(current.dbId, req.params.friendId, {
+    db.setFriendConfig(current.dbId, req.params.friendId, {
       favorite: !!body.favorite,
       notifyOnline: body.notifyOnline !== undefined ? !!body.notifyOnline : true,
       notifyOffline: body.notifyOffline !== undefined ? !!body.notifyOffline : true,
       notifyStatusChange: body.notifyStatusChange !== undefined ? !!body.notifyStatusChange : true,
       notifyWorldChange: body.notifyWorldChange !== undefined ? !!body.notifyWorldChange : true
     });
-    const cfg = db.getConfig(current.dbId, req.params.friendId);
-    const friend = db.getFriend(current.dbId, req.params.friendId);
-    log.debug(`[server] 更新监控配置: 好友=${(friend && friend.display_name) || req.params.friendId}, 特别关注=${cfg ? (cfg.favorite ? '开' : '关') : '?'}, 上线=${cfg ? cfg.notify_online : '?'}, 下线=${cfg ? cfg.notify_offline : '?'}, 状态=${cfg ? cfg.notify_status_change : '?'}, 世界=${cfg ? cfg.notify_world_change : '?'}`);
-    return res.json({ ok: true, config: cfg });
+    const cfg = db.getFriend(current.dbId, req.params.friendId);
+    log.debug(`[server] 更新监控配置: 好友=${(cfg && cfg.display_name) || req.params.friendId}, 特别关注=${cfg ? (cfg.favorite ? '开' : '关') : '?'}, 上线=${cfg ? cfg.notify_online : '?'}, 下线=${cfg ? cfg.notify_offline : '?'}, 状态=${cfg ? cfg.notify_status_change : '?'}, 世界=${cfg ? cfg.notify_world_change : '?'}`);
+    return res.json({ ok: true, config: configOf(cfg) });
   });
 
   app.get('/api/settings', (req, res) => {

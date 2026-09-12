@@ -1,8 +1,13 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const http = require('node:http');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { DatabaseSync } = require('node:sqlite');
 const { WebSocketServer } = require('ws');
 const { buildApplication } = require('../src/index');
+const { createDb } = require('../src/db');
 
 const silent = { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
 
@@ -319,4 +324,97 @@ test('access token auth: 401 without token, whitelist open, SSE via query token,
   assert.equal(preflight.headers.get('access-control-allow-origin'), '*');
 
   await sse.body.getReader().cancel();
+});
+
+// ---------- 数据被清空 / 表被删掉之后重启(只用临时库, 不碰 data/vrcnotifier.db) ----------
+
+function tmpDb() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vrcnt-restart-'));
+  return { dir, dbPath: path.join(dir, 'vrcnotifier.db') };
+}
+
+// 造一个"什么都有"的库
+function seedDb(dbPath) {
+  const db = createDb(dbPath);
+  const uid = db.upsertUser('usr_me', { username: 'me', displayName: '我' });
+  db.upsertFriend(uid, 'usr_f1', { displayName: 'F1', state: 'online' });
+  db.setFriendConfig(uid, 'usr_f1', { favorite: true, notifyOnline: true });
+  db.upsertQqBinding({ appId: 'app1', openid: 'openid_keep', nickname: '小明', at: 7 });
+  db.updateGlobalSettings({ qq_enabled: 1, qq_app_id: 'app1', qq_app_secret: 'sec', notify_boop: 1 });
+  db.setSetting('access_token', 'tok-keep');
+  db.upsertWorldCache('wrld_a', '世界A');
+  db.close();
+}
+
+// 起一次完整应用, 用完关掉(返回 runtime 供断言)
+function restartOn(dbPath, t) {
+  const runtime = buildApplication({ logger: silent, dbPath, accessToken: 'tok-keep' });
+  t.after(() => {
+    try { runtime.monitor.stopTimers(); } catch (e) { /* ignore */ }
+    try { runtime.avatarCache.stopTimers(); } catch (e) { /* ignore */ }
+    try { runtime.healthMonitor.stop(); } catch (e) { /* ignore */ }
+  });
+  return runtime;
+}
+
+test('数据被清到只剩设置(QQ 配置 + 登录凭据)后, 重启仍能正常工作', async (t) => {
+  const { dir, dbPath } = tmpDb();
+  t.after(() => { try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) { /* ignore */ } });
+  seedDb(dbPath);
+
+  // 只清数据表, settings 原样保留
+  const raw = new DatabaseSync(dbPath);
+  for (const tbl of ['users', 'friends', 'qq_bindings', 'notif_dedupe', 'world_cache', 'group_cache']) {
+    raw.exec('DELETE FROM ' + tbl);
+  }
+  raw.close();
+
+  const runtime = restartOn(dbPath, t);
+  const server = runtime.app.listen(0);
+  t.after(() => new Promise((r) => server.close(r)));
+
+  assert.equal(runtime.db.getSetting('access_token'), 'tok-keep', '登录凭据还在');
+  assert.equal(runtime.db.getGlobalSettings().qq_app_id, 'app1', 'QQ 设置还在');
+  assert.equal(runtime.db.getGlobalSettings().notify_boop, 1, '全局通知设置还在');
+  assert.equal(runtime.db.getQqBinding('app1'), null, 'QQ 绑定属于数据, 已随表清掉');
+  assert.equal(runtime.db.listUsers().length, 0, '用户已清空');
+  assert.equal(runtime.db.listFriends(1).length, 0, '好友已清空');
+
+  // schema 是新形状: 配置列在 friends 上, monitor_config 已经不存在
+  const chk = new DatabaseSync(dbPath, { readOnly: true });
+  const friendCols = chk.prepare('PRAGMA table_info(friends)').all().map((c) => c.name);
+  const tables = chk.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((r) => r.name);
+  chk.close();
+  assert.ok(friendCols.includes('favorite'), 'friends 带配置列');
+  assert.ok(friendCols.includes('notify_world_change'), 'friends 带通知开关列');
+  assert.ok(!tables.includes('monitor_config'), 'monitor_config 表已不存在');
+
+  const r = await fetch('http://127.0.0.1:' + server.address().port + '/api/config');
+  assert.equal(r.status, 200, '重启后 HTTP 服务可用');
+});
+
+test('数据表被整个删掉后, 重启会重建 schema 并继续可用', async (t) => {
+  const { dir, dbPath } = tmpDb();
+  t.after(() => { try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) { /* ignore */ } });
+  seedDb(dbPath);
+
+  const raw = new DatabaseSync(dbPath);
+  for (const tbl of ['users', 'friends', 'qq_bindings', 'notif_dedupe', 'world_cache', 'group_cache']) {
+    raw.exec('DROP TABLE ' + tbl);
+  }
+  raw.close();
+
+  const runtime = restartOn(dbPath, t);
+
+  assert.equal(runtime.db.getSetting('access_token'), 'tok-keep', '登录凭据还在');
+  assert.equal(runtime.db.getGlobalSettings().qq_app_id, 'app1', 'QQ 设置还在');
+  assert.equal(runtime.db.listUsers().length, 0);
+
+  // 重建出来的表可正常读写
+  const uid = runtime.db.upsertUser('usr_new', { username: 'n', displayName: 'N' });
+  runtime.db.upsertFriend(uid, 'usr_n1', { displayName: 'N1', state: 'online' });
+  runtime.db.setFriendConfig(uid, 'usr_n1', { notifyOnline: true });
+  assert.equal(runtime.db.getFriend(uid, 'usr_n1').notify_online, 1, '重建后好友配置可写可读');
+  runtime.db.upsertQqBinding({ appId: 'app2', openid: 'o2', nickname: 'n2', at: 9 });
+  assert.equal(runtime.db.getQqBinding('app2').openid, 'o2', '重建后 QQ 绑定可写可读');
 });

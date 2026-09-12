@@ -475,7 +475,7 @@ test('logout with clearFriends/clearCache clears all data except settings and wo
   await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: true });
   const dbId = ctx.db.getUserByVrcId('usr_me').id;
   ctx.db.upsertFriend(dbId, 'usr_f1', { displayName: 'F1', state: 'online' });
-  ctx.db.upsertConfig(dbId, 'usr_f1', { favorite: true });
+  ctx.db.setFriendConfig(dbId, 'usr_f1', { favorite: true });
   ctx.db.upsertQqBinding({ appId: 'app1', openid: 'open1' });
   ctx.db.markNotified('k1', 999999);
   ctx.db.setSetting('qq_enabled', '1');
@@ -487,7 +487,7 @@ test('logout with clearFriends/clearCache clears all data except settings and wo
   const r = await post(ctx, '/api/logout', { clearFriends: true, clearCache: true });
   assert.equal(r.data.ok, true);
   assert.equal(ctx.db.listFriends(dbId).length, 0, '好友数据已清除');
-  assert.equal(ctx.db.listConfigs(dbId).length, 0, '监控配置已清除');
+  assert.equal(ctx.db.getFriend(dbId, 'usr_f1'), null, '好友连它的配置一起清除');
   assert.equal(ctx.db.listUsers().length, 0, '用户表已清除');
   assert.equal(ctx.db.getQqBinding('app1'), null, 'QQ 绑定已清除');
   assert.equal(ctx.db.isDuplicate('k1', 60000, 1000000), false, '通知去重已清除');
@@ -684,7 +684,7 @@ test('saved session auto-restores on fresh app instance (GET /api/session)', asy
   assert.equal(data.user.vrchat_user_id, 'usr_me');
 });
 
-test('friends list merges friend rows with monitor config', async (t) => {
+test('friends list 直接带出逐好友配置(存在好友行上, 默认全 0)', async (t) => {
   const ctx = setup({ onlineFriends: [{ id: 'usr_f1', displayName: '朋友1', location: 'wrld_a:1', status: 'active' }] });
   t.after(() => close(ctx));
   await post(ctx, '/api/login', { username: 'me', password: 'pw' });
@@ -694,8 +694,13 @@ test('friends list merges friend rows with monitor config', async (t) => {
   assert.ok(r.data.friends.length >= 1);
   const f1 = r.data.friends.find((f) => f.friend_vrchat_id === 'usr_f1');
   assert.ok(f1);
-  // 配置默认未启用
-  assert.equal(f1.config, null);
+  // 没配过的好友: config 各字段全 0。旧版这里是「没有配置行 -> config: null」,
+  // 合并到好友行之后「没配过」和「全关」成了同一件事, 前端对两种都是未启用。
+  assert.equal(f1.config.favorite, 0);
+  assert.equal(f1.config.notify_online, 0);
+  assert.equal(f1.config.notify_offline, 0);
+  assert.equal(f1.config.notify_status_change, 0);
+  assert.equal(f1.config.notify_world_change, 0);
 });
 
 test('PUT friend config persists and reflects in list', async (t) => {

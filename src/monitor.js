@@ -297,17 +297,16 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
   // ---------- 通知 ----------
   async function dispatchNotification(user, friendVrcId, change) {
     if (!change) return;
-    // 无总开关: 所有好友可被监控; 无配置行时小开关默认关闭(不通知)
-    const config = db.getConfig(user.id, friendVrcId);
-    if (!config) return;
-    if (change.notifyField && config[change.notifyField] !== 1) return;
+    // 无总开关: 所有好友可被监控; 配置就存在好友行上, 新好友默认全 0(不通知)
+    const friend = db.getFriend(user.id, friendVrcId);
+    if (!friend) return;
+    if (change.notifyField && friend[change.notifyField] !== 1) return;
 
     // 去重 key 含新旧状态: 同一朋友短时间内不同的状态变化不应被吞掉
     const key = `${user.id}|${friendVrcId}|${change.changeType}|${change.newWorldId || ''}|${change.oldStatus || ''}>${change.newStatus || ''}`;
     if (db.isDuplicate(key, dedupeWindowMs, now())) return;
     db.markNotified(key, now());
 
-    const friend = db.getFriend(user.id, friendVrcId) || {};
     const changeForNotify = {
       ...change,
       friendName: friend.display_name || friendVrcId,
