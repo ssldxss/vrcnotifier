@@ -17,19 +17,22 @@ function imgFetch(calls = { n: 0 }, { status = 200 } = {}) {
   };
 }
 
-test('thumbKeyFromUrl extracts fileId_version_size, rejects others', () => {
+test('thumbKeyFromUrl 用固定尺寸建 key, 与 URL 里的尺寸无关', () => {
   const c = createAvatarCache({ dir: tmpDir() });
-  assert.equal(c.thumbKeyFromUrl(THUMB), 'file_abc-123_1_256');
+  assert.equal(c.thumbKeyFromUrl(THUMB), 'file_abc-123_1_128');
+  assert.equal(c.thumbKeyFromUrl('https://api.vrchat.cloud/api/1/image/file_abc-123/1/64'), 'file_abc-123_1_128', 'URL 是 64 也建同样的 key');
+  assert.equal(c.thumbKeyFromUrl('https://api.vrchat.cloud/api/1/image/file_abc-123/9/256'), 'file_abc-123_9_128', '版本号仍取自 URL');
   assert.equal(c.thumbKeyFromUrl('https://api.vrchat.cloud/api/1/file/file_x/1/file'), null, '原图不产生 key');
   assert.equal(c.thumbKeyFromUrl('https://evil.example.com/x'), null);
   assert.equal(c.thumbKeyFromUrl('not a url'), null);
   assert.equal(c.thumbKeyFromUrl(''), null);
 });
 
-test('toThumbUrl normalizes to /api/1/image/ form', () => {
-  assert.equal(toThumbUrl('https://api.vrchat.cloud/api/1/image/file_abc-123/1/256'), 'https://api.vrchat.cloud/api/1/image/file_abc-123/1/256');
-  assert.equal(toThumbUrl('https://api.vrchat.cloud/api/1/file/file_abc-123/1/file'), 'https://api.vrchat.cloud/api/1/image/file_abc-123/1/256');
-  assert.equal(toThumbUrl('https://api.vrchat.cloud/api/1/file/file_abc-123/7/file'), 'https://api.vrchat.cloud/api/1/image/file_abc-123/7/256');
+test('toThumbUrl 统一成 /api/1/image/ 形态, 尺寸固定', () => {
+  assert.equal(toThumbUrl(THUMB), 'https://api.vrchat.cloud/api/1/image/file_abc-123/1/128');
+  assert.equal(toThumbUrl('https://api.vrchat.cloud/api/1/image/file_abc-123/1/64'), 'https://api.vrchat.cloud/api/1/image/file_abc-123/1/128', '已是缩略图也换成缓存尺寸');
+  assert.equal(toThumbUrl('https://api.vrchat.cloud/api/1/file/file_abc-123/1/file'), 'https://api.vrchat.cloud/api/1/image/file_abc-123/1/128');
+  assert.equal(toThumbUrl('https://api.vrchat.cloud/api/1/file/file_abc-123/7/file'), 'https://api.vrchat.cloud/api/1/image/file_abc-123/7/128');
   assert.equal(toThumbUrl('https://evil.example.com/x'), null);
   assert.equal(toThumbUrl(null), null);
   assert.equal(toThumbUrl(''), null);

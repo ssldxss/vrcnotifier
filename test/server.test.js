@@ -377,7 +377,7 @@ test('login/session expose own presence fields and avatarKey', async (t) => {
   ctx.db.upsertWorldCache('wrld_me', '世界_wrld_me', Date.now());
   const r = await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: false });
   assert.equal(r.status, 200);
-  assert.equal(r.data.user.avatarKey, 'file_me-111_1_256');
+  assert.equal(r.data.user.avatarKey, 'file_me-111_1_128');
   assert.deepEqual(ctx.vrcapi.userCalls, [], '新模型: 自己的信息来自 me() presence, 不再调 users/{me}');
   const row = ctx.db.getUserByVrcId('usr_me');
   assert.equal(row.avatar_thumb_url, meThumb);
@@ -391,7 +391,7 @@ test('login/session expose own presence fields and avatarKey', async (t) => {
   assert.equal(s.data.user.world_name, '世界_wrld_me', '/api/session 从世界名缓存补名字');
   assert.equal(s.data.user.platform, 'standalonewindows');
   assert.equal(s.data.user.status_description, '摸鱼');
-  assert.equal(s.data.user.avatarKey, 'file_me-111_1_256');
+  assert.equal(s.data.user.avatarKey, 'file_me-111_1_128');
 });
 
 test('login with 2FA: temp session then verify code completes login', async (t) => {
@@ -479,7 +479,7 @@ test('logout with clearFriends/clearCache clears all data except settings and wo
   ctx.db.markNotified('k1', 999999);
   ctx.db.setSetting('qq_enabled', '1');
   ctx.db.upsertWorldCache('wrld_1', '世界一');
-  const avatarFile = path.join(ctx.avatarCache.dir, 'file_test_1_256');
+  const avatarFile = path.join(ctx.avatarCache.dir, 'file_test_1_128');
   fs.writeFileSync(avatarFile, 'fake-image');
   const r = await post(ctx, '/api/logout', { clearFriends: true, clearCache: true });
   assert.equal(r.data.ok, true);
@@ -938,7 +938,7 @@ test('avatar endpoint: 401 / whitelist / download / cache hit / immutable', asyn
   });
   t.after(() => close(ctx));
   // 未登录 -> 401
-  let r = await fetch(ctx.base + '/api/avatar/file_aaa-111_1_256');
+  let r = await fetch(ctx.base + '/api/avatar/file_aaa-111_1_128');
   assert.equal(r.status, 401);
   await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: false });
   // key 不在白名单 -> 404
@@ -947,16 +947,16 @@ test('avatar endpoint: 401 / whitelist / download / cache hit / immutable', asyn
   // /api/friends 带 avatarKey
   const fl = await get(ctx, '/api/friends');
   const f1 = fl.data.friends.find((f) => f.friend_vrchat_id === 'usr_f1');
-  assert.equal(f1.avatarKey, 'file_aaa-111_1_256');
+  assert.equal(f1.avatarKey, 'file_aaa-111_1_128');
   // 首次: 下载并返回
-  r = await fetch(ctx.base + '/api/avatar/file_aaa-111_1_256');
+  r = await fetch(ctx.base + '/api/avatar/file_aaa-111_1_128');
   assert.equal(r.status, 200);
   assert.equal(r.headers.get('content-type'), 'image/png');
   assert.ok((r.headers.get('cache-control') || '').includes('immutable'));
   assert.ok((await r.text()).includes('AVATARPNG'));
   assert.equal(ctx.avatarCalls.n, 1, '首次应下载一次');
   // 再次: 缓存命中, 不再下载
-  r = await fetch(ctx.base + '/api/avatar/file_aaa-111_1_256');
+  r = await fetch(ctx.base + '/api/avatar/file_aaa-111_1_128');
   assert.equal(r.status, 200);
   assert.ok((await r.text()).includes('AVATARPNG'));
   assert.equal(r.headers.get('content-type'), 'image/png', 'cache hit must keep image content type');
@@ -975,7 +975,7 @@ test('avatar whitelist accepts own avatar thumb url', async (t) => {
   });
   t.after(() => close(ctx));
   await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: false });
-  const r = await fetch(ctx.base + '/api/avatar/file_me-222_1_256');
+  const r = await fetch(ctx.base + '/api/avatar/file_me-222_1_128');
   assert.equal(r.status, 200);
   assert.ok((await r.text()).includes('AVATARPNG'));
 });
@@ -990,11 +990,11 @@ test('avatar endpoint: download failure returns 502 and is not cached', async (t
   });
   t.after(() => close(ctx));
   await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: false });
-  let r = await fetch(ctx.base + '/api/avatar/file_bbb-222_1_256');
+  let r = await fetch(ctx.base + '/api/avatar/file_bbb-222_1_128');
   assert.equal(r.status, 502);
-  assert.equal(ctx.avatarCache.cached('file_bbb-222_1_256'), null, '失败不缓存');
+  assert.equal(ctx.avatarCache.cached('file_bbb-222_1_128'), null, '失败不缓存');
   // 下次请求重新尝试下载
-  r = await fetch(ctx.base + '/api/avatar/file_bbb-222_1_256');
+  r = await fetch(ctx.base + '/api/avatar/file_bbb-222_1_128');
   assert.equal(r.status, 502);
 });
 
@@ -1010,7 +1010,7 @@ test('avatar key requires a thumb url (full image url alone produces no key)', a
   const fl = await get(ctx, '/api/friends');
   const f1 = fl.data.friends.find((f) => f.friend_vrchat_id === 'usr_f1');
   assert.equal(f1.avatarKey, null);
-  const r = await fetch(ctx.base + '/api/avatar/file_ccc-333_5_256');
+  const r = await fetch(ctx.base + '/api/avatar/file_ccc-333_5_128');
   assert.equal(r.status, 404);
   assert.equal(ctx.avatarCalls.n, 0);
 });

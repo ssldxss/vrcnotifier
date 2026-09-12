@@ -7,18 +7,22 @@ const path = require('node:path');
 
 const MAX_BYTES = 2 * 1024 * 1024; // 单张上限, 防止异常大文件
 
-// 统一头像图片到 /api/1/image/ 形态:
-// 已是缩略图 -> 原样; 原图 /file/{fileId}/{version}/file -> /image/{fileId}/{version}/256; 其他 -> null
+// 头像缓存用的缩略图尺寸。前端按 40px 显示, 128 足够清晰, 体积只有 256 的三分之一。
+// VRC 返回的 URL 自带尺寸(通常 256), 这里一律归一成 THUMB_SIZE, 保证 key / 下载地址 / 磁盘文件三者一致。
+const THUMB_SIZE = 128;
+
+// 统一头像图片到 /api/1/image/ 形态并锁定尺寸:
+// 已是缩略图 -> 换成 size; 原图 /file/{fileId}/{version}/file -> /image/{fileId}/{version}/{size}; 其他 -> null
 const DOWNLOAD_TIMEOUT_MS = 10 * 1000;
 
-function toThumbUrl(url) {
+function toThumbUrl(url, size = THUMB_SIZE) {
   if (!url) return null;
   try {
     const u = new URL(String(url));
-    const thumb = u.pathname.match(/^\/api\/1\/image\/(file_[A-Za-z0-9-]+)\/(\d+)\/(\d+)$/);
-    if (thumb) return u.origin + u.pathname;
+    const thumb = u.pathname.match(/^\/api\/1\/image\/(file_[A-Za-z0-9-]+)\/(\d+)\/\d+$/);
+    if (thumb) return `${u.origin}/api/1/image/${thumb[1]}/${thumb[2]}/${size}`;
     const full = u.pathname.match(/^\/api\/1\/file\/(file_[A-Za-z0-9-]+)\/(\d+)\/file$/);
-    if (full) return `${u.origin}/api/1/image/${full[1]}/${full[2]}/256`;
+    if (full) return `${u.origin}/api/1/image/${full[1]}/${full[2]}/${size}`;
     return null;
   } catch (e) {
     return null;
@@ -50,12 +54,13 @@ function createAvatarCache({ dir, logger = null, fetchImpl = fetch, userAgent = 
     fs.mkdirSync(dir, { recursive: true });
   }
 
-  // 从缩略图 URL 提取缓存 key: /api/1/image/{fileId}/{version}/{size} -> {fileId}_{version}_{size}
-  function thumbKeyFromUrl(url) {
+  // 缩略图 URL -> 缓存 key: /api/1/image/{fileId}/{version}/{尺寸} -> {fileId}_{version}_{THUMB_SIZE}
+  // 只认 /image/ 形态(原图 URL 不产生 key); 尺寸取 URL 里的, 但一律写成 THUMB_SIZE
+  function thumbKeyFromUrl(url, size = THUMB_SIZE) {
     try {
       const u = new URL(String(url));
-      const m = u.pathname.match(/^\/api\/1\/image\/(file_[A-Za-z0-9-]+)\/(\d+)\/(\d+)$/);
-      return m ? `${m[1]}_${m[2]}_${m[3]}` : null;
+      const m = u.pathname.match(/^\/api\/1\/image\/(file_[A-Za-z0-9-]+)\/(\d+)\/\d+$/);
+      return m ? `${m[1]}_${m[2]}_${size}` : null;
     } catch (e) {
       return null;
     }
