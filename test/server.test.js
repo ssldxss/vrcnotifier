@@ -992,7 +992,9 @@ test('avatar 越界 key 拿不到缓存目录外的文件', async (t) => {
   const decoy = path.join(path.dirname(ctx.avatarCache.dir), `vrcnt-decoy-${process.pid}.txt`);
   fs.writeFileSync(decoy, 'TOPSECRET');
   t.after(() => { try { fs.unlinkSync(decoy); } catch (e) { /* ignore */ } });
-  for (const k of [`..%2F${path.basename(decoy)}`, `%2E%2E%2F${path.basename(decoy)}`, '..%2F..%2Fetc%2Fpasswd']) {
+  // 越界形态 + 直接点名: 后者能查出「root 被放宽到缓存目录之外」
+  const name = path.basename(decoy);
+  for (const k of [`..%2F${name}`, `%2E%2E%2F${name}`, '..%2F..%2Fetc%2Fpasswd', name]) {
     const r = await fetch(ctx.base + '/api/avatar/' + k);
     assert.equal(r.status, 404, `${k} 应被拒`);
     assert.ok(!(await r.text()).includes('TOPSECRET'), `${k} 不该泄漏目录外内容`);
