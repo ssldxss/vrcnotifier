@@ -11,6 +11,16 @@ const KEY_URL = 'https://api.vrchat.cloud/api/1/image/file_abc-123/1/128';
 
 function tmpDir() { return fs.mkdtempSync(path.join(os.tmpdir(), 'vrcnt-av-')); }
 
+// 轮询等待条件成立, 避免用固定 sleep 造成偶发失败
+async function waitFor(fn, ms = 2000) {
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    if (fn()) return true;
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  return fn();
+}
+
 function imgFetch(calls = { n: 0, urls: [] }, { status = 200 } = {}) {
   return async (url) => {
     calls.n++;
@@ -193,4 +203,22 @@ test('淘汰时打日志写明淘汰数量和上限', async () => {
   }
   await c.ensure('file_k3_1_128');
   assert.ok(lines.some((l) => l === '[avatar] 缓存超限, 已淘汰最旧的 1 个 (上限 2)'), `实际日志: ${lines.join(' | ')}`);
+});
+
+test('定时器按间隔清理过期文件, 停止后不再清理', async () => {
+  const dir = tmpDir();
+  const c = createAvatarCache({ dir, ttlMs: 1000, fetchImpl: imgFetch() });
+  await c.ensure(KEY);
+  const p = path.join(dir, KEY);
+  const old = new Date(Date.now() - 5000);
+  c.startTimers({ intervalMs: 20 });
+  c.startTimers({ intervalMs: 20 }); // 重复启动不应出问题
+  fs.utimesSync(p, old, old);
+  assert.ok(await waitFor(() => !fs.existsSync(p)), '定时器应清掉过期文件');
+  c.stopTimers();
+  c.stopTimers(); // 重复停止不应出问题
+  fs.writeFileSync(p, 'X');
+  fs.utimesSync(p, old, old);
+  await new Promise((r) => setTimeout(r, 100)); // 远超过间隔
+  assert.equal(fs.existsSync(p), true, '停止后不该再清理');
 });

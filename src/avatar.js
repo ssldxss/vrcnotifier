@@ -1,11 +1,14 @@
 'use strict';
-// 头像缓存: 缩略图 key 解析 + 服务端下载 + 原子写盘 + in-flight 并发去重 + mtime TTL 清理。
+// 头像缓存: 缩略图 key 解析 + 服务端下载 + 原子写盘 + in-flight 并发去重 + mtime TTL 清理 + 数量上限淘汰。
 // 文件系统即索引: data/avatars/{key} 存在即缓存命中, 不建表; mtime 即最后访问时间。
+// 发文件不在这里做 —— 由 server.js 的 express.static 负责(路径解析与目录限制都在那边), 本模块只回答
+// 「本地有没有、要不要去上游取」。
 
 const fs = require('node:fs');
 const path = require('node:path');
 
 const MAX_BYTES = 2 * 1024 * 1024; // 单张上限, 防止异常大文件
+const DOWNLOAD_TIMEOUT_MS = 10 * 1000;
 
 // 头像缓存用的缩略图尺寸。前端按 40px 显示, 128 足够清晰, 体积只有 256 的三分之一。
 // VRC 返回的 URL 自带尺寸(通常 256), 这里一律归一成 THUMB_SIZE, 保证 key / 下载地址 / 磁盘文件三者一致。
@@ -13,10 +16,11 @@ const THUMB_SIZE = 128;
 
 const DEFAULT_API_BASE = 'https://api.vrchat.cloud/api/1';
 
+// 定时清理间隔: 进程长期运行也要能清掉过期头像
+const SWEEP_INTERVAL_MS = 24 * 3600 * 1000;
+
 // 统一头像图片到 /api/1/image/ 形态并锁定尺寸:
 // 已是缩略图 -> 换成 size; 原图 /file/{fileId}/{version}/file -> /image/{fileId}/{version}/{size}; 其他 -> null
-const DOWNLOAD_TIMEOUT_MS = 10 * 1000;
-
 function toThumbUrl(url, size = THUMB_SIZE) {
   if (!url) return null;
   try {
@@ -52,6 +56,7 @@ function createAvatarCache({ dir, logger = null, fetchImpl = fetch, userAgent = 
   const log = logger || { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
   const apiBase = String(apiBaseUrl || DEFAULT_API_BASE).replace(/\/+$/, '');
   const inFlight = new Map(); // key -> Promise
+  let sweepTimer = null;
 
   function ensureDir() {
     fs.mkdirSync(dir, { recursive: true });
@@ -191,7 +196,20 @@ function createAvatarCache({ dir, logger = null, fetchImpl = fetch, userAgent = 
     return removed;
   }
 
-  return { thumbKeyFromUrl, urlFromKey, cached, ensure, touchPath, sweep, clear, dir };
+  // 定时清理: 启动时的那次 sweep 在 index.js 里做, 这里负责长期运行期间的清理
+  function startTimers({ intervalMs = SWEEP_INTERVAL_MS } = {}) {
+    if (sweepTimer) return;
+    sweepTimer = setInterval(() => {
+      try { sweep(); } catch (e) { log.warn(`[avatar] 定时清理失败: ${e.message}`); }
+    }, intervalMs);
+    sweepTimer.unref?.();
+  }
+
+  function stopTimers() {
+    if (sweepTimer) { clearInterval(sweepTimer); sweepTimer = null; }
+  }
+
+  return { thumbKeyFromUrl, urlFromKey, cached, ensure, touchPath, sweep, clear, startTimers, stopTimers, dir };
 }
 
 module.exports = { createAvatarCache, toThumbUrl, detectImageType };

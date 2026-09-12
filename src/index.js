@@ -94,6 +94,7 @@ function buildApplication(opts = {}) {
     ttlMs: opts.avatarTtlMs ?? 30 * 24 * 3600 * 1000
   });
   avatarCache.sweep();
+  avatarCache.startTimers(); // 启动时清一次, 之后每天再清
   const bus = opts.bus || new EventEmitter();
   const sessionStore = new Map();
   const now = opts.now || Date.now;
@@ -364,6 +365,7 @@ async function main() {
     logger.info('[退出] 正在停止监控与连接...');
     try { await runtime.monitor.sendShutdownNotice(); } catch (e) { logger.warn(`[退出] 停止通知发送失败: ${e.message}`); }
     try { runtime.monitor.stopTimers(); } catch (e) { logger.warn(`[退出] stopTimers: ${e.message}`); }
+    try { runtime.avatarCache.stopTimers(); } catch (e) { logger.warn(`[退出] avatarCache.stopTimers: ${e.message}`); }
     try { runtime.healthMonitor.stop(); } catch (e) { logger.warn(`[退出] healthMonitor.stop: ${e.message}`); }
     try { runtime.qq.stopAll(); } catch (e) { logger.warn(`[退出] qq.stopAll: ${e.message}`); }
     for (const { user } of runtime.monitor.activeUsers()) {
