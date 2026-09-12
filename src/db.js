@@ -404,6 +404,23 @@ function createDb(location = ':memory:', opts = {}) {
         throw e;
       }
     },
+    // 彻底重置(登出勾"清除设置"): 清空全部设置与 QQ 绑定, 只保留访问令牌 ——
+    // 令牌一丢, 下次启动会随机生成一个新的只打在控制台, 浏览器里的旧令牌全部 401, 等于把自己锁在外面。
+    clearSettings() {
+      db.exec('BEGIN');
+      try {
+        const bindings = stmt.clearAllBindings.run();
+        const settings = stmt.listSettings.all().length;
+        const token = stmt.getSetting.get('access_token');
+        db.prepare('DELETE FROM settings').run();
+        if (token && token.value !== null && token.value !== undefined) stmt.setSetting.run('access_token', token.value);
+        db.exec('COMMIT');
+        return { settings, bindings: bindings.changes };
+      } catch (e) {
+        try { db.exec('ROLLBACK'); } catch (e2) { /* ignore */ }
+        throw e;
+      }
+    },
     // friends
     upsertFriend(dbId, friendVrcId, fields) {
       const existing = stmt.getFriend.get(dbId, friendVrcId);
@@ -437,15 +454,15 @@ function createDb(location = ':memory:', opts = {}) {
     setFriendConfig(dbId, friendVrcId, { favorite = false, notifyOnline = false, notifyOffline = false, notifyStatusChange = false, notifyWorldChange = false } = {}) {
       stmt.setFriendConfig.run(favorite ? 1 : 0, notifyOnline ? 1 : 0, notifyOffline ? 1 : 0, notifyStatusChange ? 1 : 0, notifyWorldChange ? 1 : 0, dbId, friendVrcId);
     },
-    // 登出全清: 除 settings 与世界名缓存外的全部数据(好友(含配置)/通知去重/QQ绑定/用户)
-    clearFriends() {
+    // 登出必清: 好友(含逐好友配置)/通知去重/用户 —— 都跟着账号走, 换个账号就没有意义了。
+    // QQ 绑定与设置是全局的, 不在这里清(绑定归"彻底重置", 见 clearSettings)。
+    clearAccountData() {
       const friends = stmt.clearAllFriends.run();
       const dedupe = stmt.clearAllDedupe.run();
-      const bindings = stmt.clearAllBindings.run();
       const users = stmt.clearAllUsers.run();
       return {
         friends: friends.changes,
-        dedupe: dedupe.changes, bindings: bindings.changes, users: users.changes
+        dedupe: dedupe.changes, users: users.changes
       };
     },
     clearWorldCache() { return stmt.clearWorldCache.run().changes; },

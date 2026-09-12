@@ -764,8 +764,8 @@ function createApp({
 
   app.post('/api/logout', async (req, res) => {
     const body = req.body || {};
-    const clearFriends = !!body.clearFriends;
     const clearCache = !!body.clearCache;
+    const clearSettings = !!body.clearSettings;
     if (!current) return res.json({ ok: true });
     if (autoLoginRetryTimer) { clearTimeout(autoLoginRetryTimer); autoLoginRetryTimer = null; }
     autoLoginRetryAttempt = 0;
@@ -780,16 +780,20 @@ function createApp({
     try { monitor.deactivateUser(userId); } catch (e) { log.warn(`[server] 停用失败: ${e.message}`); }
     sessionStore.delete(userId);
     db.clearCookies(dbId);
-    if (clearFriends) {
-      const r = db.clearFriends();
-      log.info(`[server] 登出全清数据(保留设置与世界名缓存): 好友 ${r.friends}, 配置 ${r.configs}, 去重 ${r.dedupe}, 绑定 ${r.bindings}, 用户 ${r.users}`);
-    }
+    // 账号数据一律清掉(不需要勾选): 好友(含逐好友配置)/通知去重/用户 —— 对下一个账号都没有意义。
+    // QQ 绑定是全局的(一个 QQ 应用一份), 不在这里清。
+    const r = db.clearAccountData();
+    log.info(`[server] 登出清除账号数据: 好友 ${r.friends}, 去重 ${r.dedupe}, 用户 ${r.users}`);
     if (clearCache) {
       const worlds = db.clearWorldCache();
       const groups = db.clearGroupCache();
       let avatars = 0;
       try { if (avatarCache) avatars = avatarCache.clear(); } catch (e) { log.warn(`[server] 头像缓存清理失败: ${e.message}`); }
       log.info(`[server] 登出清除缓存: 世界名 ${worlds} 条, 群组名 ${groups} 条, 头像 ${avatars} 个`);
+    }
+    if (clearSettings) {
+      const c = db.clearSettings();
+      log.info(`[server] 登出彻底重置: 设置 ${c.settings} 项, QQ 绑定 ${c.bindings} 条(访问令牌保留)`);
     }
     log.info(`[server] 登出: ${userId}`);
     current = null;

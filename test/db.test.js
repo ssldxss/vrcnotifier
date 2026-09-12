@@ -497,6 +497,21 @@ test('清库: wipeAllExceptToken 清空全部数据但保留 access_token', () =
   assert.equal(db.getSetting('qq_enabled'), null, '其余设置清空');
 });
 
+test('clearSettings: 清空全部设置与 QQ 绑定, 只保留访问令牌', () => {
+  const db = newDb();
+  db.setSetting('access_token', 'tok-keep');
+  db.setSetting('qq_enabled', '1');
+  db.updateGlobalSettings({ qq_app_id: 'app1', qq_app_secret: 'sec', notify_boop: 1 });
+  db.upsertQqBinding({ appId: 'app1', openid: 'o1', nickname: 'n', at: 1 });
+  db.clearSettings();
+  assert.equal(db.getSetting('access_token'), 'tok-keep', '访问令牌保留');
+  assert.equal(db.getSetting('qq_enabled'), null, 'QQ 开关清空');
+  assert.equal(db.getSetting('qq_app_id'), null, 'QQ AppID 清空');
+  assert.equal(db.getSetting('qq_app_secret'), null, 'QQ AppSecret 清空');
+  assert.equal(db.getSetting('notify_boop'), null, '全局通知设置清空');
+  assert.equal(db.getQqBinding('app1'), null, 'QQ 绑定清空');
+});
+
 test('qq_bindings: 按 appId 全局唯一, 同 app 覆盖更新', () => {
   const db = newDb();
   db.upsertQqBinding({ appId: 'app1', openid: 'o1', nickname: 'n1', at: 1 });

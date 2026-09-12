@@ -450,9 +450,8 @@ test('logout deactivates session and clears saved cookies', async (t) => {
   assert.equal(r.data.ok, true);
   assert.equal(ctx.pipeline.disconnects.length, 1);
   assert.equal(ctx.sessionStore.size, 0);
-  const row = ctx.db.getUserByVrcId('usr_me');
-  assert.equal(row.cookie_data, null);
-  assert.equal(row.remember_me, 0);
+  // 登出必清用户行: cookie/记住我/保存的密码随整行一起没了(比逐列置空更彻底)
+  assert.equal(ctx.db.getUserByVrcId('usr_me'), null, '用户行已删除');
   const s = await get(ctx, '/api/session');
   assert.equal(s.data.loggedIn, false);
 });
@@ -464,12 +463,10 @@ test('logout stays effective when a debounced cookie save is pending', async (t)
   if (ctx.vrcapi._cookiesChanged) ctx.vrcapi._cookiesChanged(ctx.vrcapi.jar);
   await post(ctx, '/api/logout', {});
   await sleep(2500);
-  const row = ctx.db.getUserByVrcId('usr_me');
-  assert.equal(row.cookie_data, null, '登出后不应被防抖定时器写回');
-  assert.equal(row.remember_me, 0);
+  assert.equal(ctx.db.getUserByVrcId('usr_me'), null, '登出后用户行已被删除, 防抖定时器不会把它写回来');
 });
 
-test('logout with clearFriends/clearCache clears all data except settings and world cache', async (t) => {
+test('登出必删账号数据(好友含配置/用户/去重); 勾缓存清缓存, 设置与 QQ 绑定留着', async (t) => {
   const ctx = setup();
   t.after(() => close(ctx));
   await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: true });
@@ -480,36 +477,56 @@ test('logout with clearFriends/clearCache clears all data except settings and wo
   ctx.db.markNotified('k1', 999999);
   ctx.db.setSetting('qq_enabled', '1');
   ctx.db.upsertWorldCache('wrld_1', '世界一');
+  ctx.db.upsertGroupCache('grp_1', '群组一');
   const avatarFile = path.join(ctx.avatarCache.dir, 'file_test_1_128');
   fs.writeFileSync(avatarFile, 'fake-image');
   const avatarTmp = path.join(ctx.avatarCache.dir, '.file_test_1_128.999.111.tmp');
   fs.writeFileSync(avatarTmp, 'leftover'); // 崩溃遗留的临时文件
-  const r = await post(ctx, '/api/logout', { clearFriends: true, clearCache: true });
+  const r = await post(ctx, '/api/logout', { clearCache: true });
   assert.equal(r.data.ok, true);
-  assert.equal(ctx.db.listFriends(dbId).length, 0, '好友数据已清除');
+  assert.equal(ctx.db.listFriends(dbId).length, 0, '好友必删, 不需要勾选');
   assert.equal(ctx.db.getFriend(dbId, 'usr_f1'), null, '好友连它的配置一起清除');
-  assert.equal(ctx.db.listUsers().length, 0, '用户表已清除');
-  assert.equal(ctx.db.getQqBinding('app1'), null, 'QQ 绑定已清除');
-  assert.equal(ctx.db.isDuplicate('k1', 60000, 1000000), false, '通知去重已清除');
-  assert.equal(ctx.db.getSetting('qq_enabled'), '1', '设置表保留');
+  assert.equal(ctx.db.listUsers().length, 0, '用户必删');
+  assert.equal(ctx.db.isDuplicate('k1', 60000, 1000000), false, '通知去重必删');
   assert.equal(ctx.db.getWorldCache('wrld_1'), null, '世界名缓存已清除');
+  assert.equal(ctx.db.getGroupCache('grp_1'), null, '群组名缓存已清除');
   assert.equal(fs.existsSync(avatarFile), false, '头像缓存文件已清除');
   assert.equal(fs.existsSync(avatarTmp), false, '临时文件也要清除');
+  assert.equal(ctx.db.getSetting('qq_enabled'), '1', '不勾彻底重置时设置保留');
+  assert.ok(ctx.db.getQqBinding('app1'), '不勾彻底重置时 QQ 绑定保留');
 });
 
-test('logout without clear options keeps all data', async (t) => {
+test('登出不做任何勾选: 账号数据照样删, 缓存与设置留着', async (t) => {
   const ctx = setup();
   t.after(() => close(ctx));
   await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: true });
   const dbId = ctx.db.getUserByVrcId('usr_me').id;
   ctx.db.upsertFriend(dbId, 'usr_f1', { displayName: 'F1', state: 'online' });
+  ctx.db.upsertQqBinding({ appId: 'app1', openid: 'open1' });
   ctx.db.setSetting('qq_enabled', '1');
   ctx.db.upsertWorldCache('wrld_1', '世界一');
   await post(ctx, '/api/logout', {});
-  assert.equal(ctx.db.listFriends(dbId).length, 1, '默认不清好友');
-  assert.equal(ctx.db.listUsers().length, 1, '默认不清用户');
-  assert.equal(ctx.db.getSetting('qq_enabled'), '1', '默认不清设置');
-  assert.ok(ctx.db.getWorldCache('wrld_1'), '默认不清缓存');
+  assert.equal(ctx.db.listFriends(dbId).length, 0, '好友必删(不再需要勾选)');
+  assert.equal(ctx.db.listUsers().length, 0, '用户必删');
+  assert.equal(ctx.db.getSetting('qq_enabled'), '1', '设置留着');
+  assert.ok(ctx.db.getQqBinding('app1'), 'QQ 绑定留着');
+  assert.ok(ctx.db.getWorldCache('wrld_1'), '缓存留着');
+});
+
+test('登出勾彻底重置: 清设置与 QQ 凭据/绑定, 但访问令牌必须保留', async (t) => {
+  const ctx = setup();
+  t.after(() => close(ctx));
+  await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: true });
+  ctx.db.setSetting('access_token', 'tok-abc');
+  ctx.db.upsertQqBinding({ appId: 'app1', openid: 'open1' });
+  ctx.db.updateGlobalSettings({ qq_enabled: 1, qq_app_id: 'app1', qq_app_secret: 'sec', notify_boop: 1 });
+  const r = await post(ctx, '/api/logout', { clearSettings: true });
+  assert.equal(r.data.ok, true);
+  assert.equal(ctx.db.getSetting('qq_enabled'), null, 'QQ 机器人开关已清除');
+  assert.equal(ctx.db.getSetting('qq_app_id'), null, 'QQ AppID 已清除');
+  assert.equal(ctx.db.getSetting('notify_boop'), null, '全局通知设置已清除');
+  assert.equal(ctx.db.getQqBinding('app1'), null, 'QQ 绑定已清除');
+  assert.equal(ctx.db.getSetting('access_token'), 'tok-abc', '访问令牌必须保留, 否则会被锁在界面外');
 });
 
 // ---------- 自动重登 / 2FA ----------
@@ -520,7 +537,7 @@ test('rememberMe login saves password, logout clears it', async (t) => {
   await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: true });
   assert.equal(ctx.db.getUserByVrcId('usr_me').password, 'pw', '记住我时保存密码');
   await post(ctx, '/api/logout', {});
-  assert.equal(ctx.db.getUserByVrcId('usr_me').password, null, '登出清除密码');
+  assert.equal(ctx.db.getUserByVrcId('usr_me'), null, '登出删掉用户行, 保存的密码随之消失(不会再自动重登)');
 });
 
 test('auto-relogin retries after network failure and succeeds (notifications handled by monitor)', async (t) => {

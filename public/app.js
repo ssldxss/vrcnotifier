@@ -490,20 +490,21 @@ $('#twofaCancel').addEventListener('click', () => {
   $('#twofaMsg').textContent = '';
 });
 
-// 登出确认弹窗: 可勾选清除好友列表和用户信息(切换vrc账号) / 缓存(头像和世界名缓存)
+// 登出确认弹窗: 好友/监控配置/用户是登出必删的, 两个勾是额外的清理 ——
+// 缓存(头像+世界名+群组名) / 彻底重置(设置+QQ 机器人凭据+绑定, 访问令牌保留)
 $('#logoutBtn').addEventListener('click', () => {
-  $('#logoutClearFriends').checked = false;
   $('#logoutClearCache').checked = false;
+  $('#logoutClearSettings').checked = false;
   $('#logoutModal').classList.remove('hidden');
 });
 $('#logoutCancel').addEventListener('click', () => {
   $('#logoutModal').classList.add('hidden');
 });
 $('#logoutConfirm').addEventListener('click', async () => {
-  const clearFriends = $('#logoutClearFriends').checked ? 1 : 0;
   const clearCache = $('#logoutClearCache').checked ? 1 : 0;
+  const clearSettings = $('#logoutClearSettings').checked ? 1 : 0;
   try {
-    await api('POST', '/api/logout', { clearFriends, clearCache });
+    await api('POST', '/api/logout', { clearCache, clearSettings });
   } finally {
     location.reload(); // 登出后强制刷新界面, 重置全部前端状态
   }

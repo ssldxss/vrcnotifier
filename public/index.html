@@ -224,13 +224,13 @@
 <div class='modal-overlay hidden' id='logoutModal'>
   <div class='modal' role='dialog' aria-modal='true' aria-labelledby='logoutModalTitle'>
     <h2 id='logoutModalTitle'>确定登出?</h2>
-    <p class='muted'>将清除登录数据</p>
+    <p class='muted'>将删除好友列表和监控配置, 下次需重新登录</p>
     <div class='modal-body'>
       <label class='row' style='justify-content:flex-start'>
-        <input type='checkbox' id='logoutClearFriends'> 清除好友列表和用户信息(用于切换vrc账号)
+        <input type='checkbox' id='logoutClearCache'> 清除缓存(头像、世界名、群组名)
       </label>
       <label class='row' style='justify-content:flex-start'>
-        <input type='checkbox' id='logoutClearCache'> 清除缓存(头像和世界名缓存)
+        <input type='checkbox' id='logoutClearSettings'> 清除设置、QQ 机器人凭据和绑定(彻底重置)
       </label>
     </div>
     <div class='modal-actions'>
