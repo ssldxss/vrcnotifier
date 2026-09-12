@@ -181,7 +181,7 @@ function createQqManager(opts = {}) {
   async function sendText(dbId, text, opts = {}) {
     const bot = bots.get(dbId);
     if (!bot) return { ok: false, reason: '未配置QQ机器人' };
-    const binding = db.getQqBinding(dbId, bot.appId);
+    const binding = db.getQqBinding(bot.appId);
     if (!binding || !binding.openid) {
       return { ok: false, reason: '未绑定QQ用户: 请先在QQ中给机器人发送一条消息完成绑定' };
     }
@@ -305,9 +305,9 @@ function createQqManager(opts = {}) {
     const openid = author.user_openid || author.id;
     if (!openid) return;
     const nickname = author.username || '';
-    const existing = db.getQqBinding(bot.dbId, bot.appId);
+    const existing = db.getQqBinding(bot.appId);
     if (!existing) {
-      db.upsertQqBinding(bot.dbId, { appId: bot.appId, openid, nickname, at: now() });
+      db.upsertQqBinding({ appId: bot.appId, openid, nickname, at: now() });
       log.info(`[qq] 已绑定QQ用户 ${nickname || openid} (${eventType}) appId=${bot.appId}`);
       if (eventType === 'C2C_MESSAGE_CREATE' && d.id) {
         sendPassive(bot, openid, d.id, '绑定成功! 输入任意消息查看在线列表');
@@ -495,7 +495,7 @@ function createQqManager(opts = {}) {
   function status(dbId) {
     const bot = bots.get(dbId);
     if (!bot) return { configured: false };
-    const binding = db.getQqBinding(dbId, bot.appId) || null;
+    const binding = db.getQqBinding(bot.appId) || null;
     return {
       configured: true,
       appId: bot.appId,

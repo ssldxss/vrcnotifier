@@ -476,7 +476,7 @@ test('logout with clearFriends/clearCache clears all data except settings and wo
   const dbId = ctx.db.getUserByVrcId('usr_me').id;
   ctx.db.upsertFriend(dbId, 'usr_f1', { displayName: 'F1', state: 'online' });
   ctx.db.upsertConfig(dbId, 'usr_f1', { favorite: true });
-  ctx.db.upsertQqBinding(dbId, { appId: 'app1', openid: 'open1' });
+  ctx.db.upsertQqBinding({ appId: 'app1', openid: 'open1' });
   ctx.db.markNotified('k1', 999999);
   ctx.db.setSetting('qq_enabled', '1');
   ctx.db.upsertWorldCache('wrld_1', '世界一');
@@ -489,7 +489,7 @@ test('logout with clearFriends/clearCache clears all data except settings and wo
   assert.equal(ctx.db.listFriends(dbId).length, 0, '好友数据已清除');
   assert.equal(ctx.db.listConfigs(dbId).length, 0, '监控配置已清除');
   assert.equal(ctx.db.listUsers().length, 0, '用户表已清除');
-  assert.equal(ctx.db.getQqBinding(dbId, 'app1'), null, 'QQ 绑定已清除');
+  assert.equal(ctx.db.getQqBinding('app1'), null, 'QQ 绑定已清除');
   assert.equal(ctx.db.isDuplicate('k1', 60000, 1000000), false, '通知去重已清除');
   assert.equal(ctx.db.getSetting('qq_enabled'), '1', '设置表保留');
   assert.equal(ctx.db.getWorldCache('wrld_1'), null, '世界名缓存已清除');

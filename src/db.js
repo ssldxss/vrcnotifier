@@ -56,12 +56,10 @@ CREATE TABLE IF NOT EXISTS monitor_config (
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT DEFAULT (datetime('now')));
 CREATE TABLE IF NOT EXISTS notif_dedupe (key TEXT PRIMARY KEY, created_at INTEGER);
 CREATE TABLE IF NOT EXISTS qq_bindings (
-  user_id INTEGER NOT NULL,
-  app_id TEXT NOT NULL,
+  app_id TEXT PRIMARY KEY,
   openid TEXT NOT NULL,
   nickname TEXT,
-  updated_at INTEGER NOT NULL,
-  PRIMARY KEY (user_id, app_id)
+  updated_at INTEGER NOT NULL
 );
 -- 只存成功解析到的名字(查询失败不入库, 失败冷却记在内存里)
 CREATE TABLE IF NOT EXISTS world_cache (
@@ -146,6 +144,23 @@ function createDb(location = ':memory:', opts = {}) {
   try { db.exec('ALTER TABLE users DROP COLUMN world_name'); } catch (e) { /* 新库无此列 */ }
   // world_cache 只保留真实名字: 历史"未知世界"占位行会被新逻辑当成真名字
   try { db.exec("DELETE FROM world_cache WHERE world_name = '未知世界'"); } catch (e) { /* 忽略 */ }
+  // QQ 绑定改为全局(一个 QQ 应用一份绑定, 与哪个 VRC 账号无关): 旧库删掉 user_id, 保留最近一次绑定
+  // SQLite 不能直接删掉参与主键的列, 只能重建表; 同一 app 有多行时按 updated_at 取最新那条。
+  if (db.prepare('PRAGMA table_info(qq_bindings)').all().some((c) => c.name === 'user_id')) {
+    db.exec('BEGIN');
+    try {
+      db.exec(`CREATE TABLE qq_bindings_new (
+        app_id TEXT PRIMARY KEY, openid TEXT NOT NULL, nickname TEXT, updated_at INTEGER NOT NULL)`);
+      db.exec(`INSERT INTO qq_bindings_new (app_id, openid, nickname, updated_at)
+        SELECT app_id, openid, nickname, MAX(updated_at) FROM qq_bindings GROUP BY app_id`);
+      db.exec('DROP TABLE qq_bindings');
+      db.exec('ALTER TABLE qq_bindings_new RENAME TO qq_bindings');
+      db.exec('COMMIT');
+    } catch (e) {
+      try { db.exec('ROLLBACK'); } catch (e2) { /* ignore */ }
+      throw e;
+    }
+  }
   const stmt = {
     upsertUser: db.prepare(`INSERT INTO users (vrchat_user_id, username, display_name, avatar_url, avatar_thumb_url, status, status_description, platform, state)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active')
@@ -242,8 +257,8 @@ function createDb(location = ':memory:', opts = {}) {
         group_name = excluded.group_name, updated_at = excluded.updated_at,
         fail_count = excluded.fail_count, retry_at = excluded.retry_at`),
     isDuplicate: db.prepare('SELECT created_at FROM notif_dedupe WHERE key = ?'),
-    upsertQqBinding: db.prepare('INSERT INTO qq_bindings (user_id, app_id, openid, nickname, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(user_id, app_id) DO UPDATE SET openid = excluded.openid, nickname = excluded.nickname, updated_at = excluded.updated_at'),
-    getQqBinding: db.prepare('SELECT * FROM qq_bindings WHERE user_id = ? AND app_id = ?')
+    upsertQqBinding: db.prepare('INSERT INTO qq_bindings (app_id, openid, nickname, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(app_id) DO UPDATE SET openid = excluded.openid, nickname = excluded.nickname, updated_at = excluded.updated_at'),
+    getQqBinding: db.prepare('SELECT * FROM qq_bindings WHERE app_id = ?')
   };
 
   // 通知设置全局化: 统一写入 settings 表(key-value); qq_app_secret 加密存储
@@ -342,11 +357,11 @@ function createDb(location = ':memory:', opts = {}) {
       stmt.savePassword.run(crypt ? crypt.encrypt(password, 'password:' + dbId) : (password ?? null), dbId);
     },
     // QQ \u673a\u5668\u4eba\u7ed1\u5b9a (\u6bcf\u7528\u6237\u6bcf app \u4e00\u4efd)
-    upsertQqBinding(dbId, { appId, openid, nickname, at }) {
-      stmt.upsertQqBinding.run(dbId, appId, openid, nickname ?? null, at ?? Date.now());
-      return stmt.getQqBinding.get(dbId, appId);
+    upsertQqBinding({ appId, openid, nickname, at }) {
+      stmt.upsertQqBinding.run(appId, openid, nickname ?? null, at ?? Date.now());
+      return stmt.getQqBinding.get(appId);
     },
-    getQqBinding: (dbId, appId) => stmt.getQqBinding.get(dbId, appId) || null,
+    getQqBinding: (appId) => stmt.getQqBinding.get(appId) || null,
     updateGlobalSettings,
     getGlobalSettings,
     // 探测: 存在 v1: 密文但当前密钥解不开(密钥不符/密文损坏) → true(启动流程据此静默清库重启)

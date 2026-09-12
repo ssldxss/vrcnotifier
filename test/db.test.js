@@ -356,9 +356,8 @@ test('legacy db migration moves notify columns into settings', () => {
   chk.close();
   assert.ok(!cols.includes('email'));
   assert.ok(!cols.includes('qq_enabled'));
-  const id = db.getUserByVrcId('usr_old').id;
-  db.upsertQqBinding(id, { appId: 'app1', openid: 'openid_old', nickname: 'x', at: 1 });
-  assert.equal(db.getQqBinding(id, 'app1').openid, 'openid_old');
+  db.upsertQqBinding({ appId: 'app1', openid: 'openid_old', nickname: 'x', at: 1 });
+  assert.equal(db.getQqBinding('app1').openid, 'openid_old');
 });
 
 // ---------- 数据加密 ----------
@@ -421,14 +420,49 @@ test('清库: wipeAllExceptToken 清空全部数据但保留 access_token', () =
   const id = db.upsertUser('usr_w', { username: 'w', displayName: 'W' });
   db.upsertFriend(id, 'usr_f', { displayName: 'F', state: 'online', trustLevel: 'User' });
   db.upsertConfig(id, 'usr_f', {});
-  db.upsertQqBinding(id, { appId: 'a', openid: 'o', nickname: 'n', at: 1 });
+  db.upsertQqBinding({ appId: 'a', openid: 'o', nickname: 'n', at: 1 });
   db.setSetting('access_token', 'tok-keep');
   db.setSetting('qq_enabled', '1');
   db.wipeAllExceptToken();
   assert.equal(db.listUsers().length, 0);
   assert.equal(db.listFriends(id).length, 0);
   assert.equal(db.listConfigs(id).length, 0);
-  assert.equal(db.getQqBinding(id, 'a'), null);
+  assert.equal(db.getQqBinding('a'), null);
   assert.equal(db.getSetting('access_token'), 'tok-keep', '访问令牌保留');
   assert.equal(db.getSetting('qq_enabled'), null, '其余设置清空');
+});
+
+test('qq_bindings: 按 appId 全局唯一, 同 app 覆盖更新', () => {
+  const db = newDb();
+  db.upsertQqBinding({ appId: 'app1', openid: 'o1', nickname: 'n1', at: 1 });
+  db.upsertQqBinding({ appId: 'app2', openid: 'o2', nickname: 'n2', at: 2 });
+  assert.equal(db.getQqBinding('app1').openid, 'o1');
+  assert.equal(db.getQqBinding('app2').openid, 'o2', '不同 app 各一条');
+  db.upsertQqBinding({ appId: 'app1', openid: 'o1b', nickname: 'n1b', at: 3 });
+  assert.equal(db.getQqBinding('app1').openid, 'o1b', '同一 app 覆盖而不新增');
+  assert.equal(db.getQqBinding('app1').nickname, 'n1b');
+  assert.equal(db.getQqBinding('nope'), null);
+});
+
+test('qq_bindings 旧库迁移: 去掉 user_id, 绑定保留', () => {
+  const { DatabaseSync } = require('node:sqlite');
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'vrcnt-db-')), 'old.db');
+  const old = new DatabaseSync(file);
+  old.exec(`CREATE TABLE qq_bindings (
+    user_id INTEGER NOT NULL, app_id TEXT NOT NULL, openid TEXT NOT NULL,
+    nickname TEXT, updated_at INTEGER NOT NULL, PRIMARY KEY (user_id, app_id));`);
+  old.exec("INSERT INTO qq_bindings (user_id, app_id, openid, nickname, updated_at) VALUES (7, 'app1', 'openid_old', '老王', 111)");
+  // 同一个 app 在旧表里可能有多行(换过 VRC 账号各绑过一次), 新主键只有 app_id, 应保留最新的那条
+  old.exec("INSERT INTO qq_bindings (user_id, app_id, openid, nickname, updated_at) VALUES (9, 'app1', 'openid_newer', '老王新', 222)");
+  old.exec("INSERT INTO qq_bindings (user_id, app_id, openid, nickname, updated_at) VALUES (9, 'app2', 'openid_b', '另一个app', 5)");
+  old.close();
+  const db = createDb(file);
+  assert.equal(db.getQqBinding('app1').openid, 'openid_newer', '同 app 多行时保留最新绑定');
+  assert.equal(db.getQqBinding('app1').nickname, '老王新');
+  assert.equal(db.getQqBinding('app2').openid, 'openid_b', '不同 app 各自保留');
+  const chk = new DatabaseSync(file);
+  const cols = chk.prepare('PRAGMA table_info(qq_bindings)').all().map((c) => c.name);
+  chk.close();
+  assert.ok(!cols.includes('user_id'), 'user_id 列已删除');
+  db.close?.();
 });

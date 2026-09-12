@@ -92,7 +92,7 @@ function makeManager(opts, platform, extra = {}) {
 test('sendText: 获取token并缓存, 调用发消息端点, 日志含端点', async () => {
   const platform = await startQqPlatform({ appId: 'app1', clientSecret: 'sec1', token: 'tok1' });
   const db = createDb(':memory:');
-  db.upsertQqBinding(1, { appId: 'app1', openid: 'openid_x', nickname: '小明', at: 1 });
+  db.upsertQqBinding({ appId: 'app1', openid: 'openid_x', nickname: '小明', at: 1 });
   const logs = [];
   const logger = { info: (m) => logs.push(m), warn: () => {}, error: () => {} };
   const qq = createQqManager({
@@ -140,7 +140,7 @@ test('sendText: 未绑定返回失败, 不调发消息端点', async () => {
 test('token 接近过期时自动刷新', async () => {
   const platform = await startQqPlatform({ appId: 'app1', clientSecret: 'sec1', token: 'tokA' });
   const db = createDb(':memory:');
-  db.upsertQqBinding(1, { appId: 'app1', openid: 'openid_x', nickname: '', at: 1 });
+  db.upsertQqBinding({ appId: 'app1', openid: 'openid_x', nickname: '', at: 1 });
   let t = 1000000;
   const qq = createQqManager({ db, logger: silent, now: () => t, fetchImpl: async (u, i) => fetch(u, i), config: { tokenUrl: platform.base + '/app/getAppAccessToken', apiBase: platform.base, wsUrl: platform.wsUrl } });
   try {
@@ -213,7 +213,7 @@ test('WS: 收到 C2C_MESSAGE_CREATE 自动绑定并被动回复', async () => {
       d: { id: 'ROBOT.msg1', content: 'hi', author: { id: 'openid_me', user_openid: 'openid_me', username: '我的昵称' } }
     }));
     await sleep(250);
-    const binding = db.getQqBinding(1, 'app1');
+    const binding = db.getQqBinding('app1');
     assert.ok(binding, '绑定已写入');
     assert.equal(binding.openid, 'openid_me');
     assert.equal(binding.nickname, '我的昵称');
@@ -229,7 +229,7 @@ test('WS: 收到 C2C_MESSAGE_CREATE 自动绑定并被动回复', async () => {
 test('WS: 已绑定用户发命令 -> onCommand 被动回复, 重复 msg_id 不重复回复', async () => {
   const platform = await startQqPlatform({ appId: 'app1', clientSecret: 'sec1', token: 'tok1' });
   const db = createDb(':memory:');
-  db.upsertQqBinding(1, { appId: 'app1', openid: 'openid_me', nickname: '我的昵称', at: 1 });
+  db.upsertQqBinding({ appId: 'app1', openid: 'openid_me', nickname: '我的昵称', at: 1 });
   const onCommand = async ({ content }) => (content.includes('在线') ? '【在线列表】1 人在线\n🟢 Alice  WorldX' : null);
   const qq = createQqManager({
     db, logger: silent, onCommand,
@@ -266,7 +266,7 @@ test('WS: 已绑定用户发命令 -> onCommand 被动回复, 重复 msg_id 不�
 test('WS: onCommand 返回 markdown 对象 -> 一次发送 msg_type=2', async () => {
   const platform = await startQqPlatform({ appId: 'app1', clientSecret: 'sec1', token: 'tok1' });
   const db = createDb(':memory:');
-  db.upsertQqBinding(1, { appId: 'app1', openid: 'openid_me', nickname: '我的昵称', at: 1 });
+  db.upsertQqBinding({ appId: 'app1', openid: 'openid_me', nickname: '我的昵称', at: 1 });
   const md = '# 在线列表 (1)\n\n| 昵称 | 世界 |\n| :--- | :--- |\n| 🟢 Alice | WorldX |';
   const onCommand = async ({ content }) => (content.includes('在线')
     ? { text: '【在线列表】1 人在线\n🟢 Alice  WorldX', markdown: md }
@@ -301,7 +301,7 @@ test('WS: onCommand 返回 markdown 对象 -> 一次发送 msg_type=2', async ()
 test('WS: onCommand 返回纯文本对象(无 markdown)-> 发送 text 而非 [object Object]', async () => {
   const platform = await startQqPlatform({ appId: 'app1', clientSecret: 'sec1', token: 'tok1' });
   const db = createDb(':memory:');
-  db.upsertQqBinding(1, { appId: 'app1', openid: 'openid_me', nickname: '我的昵称', at: 1 });
+  db.upsertQqBinding({ appId: 'app1', openid: 'openid_me', nickname: '我的昵称', at: 1 });
   const onCommand = async () => ({ text: '当前没有游戏在线的朋友。' });
   const qq = createQqManager({
     db, logger: silent, onCommand,
@@ -333,7 +333,7 @@ test('WS: markdown 被动回复失败回退文本消息', async () => {
     failMessage: { status: 400, code: 1, message: 'bad request' }
   });
   const db = createDb(':memory:');
-  db.upsertQqBinding(1, { appId: 'app1', openid: 'openid_me', nickname: '我的昵称', at: 1 });
+  db.upsertQqBinding({ appId: 'app1', openid: 'openid_me', nickname: '我的昵称', at: 1 });
   const onCommand = async () => ({
     text: '【在线列表】1 人在线\n🟢 Alice  WorldX',
     markdown: '# 在线列表 (1)\n\n| 昵称 | 世界 |\n| :--- | :--- |\n| 🟢 Alice | WorldX |'
@@ -472,7 +472,7 @@ test('status: 未配置返回 configured=false; 已配置带绑定信息', async
     assert.equal(qq.status(1).configured, false);
     qq.sync(1, { qq_enabled: 1, qq_app_id: 'app1', qq_app_secret: 'sec1' });
     await sleep(120);
-    db.upsertQqBinding(1, { appId: 'app1', openid: 'openid_9', nickname: '老王', at: 5 });
+    db.upsertQqBinding({ appId: 'app1', openid: 'openid_9', nickname: '老王', at: 5 });
     const st = qq.status(1);
     assert.equal(st.configured, true);
     assert.equal(st.connected, true);
@@ -484,7 +484,7 @@ test('status: 未配置返回 configured=false; 已配置带绑定信息', async
 test('并发通知按入队顺序串行发送且全部送达(每绑定一条队列)', async () => {
   const platform = await startQqPlatform({ appId: 'app1', clientSecret: 'sec1', token: 'tok1' });
   const db = createDb(':memory:');
-  db.upsertQqBinding(1, { appId: 'app1', openid: 'openid_x', nickname: '', at: 1 });
+  db.upsertQqBinding({ appId: 'app1', openid: 'openid_x', nickname: '', at: 1 });
   let t = 1000000;
   const qq = createQqManager({
     db, logger: silent, fetchImpl: async (u, i) => fetch(u, i),
@@ -514,7 +514,7 @@ test('429 限流: 有界重试后成功, 不刷新 token', async () => {
     failSequence: [{ status: 429, code: 4005, message: 'frequency limit' }]
   });
   const db = createDb(':memory:');
-  db.upsertQqBinding(1, { appId: 'app1', openid: 'openid_x', nickname: '', at: 1 });
+  db.upsertQqBinding({ appId: 'app1', openid: 'openid_x', nickname: '', at: 1 });
   const qq = createQqManager({
     db, logger: silent, fetchImpl: async (u, i) => fetch(u, i), now: () => Date.now(),
     config: { tokenUrl: platform.base + '/app/getAppAccessToken', apiBase: platform.base, wsUrl: platform.wsUrl, qqMinSpacingMs: 0 }
@@ -537,7 +537,7 @@ test('401 token 失效: 强制刷新 token 后重试成功', async () => {
     failSequence: [{ status: 401, code: 40014, message: 'invalid token' }]
   });
   const db = createDb(':memory:');
-  db.upsertQqBinding(1, { appId: 'app1', openid: 'openid_x', nickname: '', at: 1 });
+  db.upsertQqBinding({ appId: 'app1', openid: 'openid_x', nickname: '', at: 1 });
   const qq = createQqManager({
     db, logger: silent, fetchImpl: async (u, i) => fetch(u, i), now: () => Date.now(),
     config: { tokenUrl: platform.base + '/app/getAppAccessToken', apiBase: platform.base, wsUrl: platform.wsUrl, qqMinSpacingMs: 0 }
@@ -563,7 +563,7 @@ test('400 业务错误: 立即失败不重试', async () => {
     failSequence: [{ status: 400, code: 1, message: 'bad request' }]
   });
   const db = createDb(':memory:');
-  db.upsertQqBinding(1, { appId: 'app1', openid: 'openid_x', nickname: '', at: 1 });
+  db.upsertQqBinding({ appId: 'app1', openid: 'openid_x', nickname: '', at: 1 });
   const qq = createQqManager({
     db, logger: silent, fetchImpl: async (u, i) => fetch(u, i), now: () => Date.now(),
     config: { tokenUrl: platform.base + '/app/getAppAccessToken', apiBase: platform.base, wsUrl: platform.wsUrl, qqMinSpacingMs: 0 }
@@ -582,7 +582,7 @@ test('凭证错误: appid/secret 无效时发送失败并清空配置', async ()
   const platform = await startQqPlatform({ appId: 'app1', clientSecret: 'sec1', token: 'tok1' });
   const db = createDb(':memory:');
   db.updateGlobalSettings({ qq_enabled: 1, qq_app_id: 'app1', qq_app_secret: 'bad' });
-  db.upsertQqBinding(1, { appId: 'app1', openid: 'openid_x', nickname: '', at: 1 });
+  db.upsertQqBinding({ appId: 'app1', openid: 'openid_x', nickname: '', at: 1 });
   const qq = createQqManager({ db, logger: silent, fetchImpl: async (u, i) => fetch(u, i), config: { tokenUrl: platform.base + '/app/getAppAccessToken', apiBase: platform.base, wsUrl: platform.wsUrl } });
   try {
     qq.sync(1, { qq_enabled: 1, qq_app_id: 'app1', qq_app_secret: 'bad' });
