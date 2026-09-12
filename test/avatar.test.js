@@ -6,12 +6,15 @@ const path = require('node:path');
 const { createAvatarCache, toThumbUrl } = require('../src/avatar');
 
 const THUMB = 'https://api.vrchat.cloud/api/1/image/file_abc-123/1/256';
+const KEY = 'file_abc-123_1_128';
+const KEY_URL = 'https://api.vrchat.cloud/api/1/image/file_abc-123/1/128';
 
 function tmpDir() { return fs.mkdtempSync(path.join(os.tmpdir(), 'vrcnt-av-')); }
 
-function imgFetch(calls = { n: 0 }, { status = 200 } = {}) {
-  return async () => {
+function imgFetch(calls = { n: 0, urls: [] }, { status = 200 } = {}) {
+  return async (url) => {
     calls.n++;
+    calls.urls.push(String(url));
     if (status !== 200) return { status, headers: { get: () => 'application/json' }, arrayBuffer: async () => Buffer.from('{}') };
     return { status: 200, headers: { get: (k) => (String(k).toLowerCase() === 'content-type' ? 'image/png' : '') }, arrayBuffer: async () => Buffer.from('AVATARPNG') };
   };
@@ -38,63 +41,94 @@ test('toThumbUrl 统一成 /api/1/image/ 形态, 尺寸固定', () => {
   assert.equal(toThumbUrl(''), null);
 });
 
-test('serve downloads, writes to disk and returns content type', async () => {
-  const dir = tmpDir();
-  const calls = { n: 0 };
-  const c = createAvatarCache({ dir, fetchImpl: imgFetch(calls) });
-  const info = await c.serve('k1', THUMB);
-  assert.equal(info.contentType, 'image/png');
-  assert.equal(fs.readFileSync(path.join(dir, 'k1'), 'utf8'), 'AVATARPNG');
-  assert.equal(c.cached('k1'), path.join(dir, 'k1'));
-  assert.equal(calls.n, 1);
+test('urlFromKey 拼出上游地址, key 形状不对返回 null', () => {
+  const c = createAvatarCache({ dir: tmpDir() });
+  assert.equal(c.urlFromKey(KEY), KEY_URL);
+  assert.equal(c.urlFromKey('file_abc-123_9_128'), 'https://api.vrchat.cloud/api/1/image/file_abc-123/9/128');
+  assert.equal(c.urlFromKey('../../etc/passwd'), null);
+  assert.equal(c.urlFromKey('../' + KEY), null);
+  assert.equal(c.urlFromKey('evil_key'), null);
+  assert.equal(c.urlFromKey('file_abc-123_1'), null);
+  assert.equal(c.urlFromKey(''), null);
+  assert.equal(c.urlFromKey(null), null);
 });
 
-test('concurrent serve for the same key downloads only once', async () => {
+test('ensure 按 key 推出地址下载并写盘', async () => {
   const dir = tmpDir();
-  const calls = { n: 0 };
+  const calls = { n: 0, urls: [] };
+  const c = createAvatarCache({ dir, fetchImpl: imgFetch(calls) });
+  assert.equal(await c.ensure(KEY), true);
+  assert.deepEqual(calls.urls, [KEY_URL], '下载地址由 key 推出, 用的是缓存尺寸');
+  assert.equal(fs.readFileSync(path.join(dir, KEY), 'utf8'), 'AVATARPNG');
+  assert.equal(c.cached(KEY), path.join(dir, KEY));
+});
+
+test('ensure 本地已有则不再下载', async () => {
+  const dir = tmpDir();
+  const calls = { n: 0, urls: [] };
+  const c = createAvatarCache({ dir, fetchImpl: imgFetch(calls) });
+  await c.ensure(KEY);
+  assert.equal(await c.ensure(KEY), true);
+  assert.equal(calls.n, 1, '第二次应命中本地');
+});
+
+test('ensure 对形状不对的 key 不联网也不落盘', async () => {
+  const dir = tmpDir();
+  const calls = { n: 0, urls: [] };
+  const c = createAvatarCache({ dir, fetchImpl: imgFetch(calls) });
+  for (const k of ['../../etc/passwd', 'evil_key', '', 'file_abc-123_1']) {
+    assert.equal(await c.ensure(k), false, `${JSON.stringify(k)} 应被拒`);
+  }
+  assert.equal(calls.n, 0, '不该发起下载');
+  assert.deepEqual(fs.readdirSync(dir), [], '不该产生任何文件');
+});
+
+test('并发 ensure 同一个 key 只下载一次', async () => {
+  const dir = tmpDir();
+  const calls = { n: 0, urls: [] };
   let release;
   const gate = new Promise((r) => { release = r; });
-  const fetchImpl = async () => { calls.n++; await gate; return imgFetch()(); };
+  const fetchImpl = async (url) => { calls.n++; calls.urls.push(String(url)); await gate; return imgFetch()(); };
   const c = createAvatarCache({ dir, fetchImpl });
-  const p1 = c.serve('k1', THUMB);
-  const p2 = c.serve('k1', THUMB);
+  const p1 = c.ensure(KEY);
+  const p2 = c.ensure(KEY);
   release();
   await Promise.all([p1, p2]);
   assert.equal(calls.n, 1, '并发请求应合并为一次下载');
 });
 
-test('failed download is not cached and can be retried', async () => {
+test('下载失败不缓存, 下次重新下', async () => {
   const dir = tmpDir();
-  const calls = { n: 0 };
-  const fetchImpl = async () => {
+  const calls = { n: 0, urls: [] };
+  const fetchImpl = async (url) => {
     calls.n++;
+    calls.urls.push(String(url));
     if (calls.n === 1) return { status: 500, headers: { get: () => 'application/json' }, arrayBuffer: async () => Buffer.from('{}') };
-    return imgFetch()();
+    return { status: 200, headers: { get: () => 'image/png' }, arrayBuffer: async () => Buffer.from('AVATARPNG') };
   };
   const c = createAvatarCache({ dir, fetchImpl });
-  await assert.rejects(() => c.serve('k1', THUMB), /下载失败/);
-  assert.equal(c.cached('k1'), null, '失败不缓存');
-  const info = await c.serve('k1', THUMB);
-  assert.equal(info.contentType, 'image/png');
+  await assert.rejects(() => c.ensure(KEY), /下载失败/);
+  assert.equal(c.cached(KEY), null, '失败不缓存');
+  assert.equal(await c.ensure(KEY), true);
   assert.equal(calls.n, 2, '失败后下次请求重新下载');
 });
 
-test('non-image response is rejected and not cached', async () => {
+test('非图片响应被拒且不缓存', async () => {
   const dir = tmpDir();
   const c = createAvatarCache({ dir, fetchImpl: async () => ({ status: 200, headers: { get: () => 'text/html' }, arrayBuffer: async () => Buffer.from('<html>') }) });
-  await assert.rejects(() => c.serve('k1', THUMB), /非图片/);
-  assert.equal(c.cached('k1'), null);
+  await assert.rejects(() => c.ensure(KEY), /非图片/);
+  assert.equal(c.cached(KEY), null);
 });
 
-test('rejects image larger than 2MB and does not cache', async () => {
+test('超过 2MB 的图片被拒且不缓存', async () => {
   const dir = tmpDir();
   const big = Buffer.alloc(2 * 1024 * 1024 + 1, 1);
   const c = createAvatarCache({ dir, fetchImpl: async () => ({ status: 200, headers: { get: () => 'image/png' }, arrayBuffer: async () => big }) });
-  await assert.rejects(() => c.serve('k1', THUMB), (err) => err.code === 'DOWNLOAD');
-  assert.equal(c.cached('k1'), null);
+  await assert.rejects(() => c.ensure(KEY), (err) => err.code === 'DOWNLOAD');
+  assert.equal(c.cached(KEY), null);
 });
 
-test('download aborts after timeout and does not cache', async () => {
+test('下载超时中断且不缓存', async () => {
   const dir = tmpDir();
   const c = createAvatarCache({
     dir,
@@ -103,17 +137,18 @@ test('download aborts after timeout and does not cache', async () => {
       opts.signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })));
     })
   });
-  await assert.rejects(() => c.serve('k1', THUMB), (err) => err.code === 'DOWNLOAD');
-  assert.equal(c.cached('k1'), null);
+  await assert.rejects(() => c.ensure(KEY), (err) => err.code === 'DOWNLOAD');
+  assert.equal(c.cached(KEY), null);
 });
 
-test('sweep removes stale files by mtime, keeps recently touched', async () => {
+test('sweep 按 mtime 清理过期文件, 保留近期访问的', async () => {
   const dir = tmpDir();
-  const c = createAvatarCache({ dir, ttlMs: 1000, fetchImpl: imgFetch() });
-  await c.serve('old', THUMB);
-  await c.serve('fresh', THUMB);
-  const oldP = path.join(dir, 'old');
-  const freshP = path.join(dir, 'fresh');
+  const calls = { n: 0, urls: [] };
+  const c = createAvatarCache({ dir, ttlMs: 1000, fetchImpl: imgFetch(calls) });
+  await c.ensure('file_old_1_128');
+  await c.ensure('file_fresh_1_128');
+  const oldP = path.join(dir, 'file_old_1_128');
+  const freshP = path.join(dir, 'file_fresh_1_128');
   const old = new Date(Date.now() - 5000);
   fs.utimesSync(oldP, old, old);
   assert.equal(c.sweep(), 1);
@@ -121,14 +156,14 @@ test('sweep removes stale files by mtime, keeps recently touched', async () => {
   assert.equal(fs.existsSync(freshP), true);
 });
 
-test('touch renews mtime so sweep keeps the file', async () => {
+test('touchPath 续期后 sweep 不删', async () => {
   const dir = tmpDir();
   const c = createAvatarCache({ dir, ttlMs: 1000, fetchImpl: imgFetch() });
-  await c.serve('k1', THUMB);
-  const p = path.join(dir, 'k1');
+  await c.ensure(KEY);
+  const p = path.join(dir, KEY);
   const old = new Date(Date.now() - 5000);
   fs.utimesSync(p, old, old);
-  assert.equal(c.touch('k1'), true, '访问应刷新 mtime');
+  assert.equal(c.touchPath(p), true, '访问应刷新 mtime');
   assert.equal(c.sweep(), 0);
   assert.equal(fs.existsSync(p), true);
 });

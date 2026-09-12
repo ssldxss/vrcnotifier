@@ -11,6 +11,8 @@ const MAX_BYTES = 2 * 1024 * 1024; // 单张上限, 防止异常大文件
 // VRC 返回的 URL 自带尺寸(通常 256), 这里一律归一成 THUMB_SIZE, 保证 key / 下载地址 / 磁盘文件三者一致。
 const THUMB_SIZE = 128;
 
+const DEFAULT_API_BASE = 'https://api.vrchat.cloud/api/1';
+
 // 统一头像图片到 /api/1/image/ 形态并锁定尺寸:
 // 已是缩略图 -> 换成 size; 原图 /file/{fileId}/{version}/file -> /image/{fileId}/{version}/{size}; 其他 -> null
 const DOWNLOAD_TIMEOUT_MS = 10 * 1000;
@@ -46,8 +48,9 @@ function detectImageType(filePath) {
   }
 }
 
-function createAvatarCache({ dir, logger = null, fetchImpl = fetch, userAgent = 'vrcnotifier/1.0', ttlMs = 30 * 24 * 3600 * 1000, downloadTimeoutMs = DOWNLOAD_TIMEOUT_MS }) {
+function createAvatarCache({ dir, logger = null, fetchImpl = fetch, userAgent = 'vrcnotifier/1.0', apiBaseUrl = DEFAULT_API_BASE, ttlMs = 30 * 24 * 3600 * 1000, downloadTimeoutMs = DOWNLOAD_TIMEOUT_MS }) {
   const log = logger || { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
+  const apiBase = String(apiBaseUrl || DEFAULT_API_BASE).replace(/\/+$/, '');
   const inFlight = new Map(); // key -> Promise
 
   function ensureDir() {
@@ -70,15 +73,22 @@ function createAvatarCache({ dir, logger = null, fetchImpl = fetch, userAgent = 
     return path.join(dir, key);
   }
 
+  // key -> 上游下载地址。key 只有 file_{fileId}_{version}_{尺寸} 这一种合法形态;
+  // 形状不对就推不出地址, 也就既不会联网也不会落盘。
+  function urlFromKey(key) {
+    const m = /^(file_[A-Za-z0-9-]+)_(\d+)_(\d+)$/.exec(String(key == null ? '' : key));
+    if (!m) return null;
+    return `${apiBase}/image/${m[1]}/${m[2]}/${m[3]}`;
+  }
+
   function cached(key) {
     const p = filePath(key);
     try { fs.accessSync(p, fs.constants.R_OK); return p; } catch (e) { return null; }
   }
 
-  // 每次访问刷新 mtime(即 TTL 续期)
-  function touch(key) {
-    const p = filePath(key);
-    try { const t = new Date(); fs.utimesSync(p, t, t); return true; } catch (e) { return false; }
+  // 每次访问刷新 mtime(即 TTL 续期)。路径由 express.static 校验后交回, 这里不再自己拼。
+  function touchPath(fullPath) {
+    try { const t = new Date(); fs.utimesSync(fullPath, t, t); return true; } catch (e) { return false; }
   }
 
   async function download(key, url) {
@@ -111,14 +121,18 @@ function createAvatarCache({ dir, logger = null, fetchImpl = fetch, userAgent = 
     return { contentType: ct, size: buf.length };
   }
 
-  // 下载或复用进行中的下载(并发去重); 失败不缓存, 下次请求重新下载
-  function serve(key, url) {
+  // 保证本地有这张图: key 形状不对 -> false(不联网不落盘); 本地已有 -> true; 否则下载
+  // 并发去重: 同一个 key 的并发请求合并为一次下载; 失败不缓存, 下次请求重新下载
+  function ensure(key) {
+    const url = urlFromKey(key);
+    if (!url) return Promise.resolve(false);
+    if (cached(key)) return Promise.resolve(true);
     let p = inFlight.get(key);
     if (!p) {
       p = download(key, url)
         .then((info) => {
           log.debug(`[avatar] 已下载并缓存 key=${key} size=${info.size} bytes`);
-          return { filePath: filePath(key), ...info };
+          return true;
         })
         .finally(() => inFlight.delete(key));
       inFlight.set(key, p);
@@ -157,7 +171,7 @@ function createAvatarCache({ dir, logger = null, fetchImpl = fetch, userAgent = 
     return removed;
   }
 
-  return { thumbKeyFromUrl, cached, touch, serve, sweep, clear, dir };
+  return { thumbKeyFromUrl, urlFromKey, cached, ensure, touchPath, sweep, clear, dir };
 }
 
 module.exports = { createAvatarCache, toThumbUrl, detectImageType };

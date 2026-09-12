@@ -90,6 +90,7 @@ function buildApplication(opts = {}) {
     dir: avatarDir,
     logger,
     userAgent: opts.userAgent || 'vrcnotifier/1.0',
+    apiBaseUrl: opts.apiBaseUrl || DEFAULT_API_BASE,
     ttlMs: opts.avatarTtlMs ?? 30 * 24 * 3600 * 1000
   });
   avatarCache.sweep();

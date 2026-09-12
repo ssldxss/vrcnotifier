@@ -78,12 +78,13 @@ function setup(opts = {}) {
     config: { confirmDelayMs: 30000, dedupeWindowMs: 30000, snapshotIntervalMs: 3600000, watchdogMs: 600000 }
   });
   const sessionStore = new Map();
-  const avatarCalls = { n: 0 };
+  const avatarCalls = { n: 0, urls: [] };
   const avatarCache = createAvatarCache({
     dir: fs.mkdtempSync(path.join(os.tmpdir(), 'vrcnt-av-')),
     logger: silent,
-    fetchImpl: opts.avatarFetch || (async () => {
+    fetchImpl: opts.avatarFetch || (async (url) => {
       avatarCalls.n++;
+      avatarCalls.urls.push(String(url));
       const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from('AVATARPNG')]);
       return { status: 200, headers: { get: (k) => (String(k).toLowerCase() === 'content-type' ? 'image/png' : '') }, arrayBuffer: async () => png };
     })
@@ -927,7 +928,7 @@ test('SSE stream receives qq-status events', async (t) => {
   ac.abort();
 });
 
-test('avatar endpoint: 401 / whitelist / download / cache hit / immutable', async (t) => {
+test('avatar endpoint: 401 / 非法 key 404 / 下载 / 缓存命中 / immutable', async (t) => {
   const thumb = 'https://api.vrchat.cloud/api/1/image/file_aaa-111/1/256';
   const ctx = setup({
     onlineFriends: [{
@@ -941,7 +942,7 @@ test('avatar endpoint: 401 / whitelist / download / cache hit / immutable', asyn
   let r = await fetch(ctx.base + '/api/avatar/file_aaa-111_1_128');
   assert.equal(r.status, 401);
   await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: false });
-  // key 不在白名单 -> 404
+  // key 形状不对, 推不出上游地址 -> 404
   r = await fetch(ctx.base + '/api/avatar/evil_key');
   assert.equal(r.status, 404);
   // /api/friends 带 avatarKey
@@ -955,6 +956,7 @@ test('avatar endpoint: 401 / whitelist / download / cache hit / immutable', asyn
   assert.ok((r.headers.get('cache-control') || '').includes('immutable'));
   assert.ok((await r.text()).includes('AVATARPNG'));
   assert.equal(ctx.avatarCalls.n, 1, '首次应下载一次');
+  assert.deepEqual(ctx.avatarCalls.urls, ['https://api.vrchat.cloud/api/1/image/file_aaa-111/1/128'], '按缓存尺寸下载');
   // 再次: 缓存命中, 不再下载
   r = await fetch(ctx.base + '/api/avatar/file_aaa-111_1_128');
   assert.equal(r.status, 200);
@@ -963,7 +965,51 @@ test('avatar endpoint: 401 / whitelist / download / cache hit / immutable', asyn
   assert.equal(ctx.avatarCalls.n, 1, '缓存命中不应再次下载');
 });
 
-test('avatar whitelist accepts own avatar thumb url', async (t) => {
+test('avatar 命中缓存时不查好友表', async (t) => {
+  const ctx = setup({
+    onlineFriends: [{
+      id: 'usr_f1', displayName: 'F1', location: 'wrld_a:1', status: 'active', platform: 'x',
+      currentAvatarThumbnailImageUrl: 'https://api.vrchat.cloud/api/1/image/file_aaa-111/1/256'
+    }]
+  });
+  t.after(() => close(ctx));
+  await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: false });
+  let r = await fetch(ctx.base + '/api/avatar/file_aaa-111_1_128');
+  assert.equal(r.status, 200);
+  // 缓存已就绪, 这一轮不该再扫好友表
+  let scans = 0;
+  const orig = ctx.db.listFriends.bind(ctx.db);
+  ctx.db.listFriends = (...a) => { scans++; return orig(...a); };
+  r = await fetch(ctx.base + '/api/avatar/file_aaa-111_1_128');
+  assert.equal(r.status, 200);
+  assert.equal(scans, 0, '头像接口不该扫好友表');
+});
+
+test('avatar 越界 key 拿不到缓存目录外的文件', async (t) => {
+  const ctx = setup();
+  t.after(() => close(ctx));
+  await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: false });
+  const decoy = path.join(path.dirname(ctx.avatarCache.dir), `vrcnt-decoy-${process.pid}.txt`);
+  fs.writeFileSync(decoy, 'TOPSECRET');
+  t.after(() => { try { fs.unlinkSync(decoy); } catch (e) { /* ignore */ } });
+  for (const k of [`..%2F${path.basename(decoy)}`, `%2E%2E%2F${path.basename(decoy)}`, '..%2F..%2Fetc%2Fpasswd']) {
+    const r = await fetch(ctx.base + '/api/avatar/' + k);
+    assert.equal(r.status, 404, `${k} 应被拒`);
+    assert.ok(!(await r.text()).includes('TOPSECRET'), `${k} 不该泄漏目录外内容`);
+  }
+});
+
+test('avatar key 不再需要出现在好友表里(白名单已去掉)', async (t) => {
+  const ctx = setup(); // 一个好友都没有
+  t.after(() => close(ctx));
+  await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: false });
+  const r = await fetch(ctx.base + '/api/avatar/file_zzz-999_1_128');
+  assert.equal(r.status, 200);
+  assert.ok((await r.text()).includes('AVATARPNG'));
+  assert.equal(ctx.avatarCalls.n, 1);
+});
+
+test('avatar 取自己的头像', async (t) => {
   const meThumb = 'https://api.vrchat.cloud/api/1/image/file_me-222/1/256';
   const ctx = setup({
     loginResult: {
@@ -980,7 +1026,7 @@ test('avatar whitelist accepts own avatar thumb url', async (t) => {
   assert.ok((await r.text()).includes('AVATARPNG'));
 });
 
-test('avatar endpoint: download failure returns 502 and is not cached', async (t) => {
+test('avatar 下载失败返回 502 且不缓存', async (t) => {
   const ctx = setup({
     onlineFriends: [{
       id: 'usr_f1', displayName: 'F1', location: 'wrld_a:1', status: 'active', platform: 'x',
@@ -998,7 +1044,7 @@ test('avatar endpoint: download failure returns 502 and is not cached', async (t
   assert.equal(r.status, 502);
 });
 
-test('avatar key requires a thumb url (full image url alone produces no key)', async (t) => {
+test('好友只有原图 URL 时不产生 avatarKey', async (t) => {
   const ctx = setup({
     onlineFriends: [{
       id: 'usr_f1', displayName: 'F1', location: 'wrld_a:1', status: 'active', platform: 'x',
@@ -1009,10 +1055,7 @@ test('avatar key requires a thumb url (full image url alone produces no key)', a
   await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: false });
   const fl = await get(ctx, '/api/friends');
   const f1 = fl.data.friends.find((f) => f.friend_vrchat_id === 'usr_f1');
-  assert.equal(f1.avatarKey, null);
-  const r = await fetch(ctx.base + '/api/avatar/file_ccc-333_5_128');
-  assert.equal(r.status, 404);
-  assert.equal(ctx.avatarCalls.n, 0);
+  assert.equal(f1.avatarKey, null, '只有原图 URL 就不给 key, 前端因此不渲染头像');
 });
 
 test('qq settings stored and masked; status includes qq info', async (t) => {

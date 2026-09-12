@@ -809,41 +809,46 @@ function createApp({
     return res.json({ ok: true, friends });
   });
 
-  // 头像: 未登录 401 / key 不在当前用户好友缩略图白名单 404 / 命中缓存直接返回 / 否则下载并原子写盘
-  app.get('/api/avatar/:key', async (req, res) => {
-    if (!current) return res.status(401).json({ error: '未登录' });
-    if (!avatarCache) return res.status(404).json({ error: '头像缓存未启用' });
-    const key = req.params.key;
-    let url = null;
-    for (const f of db.listFriends(current.dbId)) {
-      if (!f.avatar_thumb_url) continue;
-      if (avatarCache.thumbKeyFromUrl(f.avatar_thumb_url) === key) { url = f.avatar_thumb_url; break; }
-    }
-    // 当前用户自己的头像也放行(页面标题栏我的头像)
-    if (!url) {
-      const me = db.getUserByDbId(current.dbId);
-      const ownUrl = me && (me.avatar_thumb_url || (me.avatar_url ? toThumbUrl(me.avatar_url) : null));
-      if (ownUrl && avatarCache.thumbKeyFromUrl(ownUrl) === key) url = ownUrl;
-    }
-    if (!url) return res.status(404).json({ error: 'key 不在白名单' });
-    try {
-      const local = avatarCache.cached(key);
-      let info = null;
-      if (local) {
-        avatarCache.touch(key); // 每次访问刷新 TTL
-        info = { filePath: local };
-      } else {
-        info = await avatarCache.serve(key, url);
+  // 头像: 未登录 401 / key 形状不对或越界 404 / 命中磁盘直接发, 否则按 key 推出地址下载。
+  // 路径解析与「只能取缓存目录里的文件」由 express.static 的 root 保证, 这里不自己拼路径。
+  if (!avatarCache) {
+    app.use('/api/avatar', (req, res) => res.status(404).json({ error: '头像缓存未启用' }));
+  } else {
+    const serveAvatar = express.static(avatarCache.dir, {
+      maxAge: '365d',       // -> Cache-Control: public, max-age=31536000
+      immutable: true,
+      index: false,
+      redirect: false,      // 目录请求直接 404, 不做尾斜杠跳转
+      dotfiles: 'ignore',   // 原子写盘用的 .xxx.tmp 永远不会被发出去
+      setHeaders: (res, fullPath) => {
+        // 只有路径校验通过才会走到这里, fullPath 是已解析好的绝对路径
+        const contentType = detectImageType(fullPath);
+        if (contentType) res.setHeader('Content-Type', contentType);
+        avatarCache.touchPath(fullPath); // 每次访问刷新 TTL
       }
-      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-      const contentType = info.contentType || detectImageType(info.filePath);
-      if (contentType) res.setHeader('Content-Type', contentType);
-      return res.sendFile(info.filePath);
-    } catch (e) {
-      log.error(`[avatar] 获取失败 key=${key}: ${e.message}`);
-      return res.status(502).json({ error: '头像获取失败' });
-    }
-  });
+    });
+    app.use('/api/avatar', (req, res, next) => {
+      if (!current) return res.status(401).json({ error: '未登录' });
+      next();
+    });
+    app.use('/api/avatar', async (req, res, next) => {
+      let key;
+      try {
+        key = decodeURIComponent(req.path.replace(/^\//, ''));
+      } catch (e) {
+        return res.status(400).json({ error: 'key 非法' });
+      }
+      try {
+        await avatarCache.ensure(key); // 本地已有则跳过; key 形状不对则什么都不做
+      } catch (e) {
+        log.error(`[avatar] 获取失败 key=${key}: ${e.message}`);
+        return res.status(502).json({ error: '头像获取失败' });
+      }
+      next();
+    });
+    app.use('/api/avatar', serveAvatar);
+    app.use('/api/avatar', (req, res) => res.status(404).json({ error: '头像不存在' }));
+  }
 
     app.put('/api/friends/:friendId/config', (req, res) => {
     if (!current) return res.status(401).json({ error: '未登录' });
