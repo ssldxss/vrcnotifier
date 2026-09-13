@@ -2009,7 +2009,8 @@ function switchTab(name, opts = {}) {
       });
       if (target) {
         target.classList.remove('page-fade-out');
-        target.classList.add('switch-in'); // 覆盖静态 --i: 从 0 开始立即动画
+        target.classList.add('switch-in'); // 标记本次是"切页进场"
+        markCardsEntrance(target);         // 卡片按 0,1,2… 重新编号, 从头级联
         target.classList.remove('hidden');
         if (name === 'tab-friends') markFriendsEntrance(); // 好友行重新从上到下编号
       }
@@ -2035,6 +2036,14 @@ function switchTab(name, opts = {}) {
   try { sessionStorage.setItem('vrcn_lastTab', name); } catch (e) {} // 刷新恢复所在页
   moveTabIndicator(); // 高亮滑块滑到当前 tab
   updateToTop(); // 切换后页面高度变化, 重新判定回到顶部按钮
+}
+
+// 切页进场: 把该页的直接 .card 按 DOM 顺序重新编号(0,1,2…), 每张延后 40ms 依次淡入。
+// 原先是在 CSS 里写死 `#tab-settings.switch-in > .card:nth-child(1|2)`, 设置页加到第 3 张
+// (后端日志)时漏了 —— 它带着静态 --i:9 出来, 比前两张晚 360ms, 看着像没动画。改成编号就不怕加卡片。
+function markCardsEntrance(root) {
+  let i = 0;
+  for (const card of root.querySelectorAll(':scope > .card')) card.style.setProperty('--i', String(i++));
 }
 
 // 高亮滑块: 量出当前 tab 在容器里的位置与宽度, 交给 CSS 过渡滑过去(不是把背景在按钮之间跳)。

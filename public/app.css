@@ -1051,12 +1051,11 @@ button.danger { background: linear-gradient(135deg, var(--bad), #b4232c); box-sh
   animation: riseIn .32s cubic-bezier(.22,.8,.3,1) backwards;
   animation-delay: calc(var(--i, 0) * 30ms);
 }
-/* 页面切换: 旧页快速淡出, 新页从 0 开始立即淡入(覆盖静态 --i, 不再等待概览条等固定内容占用的序号) */
+/* 页面切换: 旧页快速淡出, 新页从 0 开始立即淡入。
+   新页卡片的 --i 由 JS(markCardsEntrance)按 DOM 顺序重编号 —— 这里不再写死 nth-child,
+   否则设置页加到第 3 张卡片就会漏掉(后端日志卡曾因此晚 360ms 才出来)。 */
 section.page-fade-out { animation: pageOut .12s ease forwards; }
 @keyframes pageOut { from { opacity: 1; } to { opacity: 0; } }
-#tab-friends.switch-in > .card { animation-delay: 0ms; }
-#tab-settings.switch-in > .card:nth-child(1) { animation-delay: 0ms; }
-#tab-settings.switch-in > .card:nth-child(2) { animation-delay: 40ms; }
 
 /* ---------- 好友工具栏 ---------- */
 .toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
