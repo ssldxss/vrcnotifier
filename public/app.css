@@ -307,6 +307,7 @@ header .spacer { flex: 1; }
 
 /* ---------- Tab 切换(pill 胶囊) ---------- */
 .tabs {
+  position: relative; /* 高亮滑块(span.tab-indicator)以此为定位基准 */
   display: flex;
   gap: 4px;
   margin-bottom: 16px;
@@ -319,6 +320,19 @@ header .spacer { flex: 1; }
   backdrop-filter: blur(12px);
   animation: riseIn .4s cubic-bezier(.22,.8,.3,1) backwards;
   animation-delay: calc(var(--i, 5) * 40ms); /* 概览条(0~4)之后 */
+}
+/* 高亮滑块: 位置与宽度由 JS 按当前 tab 量出来, 切页时靠 transform 过渡滑过去(不再是跳过去) */
+.tab-indicator {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 0;
+  width: 0;
+  border-radius: var(--r-pill);
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  box-shadow: 0 2px 10px var(--accent-soft);
+  pointer-events: none;
+  transition: transform .34s cubic-bezier(.22,.8,.3,1), width .34s cubic-bezier(.22,.8,.3,1);
 }
  .tab {
    position: relative;
@@ -357,9 +371,9 @@ header .spacer { flex: 1; }
  .tab:hover::before, .tab:hover::after { opacity: 1; }
  .tab.active::after { display: none; }
  .tab.active {
-   background: linear-gradient(135deg, var(--accent), var(--accent-2));
+   background: transparent; /* 高亮改由 .tab-indicator 提供(那块能滑), active 只留文字颜色 */
    color: var(--accent-contrast);
-   box-shadow: 0 2px 10px var(--accent-soft);
+   box-shadow: none;
 }
 /* ---------- 表单控件 ---------- */
 input[type='text'], input[type='password'], input[type='number'], input[type='email'], select, textarea {

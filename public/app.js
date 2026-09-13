@@ -331,6 +331,7 @@ function showView(name) {
   $('#loginView').classList.toggle('hidden', name !== 'login');
   $('#mainView').classList.toggle('hidden', name !== 'main');
   if (name === 'gate') fillGateForm();
+  if (name === 'main') moveTabIndicator(); // 视图刚可见才能量出 tab 的位置(隐藏时全是 0)
   try { sessionStorage.setItem('vrcn_lastView', name); } catch (e) {} // 刷新时恢复, 避免门禁页闪烁
   // 登录/主界面: 首次拉取健康与状态(此后由 SSE 推送更新, 不再轮询), 并确保 SSE 已连接
   if (name === 'login' || name === 'main') {
@@ -2032,8 +2033,25 @@ function switchTab(name, opts = {}) {
     });
   }
   try { sessionStorage.setItem('vrcn_lastTab', name); } catch (e) {} // 刷新恢复所在页
+  moveTabIndicator(); // 高亮滑块滑到当前 tab
   updateToTop(); // 切换后页面高度变化, 重新判定回到顶部按钮
 }
+
+// 高亮滑块: 量出当前 tab 在容器里的位置与宽度, 交给 CSS 过渡滑过去(不是把背景在按钮之间跳)。
+// 注意主界面隐藏时量出来全是 0, 所以除了切页, showView('main') 和窗口尺寸变化时也要重量。
+function moveTabIndicator() {
+  const bar = $('.tabs');
+  const ind = $('#tabIndicator');
+  const active = bar && bar.querySelector('.tab.active');
+  if (!bar || !ind || !active) return;
+  const b = bar.getBoundingClientRect();
+  const a = active.getBoundingClientRect();
+  if (!a.width) return; // 还没布局(视图隐藏): 保持上一次的值, 等可见了再量
+  const padLeft = bar.clientLeft || 0; // 左边框宽度(滑块的定位基准是 padding box)
+  ind.style.width = a.width + 'px';
+  ind.style.transform = 'translateX(' + (a.left - b.left - padLeft) + 'px)';
+}
+window.addEventListener('resize', moveTabIndicator);
 $$('.tab').forEach((btn) => {
   btn.addEventListener('click', () => switchTab(btn.dataset.target, { instant: true }));
 });
