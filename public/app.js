@@ -29,6 +29,8 @@ async function discoverBase() {
     } catch (e) { /* 下一个候选 */ }
   }
   if (currentView === 'gate') fillGateForm(); // 探测完成后刷新门禁卡预填
+  // 恢复视图时可能已用兜底地址连过 SSE: 探测结果出来后换到真正的后端
+  if (currentView === 'login' || currentView === 'main') connectEvents();
 }
 function accessToken() { return localStorage.getItem(LS_TOKEN) || ''; }
 function avatarUrl(key) { return baseUrl() + '/api/avatar/' + encodeURIComponent(key) + '?token=' + encodeURIComponent(accessToken()); }
@@ -467,10 +469,9 @@ $('#loginBtn').addEventListener('click', async () => {
   if (r.data.requiresTwoFactorAuth) {
     tempSessionId = r.data.tempSessionId;
     twofaKind = r.data.requiresTwoFactorAuth[0] || 'emailOtp';
-    $('#loginForm').classList.add('hidden');
-    $('#twofaForm').classList.remove('hidden');
     $('#loginMsg').textContent = '';
     $('#twofaMsg').textContent = '请输入' + (twofaKind === 'emailOtp' ? '邮箱' : twofaKind === 'totp' ? 'TOTP' : '备用') + '验证码';
+    switchLoginForm('twofa'); // 和页面切换同款: 旧的快速淡出, 新的淡入
     return;
   }
   if (r.data.ok) {
@@ -508,10 +509,32 @@ $('#twofaBtn').addEventListener('click', async () => {
 
 $('#twofaCancel').addEventListener('click', () => {
   tempSessionId = null;
-  $('#twofaForm').classList.add('hidden');
-  $('#loginForm').classList.remove('hidden');
   $('#twofaMsg').textContent = '';
+  switchLoginForm('login'); // 取消回登录表单, 同样带切换动画
 });
+
+// 登录卡片内的表单切换(登录 ⇄ 两步验证): 沿用页面切换那套 —— 旧的快速淡出, 新的淡入。
+// 直接 classList.add('hidden') 是硬切, 和站内其它切换不一致。
+function switchLoginForm(name) {
+  const forms = { login: $('#loginForm'), twofa: $('#twofaForm') };
+  const to = forms[name];
+  if (!to) return;
+  const from = Object.keys(forms).map((k) => forms[k])
+    .find((el) => el && el !== to && !el.classList.contains('hidden'));
+  const show = () => {
+    to.classList.remove('hidden');
+    to.classList.remove('form-in');
+    void to.offsetWidth;      // 强制重排: 入场动画从头播
+    to.classList.add('form-in');
+  };
+  if (!from) { show(); return; }
+  from.classList.add('form-fade-out');
+  setTimeout(() => {
+    from.classList.add('hidden');
+    from.classList.remove('form-fade-out');
+    show();
+  }, 130); // 与 .form-fade-out 的 .12s 对齐(定时器兜底, 不依赖动画事件)
+}
 
 // 登出确认弹窗: 好友/监控配置/用户是登出必删的, 两个勾是额外的清理 ——
 // 缓存(头像+世界名+群组名) / 彻底重置(设置+QQ 机器人凭据+绑定, 访问令牌保留)
@@ -567,9 +590,9 @@ function enterMain(opts = {}) {
   loadBackendLogs({ tail: 100 }); // 初始日志尾部(SSE 已在登录页/此处建立, 去重+补齐机制防丢行)
   connectEvents();
   if (bootActive) {
-    // 响应回来了 = 快照已完成: 前三行直接判完成(事件丢了也不会卡住), 第 4 行等主界面数据 + 首屏头像
+    // 响应回来了 = 快照已完成: 前三行直接判完成(事件丢了也不会卡住), 第 4 行等主界面数据 + 首屏头像。
+    // 百分比不在这里补成 100 —— 数字只跟随后端真实上报, 末页事件丢了就停在它报过的地方。
     bootMark(0); bootMark(1); bootMark(2);
-    bootPctTarget = 100; // 快照已结束, 百分比收尾到 100(末页事件丢了也不会停在半截)
     bootWaitReady(ready);
   }
 }
@@ -584,21 +607,27 @@ function loadAll() {
 // 「读到好友名册」点亮第 2 行; 第 3 行按实际拉取条数追赶百分比; 响应回来后才等前端就绪(第 4 行)。
 // 这块展板只读事件、绝不用事件决定跳转 —— 跳转仍由 /api/login 的响应决定,
 // 所以丢事件/断线最坏只是少点亮一格, 不会把人卡在等待页。
-const BOOT_MIN_STEP_MS = 350;   // 每行最短停留: 登录再快也要把这一步放完
-const BOOT_READY_MIN_MS = 900;  // 「等待前端就绪」最少停留(数据/头像再快也别一闪而过)
-const BOOT_READY_MS = 3000;     // 该行总上限: 主界面数据 + 首屏头像, 到点就走
-const BOOT_PCT_STEP_MS = 200;   // 百分比每步间隔(有间隔地跳, 不是一步到位)
-const BOOT_HOLD_DONE_MS = 900;  // 「初始化完成」停留
-const BOOT_FADE_MS = 600;       // 淡出时长(与 CSS .boot-screen.out 一致)
+const BOOT_MIN_STEP_MS = 550;   // 每行最短停留: 登录再快也要把这一步放完
+const BOOT_READY_MIN_MS = 1200; // 「等待前端就绪」最少停留(数据/头像再快也别一闪而过)
+const BOOT_READY_MS = 10000;    // 该行总上限(超时): 主界面数据 + 首屏头像, 到点就走
+const BOOT_PCT_NUM_MS = 4;      // 百分比: 每个数字 4ms(约 250 个/秒)连续 +1 滚过去, 不等屏幕逐帧显示
+const BOOT_PCT_DRAW_MS = 30;    // 数字条的渲染节流: 滚一格要 0.18s, 每帧都改会糊成一团
+const BOOT_HOLD_DONE_MS = 1200; // 「初始化完成」停留
+const BOOT_FADE_MS = 900;       // 淡出时长(与 CSS .boot-screen.out 一致)
 const BOOT_STEPS = ['bootStep0', 'bootStep1', 'bootStep2', 'bootStep3'];
 let bootActive = false;         // 等待页是否在场(在场时展板才理会进度事件)
 let bootPointer = -1;           // 当前正在跑的是第几行(黄字)
 let bootStepAt = 0;             // 该行开始时间(最短停留用)
 let bootMarks = [false, false, false, false]; // 各行的真实完成标记
-let bootPct = 0;                // 已展示的百分比
-let bootPctTarget = 0;          // 真实百分比(只增不减)
+let bootPctShown = 0;           // 已展示到的整数百分比
+let bootPctTarget = null;       // 真实百分比; null = 一条真实进度都没收到 → 不显示(不编数字)
+let bootPctFrom = 0;            // 本轮滚动起点
+let bootPctAt = 0;              // 本轮滚动起点时刻
+let bootPctRaf = null;          // 逐数滚动的 rAF 句柄
+let bootPctRenderedAt = 0;      // 上次渲染数字条的时刻(节流用)
+const bootHalos = new Map();    // 各行光环的 WAAPI 动画句柄(完成时要收到最小并停住)
+let bootReadyText = '';         // 第 4 行右侧的"头像 x/y"(算完了也要等轮到自己才显示)
 let bootTimer = null;           // 推进定时器
-let bootPctTimer = null;        // 百分比追赶定时器
 let bootHideTimer = null;       // 淡出收尾定时器
 let bootToken = 0;              // 每次显示自增: 上一轮的异步回调据此作废
 let loginWaiting = false;       // 正在等某个登录请求的响应(只有这时才理会 verified)
@@ -606,8 +635,8 @@ let loginWaiting = false;       // 正在等某个登录请求的响应(只有�
 function bootSleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
 // 滚跳(与 WS 计数同款): 旧值向上滚出、新值从下滚入。CJK 不适用 ch 定宽, 由 .roll-wrap 裁剪。
-function rollSwap(el, text) {
-  if (!el || el.textContent === String(text)) return;
+function rollSwap(el, text, force) {
+  if (!el || (!force && el.textContent === String(text))) return;
   const wrap = el.parentElement;
   if (!wrap) { el.textContent = String(text); return; }
   for (const old of wrap.querySelectorAll(':scope > .roll-old')) old.remove();
@@ -631,14 +660,21 @@ function bootShow() {
   bootPointer = 0;
   bootStepAt = Date.now();
   bootMarks = [false, false, false, false];
-  bootPct = 0;
-  bootPctTarget = 0;
-  $('#bootPct').textContent = '';
+  bootPctShown = 0;
+  bootPctFrom = 0;
+  bootPctAt = 0;
+  bootPctTarget = null;       // 没有真实进度就一直是 null: 界面上不出现任何数字
+  bootReadyText = '';
+  if (bootPctRaf) { cancelAnimationFrame(bootPctRaf); bootPctRaf = null; }
+  const pctBox = $('#bootPct');
+  pctBox.dataset.ready = '';   // 上一轮的数字条丢掉: 没到第 3 行之前这一格必须是空的
+  pctBox.innerHTML = '';
   $('#bootStep3 .boot-val').textContent = ''; // 上一轮留下的"头像 x/y"要清掉
   $('#bootTitle').textContent = '正在初始化';
   $('#bootTitleWrap').classList.remove('done');
   for (const id of BOOT_STEPS) $('#' + id).classList.remove('on', 'ok');
-  $('#' + BOOT_STEPS[0]).classList.add('on');
+  bootHalosReset();           // 上一轮的光环动画(含填充效果)清干净
+  bootSetStep(0, 'on');       // 第 1 行立刻转黄(走同一套: 光环开始呼吸)
   const scr = $('#bootScreen');
   scr.classList.remove('hidden', 'out');
   void scr.offsetWidth; // 强制重排: 让 opacity 过渡从 0 开始
@@ -651,7 +687,7 @@ function bootHide(immediate) {
   bootActive = false;
   bootToken++;
   if (bootTimer) { clearInterval(bootTimer); bootTimer = null; }
-  if (bootPctTimer) { clearInterval(bootPctTimer); bootPctTimer = null; }
+  if (bootPctRaf) { cancelAnimationFrame(bootPctRaf); bootPctRaf = null; }
   if (bootHideTimer) { clearTimeout(bootHideTimer); bootHideTimer = null; }
   const scr = $('#bootScreen');
   scr.classList.remove('show');
@@ -663,9 +699,88 @@ function bootHide(immediate) {
 
 function bootMark(i) { bootMarks[i] = true; }
 
+// 真实进度: 只认后端报的已拉条数/总数, 一条都没收到就不显示(绝不自己编一个终值)
 function bootPercent(fetched, total) {
-  const t = total > 0 ? (fetched / total) * 100 : 0;
-  bootPctTarget = Math.max(bootPctTarget, Math.min(100, t));
+  if (!(total > 0)) return;
+  const target = Math.min(100, Math.floor((fetched / total) * 100)); // 向下取整: 不虚报(150 好友分 3 页 = 33/66/100)
+  if (bootPctTarget !== null && target <= bootPctTarget) return; // 只增不减
+  bootPctTarget = target;
+  bootPctKick();
+}
+
+// 每个数字都要走一遍: 按时间推进(每 BOOT_PCT_NUM_MS 一个数, 序列恒为 +1),
+// 屏幕刷新率跟不上也没关系 —— 追到真实值就停在那, 等下一页来了再继续。
+function bootPctKick() {
+  if (bootPctRaf || !bootActive) return;
+  bootPctFrom = bootPctShown;      // 本轮起点与起点时刻: 用经过的时间算该走到哪
+  bootPctAt = performance.now();
+  bootPctRaf = requestAnimationFrame(bootPctStep);
+}
+function bootPctStep() {
+  bootPctRaf = null;
+  if (!bootActive || bootPctTarget === null) return;
+  if (bootPctShown >= bootPctTarget) { bootPctRender(bootPctShown); return; } // 到值: 落定, 停
+  const want = Math.min(bootPctTarget, bootPctFrom + Math.floor((performance.now() - bootPctAt) / BOOT_PCT_NUM_MS));
+  bootPctShown = want;
+  // 渲染节流: 数字条滚一格要 0.18s, 每帧都改反而糊成一团; 到值时上面那条保证一定落定
+  if (bootPointer >= 2 && performance.now() - bootPctRenderedAt >= BOOT_PCT_DRAW_MS) {
+    bootPctRenderedAt = performance.now();
+    bootPctRender(bootPctShown);
+  }
+  bootPctRaf = requestAnimationFrame(bootPctStep);
+}
+
+// 百分比的滚动里程表: 建 3 个数字位(百/十/个), 每位一条 0-9 竖排的数字条。
+// 换数字只改 transform, 交给 transition 平滑滚过去 —— 既不重排文字, 也不会重启关键帧动画。
+function bootPctBuild() {
+  const box = $('#bootPct');
+  if (!box) return;
+  box.innerHTML = '';
+  box.dataset.ready = '1';
+  for (const role of ['h', 't', 'o']) {
+    const slot = document.createElement('span');
+    slot.className = 'pct-slot dim';
+    slot.dataset.role = role;
+    const strip = document.createElement('b');
+    strip.className = 'pct-strip';
+    for (let d = 0; d <= 9; d++) {
+      const i = document.createElement('i');
+      i.textContent = String(d);
+      strip.appendChild(i);
+    }
+    slot.appendChild(strip);
+    box.appendChild(slot);
+  }
+  const sign = document.createElement('span');
+  sign.className = 'pct-sign';
+  sign.textContent = '%';
+  box.appendChild(sign);
+}
+function bootPctRender(n, instant) {
+  const box = $('#bootPct');
+  if (!box || box.dataset.ready !== '1') return;
+  const v = Math.max(0, Math.min(100, Math.round(n)));
+  const digits = String(v).padStart(3, '0');
+  const roles = ['h', 't', 'o'];
+  for (let i = 0; i < roles.length; i++) {
+    const slot = box.querySelector(".pct-slot[data-role='" + roles[i] + "']");
+    if (!slot) continue;
+    // 前导零: 按"有效位数"判断该位要不要占宽度。
+    // 注意不能写成 digits.slice(0,i).every(c => c==='0') —— i=0 时 slice 出来是空数组,
+    // every 恒为 true, 会把百位永远藏掉(33 显示成 3、100 显示成 00)。
+    slot.classList.toggle('dim', i < 3 - String(v).length);
+    const strip = slot.firstChild;
+    const y = -Number(digits[i]) * 1.2; // 每格 1.2em, 与 CSS 里 .pct-strip i 的高度一致
+    if (instant) {
+      strip.style.transition = 'none';
+      strip.style.transform = 'translateY(' + y + 'em)';
+      void strip.offsetWidth; // 强制重排后再放开过渡
+      strip.style.transition = '';
+    } else {
+      strip.style.transform = 'translateY(' + y + 'em)';
+    }
+  }
+  box.setAttribute('aria-label', v + '%');
 }
 
 // 推进: 当前行"真做完了 && 停够最短时间(第 3 行还要等百分比动画追平)"才转绿, 下一行转黄
@@ -675,26 +790,83 @@ function bootTick() {
   if (i < 0 || i > 3) return;
   if (!bootMarks[i]) return;
   if (Date.now() - bootStepAt < BOOT_MIN_STEP_MS) return;
-  if (i === 2 && bootPct < bootPctTarget) return;
-  $('#' + BOOT_STEPS[i]).classList.remove('on');
-  $('#' + BOOT_STEPS[i]).classList.add('ok');
+  if (i === 2 && bootPctTarget !== null && bootPctShown < bootPctTarget) return; // 等数字跳到真实值
+  bootSetStep(i, 'ok');       // 完成: 变绿 + 文字纵向滚跳一次
   bootPointer = i + 1;
   bootStepAt = Date.now();
   if (bootPointer > 3) { bootDone(); return; }
-  $('#' + BOOT_STEPS[bootPointer]).classList.add('on');
+  bootSetStep(bootPointer, 'on');
   if (bootPointer === 2) bootPctStart();
+  if (bootPointer === 3) bootReadyStart();
 }
 
+// 换状态: 加减类(颜色由 CSS 过渡) + 文字纵向滚跳一次 + 光环按状态收放
+function bootSetStep(i, cls) {
+  const li = $('#' + BOOT_STEPS[i]);
+  if (!li) return;
+  li.classList.remove('on', 'ok');
+  li.classList.add(cls);
+  const label = li.querySelector('.boot-label .roll-in');
+  if (label) rollSwap(label, label.textContent, true);
+  bootHalo(i, cls === 'on' ? 'breath' : cls === 'ok' ? 'settle' : 'off');
+}
+
+// 光环:
+//   breath(当前步) —— 开始呼吸循环(1 → 2.1 → 1)
+//   settle(已完成) —— 停掉循环, 从"此刻的姿态"平滑缩到最小并停住; 此刻已经最小就什么都不做
+//   off(还没轮到) —— 停掉并复位
+// 用 WAAPI 而不是 CSS 关键帧: 关键帧没法从当前帧平滑收到一个静止值(摘掉动画会瞬间弹回),
+// getComputedStyle 能在动画进行中读到当前矩阵, 于是"缩小后保持最小"才是连续的。
+function bootHalo(i, mode) {
+  const halo = $('#' + BOOT_STEPS[i] + ' .boot-halo');
+  if (!halo) return;
+  let st = bootHalos.get(i);
+  if (!st) { st = { anim: null }; bootHalos.set(i, st); }
+  if (mode === 'breath') {
+    if (!st.anim) {
+      st.anim = halo.animate(
+        [{ transform: 'scale(1)' }, { transform: 'scale(2.1)' }, { transform: 'scale(1)' }],
+        { duration: 1700, iterations: Infinity, easing: 'cubic-bezier(.4,0,.6,1)' }
+      );
+    }
+    return;
+  }
+  if (!st.anim) { halo.style.transform = 'scale(1)'; return; }
+  const cur = window.getComputedStyle(halo).transform; // 动画进行中的实际姿态(矩阵)
+  st.anim.cancel();
+  st.anim = null;
+  const scale = (/^matrix\(([-\d.]+)/.exec(cur || '') || [])[1];
+  if (mode === 'settle' && scale !== undefined && Number(scale) > 1.02) {
+    // 从此刻的姿态平滑缩到最小并停住
+    halo.animate([{ transform: cur }, { transform: 'scale(1)' }],
+      { duration: 260, easing: 'cubic-bezier(.22,.8,.3,1)', fill: 'forwards' });
+  } else {
+    // 已经是最小(或还没轮到): 直接落定, 不做任何放大
+    halo.style.transform = 'scale(1)';
+  }
+}
+
+function bootHalosReset() {
+  for (const [, st] of bootHalos) { try { if (st.anim) st.anim.cancel(); } catch (e) { /* ignore */ } }
+  bootHalos.clear();
+  for (const id of BOOT_STEPS) {
+    const halo = $('#' + id + ' .boot-halo');
+    if (halo) halo.style.transform = '';
+    const getAnim = halo && halo.getAnimations ? halo.getAnimations() : [];
+    for (const a of getAnim) { try { a.cancel(); } catch (e) { /* ignore */ } }
+  }
+}
+
+// 走到第 3 行才显示数字: 已有真实值就直接落上去(计数可能早就追完了), 否则等事件来了再出现
 function bootPctStart() {
-  if (bootPctTimer) return;
-  rollSwap($('#bootPct'), '0%');
-  bootPctTimer = setInterval(() => {
-    if (!bootActive) { clearInterval(bootPctTimer); bootPctTimer = null; return; }
-    if (bootPct >= bootPctTarget) return;
-    const step = Math.max(1, Math.ceil((bootPctTarget - bootPct) / 4)); // 分几步追上, 有间隔地跳
-    bootPct = Math.min(bootPctTarget, bootPct + step);
-    rollSwap($('#bootPct'), Math.round(bootPct) + '%');
-  }, BOOT_PCT_STEP_MS);
+  bootPctBuild();                 // 走到这一行才建数字条(之前整块是空的, 不提前显示 %)
+  bootPctRenderedAt = performance.now();
+  bootPctRender(bootPctTarget === null ? 0 : bootPctShown, true);
+}
+
+// 同理: 头像计数可能在本行轮到之前就算完了, 到这一行才把它显示出来
+function bootReadyStart() {
+  if (bootReadyText) $('#bootStep3 .boot-val').textContent = bootReadyText;
 }
 
 async function bootDone() {
@@ -716,13 +888,14 @@ async function bootWaitReady(dataPromise) {
   const tok = bootToken;
   const startedAt = Date.now();
   const deadline = startedAt + BOOT_READY_MS;
-  const val = $('#bootStep3 .boot-val');
   try { await dataPromise; } catch (e) { /* 接口失败也照走, 到点即放行 */ }
   if (tok !== bootToken || !bootActive) return;
-  // 头像逐个落定: 把"在等什么"显示出来, 否则这一步看不出在等
+  // 头像逐个落定: 把"在等什么"显示出来, 否则这一步看不出在等。
+  // 注意只在本行已经轮到(黄字)时才写进界面 —— 提前写就会出现"上一行还在跑, 下一行已经有数"。
   await waitImages(firstScreenAvatars(), Math.max(0, deadline - Date.now()), (done, total) => {
     if (tok !== bootToken) return;
-    val.textContent = '头像 ' + done + '/' + total;
+    bootReadyText = '头像 ' + done + '/' + total;
+    if (bootPointer >= 3) $('#bootStep3 .boot-val').textContent = bootReadyText;
   });
   if (tok !== bootToken || !bootActive) return;
   const rest = BOOT_READY_MIN_MS - (Date.now() - startedAt);
@@ -1741,10 +1914,15 @@ async function loadWsStats() {
   renderWsChart(r.data.series.slice(-60));
 }
 
-// SSE 连接(登录页与主界面共用, 只建一次): 日志/状态/健康/WS图表全部实时推送, 前端不再轮询
+// SSE 连接(登录页与主界面共用): 日志/状态/健康/登录进度全部实时推送, 前端不再轮询
 function connectEvents() {
-  if (window.__evt) return;
-  const evt = new EventSource(baseUrl() + '/api/events?token=' + encodeURIComponent(accessToken()));
+  const want = baseUrl() + '/api/events?token=' + encodeURIComponent(accessToken());
+  // 启动时若直接从 sessionStorage 恢复视图(第二次打开), 这里会在地址探测完成前先连一次,
+  // 那时 baseUrl() 只有本机 3000 的兜底值 —— 连错后端就整页收不到日志/状态/登录进度。
+  // 所以按最终 URL 判重: 地址变了就换连(探测完成后 showView 会再调一次本函数)。
+  if (window.__evt && window.__evt.url === want) return;
+  if (window.__evt) { try { window.__evt.close(); } catch (e) { /* ignore */ } window.__evt = null; }
+  const evt = new EventSource(want);
   window.__evt = evt;
   // 后端日志实时推送(最新已展示 seq 由 addLogLine 内部维护, 去重守卫防重复)
   evt.addEventListener('log', (e) => {

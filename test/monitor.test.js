@@ -37,10 +37,10 @@ function setup(opts = {}) {
           activeFriends: activeList.map((f) => f.id),
           offlineFriends: offlineList.map((f) => f.id)
         },
-    // 接口语义: offline=true 是含离线的全量名册, 省略/offline=false 只在线好友。
+    // 接口语义(生产实测确认): offline=true 只回离线好友, 省略/offline=false 回在线+活动。
     // 分页回调逐页报累计条数(真实分页实现在 vrcapi.test.js 覆盖), 这里按同样语义模拟。
     friends: async ({ offline, onPage }) => {
-      const list = offline ? [...onlineList, ...activeList, ...offlineList] : [...onlineList, ...activeList];
+      const list = offline ? offlineList : [...onlineList, ...activeList];
       if (onPage) for (let i = 0; i < list.length; i += 100) onPage(Math.min(i + 100, list.length));
       return list;
     },
@@ -1535,7 +1535,7 @@ test('pending 到期验证内部抛错: 接住并记录日志, 不穿透', async
 });
 
 // ---------- 登录进度(前端等待页): 只有首次对账才上报 ----------
-test('首次对账上报登录进度: 名册总数 + 好友拉取累计', async () => {
+test('首次对账上报登录进度: 名册总数 + 两趟好友拉取', async () => {
   const t = setup({
     onlineFriends: [onlineFriend('usr_on')],
     offlineFriends: [offlineFriend('usr_o1'), offlineFriend('usr_o2'), offlineFriend('usr_o3')]
@@ -1544,12 +1544,12 @@ test('首次对账上报登录进度: 名册总数 + 好友拉取累计', async 
   t.bus.on('sync-progress', (e) => progress.push(e));
   const user = addUser(t.db);
   await t.monitor.activateUser(user, t.vrcapi);
-  assert.deepEqual(progress.map((p) => p.stage), ['roster', 'friends'],
-    '实际: ' + JSON.stringify(progress));
+  assert.deepEqual(progress.map((p) => p.stage), ['roster', 'friends', 'friends', 'friends'],
+    '在线一趟 + 离线一趟 + 收口一条, 实际: ' + JSON.stringify(progress));
   assert.equal(progress[0].userId, 'usr_me');
   assert.equal(progress[0].total, 4, '总数来自 me() 的好友名册');
-  assert.equal(progress[1].fetched, 4, '逐页回调累计已拉数量');
-  assert.equal(progress[1].total, 4);
+  assert.ok(progress.slice(1).every((p) => p.total === 4), '三趟共用同一个分母');
+  assert.equal(progress[progress.length - 1].fetched, 4, '最后一条是收口, 直接到 100%');
 });
 
 test('常规对账不上报登录进度(否则会平白弹出等待页)', async () => {
@@ -1560,4 +1560,45 @@ test('常规对账不上报登录进度(否则会平白弹出等待页)', async 
   t.bus.on('sync-progress', (e) => progress.push(e));
   await t.monitor.runSnapshot('usr_me');
   assert.deepEqual(progress, [], '实际: ' + JSON.stringify(progress));
+});
+
+// 真机上 friends?offline=true 只回离线好友, 所以进度必须把两段拉取合起来算,
+// 否则分母用了名册总数就永远走不到 100%(线上卡在 66% = 34/51 就是这个)
+test('首次对账进度: 在线与离线两段拉取合起来要能走到名册总数', async () => {
+  const t = setup({
+    onlineFriends: [onlineFriend('usr_on')],
+    offlineFriends: [offlineFriend('usr_o1'), offlineFriend('usr_o2'), offlineFriend('usr_o3')]
+  });
+  const progress = [];
+  t.bus.on('sync-progress', (e) => progress.push(e));
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+  const friends = progress.filter((p) => p.stage === 'friends');
+  assert.deepEqual(friends.map((p) => p.fetched), [1, 4, 4],
+    '在线那趟先报, 离线那趟接着累加, 最后收口一条 —— 实际: ' + JSON.stringify(progress));
+  assert.equal(friends[friends.length - 1].total, 4);
+  assert.equal(friends[friends.length - 1].fetched, 4, '最后必须等于名册总数(100%), 不能停在中途');
+});
+
+// 真机上两趟是两个时刻的快照: 中间有好友改状态时合计会比名册少一两条(生产日志实测 16+34 vs 名册 51),
+// 这样百分比会停在 97~99%。不值得为它改口径, 但拉取阶段结束时必须收口到 100%。
+test('首次对账进度: 实拉条数比名册少时, 收尾也要跳到 100%', async () => {
+  const t = setup({
+    onlineFriends: [onlineFriend('usr_on')],
+    offlineFriends: [offlineFriend('usr_o1'), offlineFriend('usr_o2'), offlineFriend('usr_o3')]
+  });
+  // 模拟真机: 离线那趟只回 2 条(名册里写了 3 条)
+  t.vrcapi.friends = async ({ offline, onPage }) => {
+    const list = offline ? t.rosters.offlineList.slice(0, 2) : [...t.rosters.onlineList];
+    if (onPage) onPage(list.length);
+    return list;
+  };
+  const progress = [];
+  t.bus.on('sync-progress', (e) => progress.push(e));
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+  const friends = progress.filter((p) => p.stage === 'friends');
+  const last = friends[friends.length - 1];
+  assert.equal(last.fetched, 4, '收尾必须补到名册总数 —— 实际: ' + JSON.stringify(friends));
+  assert.equal(last.total, 4);
 });

@@ -918,7 +918,13 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
       const friendIds = Array.isArray(currentUser.friends)
         ? [...new Set(currentUser.friends)]
         : [...new Set([...arr(currentUser.onlineFriends), ...arr(currentUser.activeFriends), ...arr(currentUser.offlineFriends)])];
-      if (opts.initial) emitProgress(userId, { stage: 'roster', total: friendIds.length });
+      const friendTotal = friendIds.length;
+      if (opts.initial) emitProgress(userId, { stage: 'roster', total: friendTotal });
+
+      // 好友分两趟拉: 在线+活动一趟(offline=false), 离线一趟(offline=true)。
+      // 真机实测(2026-09-12 生产日志): offline=true 只回离线那部分(名册 51 / 拉回 34),
+      // 所以进度必须两趟累加、分母统一用名册总数 —— 各报各的会永远停在 66%。
+      let onlineFetched = 0;
 
       // ③ 在线+活动好友的详情: 一次 /friends?offline=false(离线好友 0 请求)
       const needDetails = new Set();
@@ -931,7 +937,14 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
       const onlineMap = new Map();
       if (needDetails.size > 0) {
         try {
-          const list = await vrcapi.friends({ offline: false, noRetry: opts.noRetry });
+          const list = await vrcapi.friends({
+            offline: false,
+            noRetry: opts.noRetry,
+            onPage: opts.initial
+              ? (n) => emitProgress(userId, { stage: 'friends', fetched: Math.min(friendTotal, n), total: friendTotal })
+              : undefined
+          });
+          onlineFetched = list.length;
           for (const f of list) if (f && f.id) onlineMap.set(f.id, f);
         } catch (e) {
           if (!handleAuth401(e, userId)) log.error(`[monitor] 在线列表获取失败 userId=${userId}: ${e.message}`);
@@ -947,16 +960,18 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
           const list = await vrcapi.friends({
             offline: true,
             noRetry: opts.noRetry,
-            onPage: (n) => emitProgress(userId, { stage: 'friends', fetched: n, total: friendIds.length })
+            onPage: (n) => emitProgress(userId, { stage: 'friends', fetched: Math.min(friendTotal, onlineFetched + n), total: friendTotal })
           });
           for (const f of list) if (f && f.id) offlineSeed.set(f.id, f);
-          // 用于坐实接口语义: 名册数(me().friends)与本次实际拉回条数. 两者不等说明
-          // offline=true 并非全量, 前端百分比的分子分母要跟着换(见 server 的 roster/friends 事件)。
-          log.info(`[monitor] 首次对账好友资料: 名册 ${friendIds.length} 人, 拉回 ${list.length} 条`);
+          log.info(`[monitor] 首次对账好友资料: 名册 ${friendTotal} 人 = 在线 ${onlineFetched} + 离线 ${list.length}`);
         } catch (e) {
           if (handleAuth401(e, userId)) return { ok: false, error: e.message };
           log.warn(`[monitor] 首次快照离线名册获取失败, 跳过离线好友资料补全: ${e.message}`);
         }
+        // 好友拉取阶段到此结束: 收口到 100%。两趟是两个时刻的快照, 中间有好友改状态时合计会比
+        // 名册少一两条(生产实测 16+34 vs 名册 51), 不为这个边角改口径 —— 但"已经拉完了"这件事
+        // 本身就该显示成 100%, 否则数字停在 97~99% 看着像卡住。
+        emitProgress(userId, { stage: 'friends', fetched: friendTotal, total: friendTotal });
       }
 
       const applyOpts = opts.initial ? { silent: true } : {};
