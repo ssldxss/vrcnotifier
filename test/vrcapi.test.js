@@ -1,7 +1,13 @@
-const test = require('node:test');
+const { test, after } = require('node:test');
 const assert = require('node:assert');
 const http = require('node:http');
 const { createVrcApi } = require('../src/vrcapi');
+
+// Node 22 的 test runner 在事件循环排空时会判定「Promise resolution is still pending」并
+// 取消整个文件(连带同文件后续用例)。项目里的等待普遍用 unref 定时器(生产有 HTTP server
+// 保活所以没问题, 测试进程没有), 挂一个 ref'd 定时器把循环托住, 让这些等待正常到期。
+const keepAlive = setInterval(() => {}, 1000);
+after(() => clearInterval(keepAlive));
 
 /** 启动 mock VRChat API 服务器 */
 function startMockApi(handlers) {

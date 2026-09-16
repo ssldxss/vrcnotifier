@@ -1,0 +1,51 @@
+# ============================================================
+#  vrcnotifier CI: 测试(push / PR / 手动)
+#
+#  矩阵两档:
+#    22.13.0  package.json engines 声明的最低版本(生产镜像 node:22-alpine 恒 >= 它,
+#             所以这一档是对 22 线更严格的覆盖)
+#    24.x     本地开发版本(README 推荐)
+#
+#  测试用 Node 内置 node:test + node:sqlite, 没有 devDependencies, 故 npm ci 即可。
+#  注意: 项目里的等待普遍用 unref 定时器(生产有 HTTP server 保活), 测试脚手架需自备
+#  ref'd 定时器托住事件循环 —— 否则 Node 22 的 test runner 会判定「Promise 仍待决」并
+#  取消整个测试文件(详见各 test/*.test.js 顶部的说明)。
+# ============================================================
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test (node ${{ matrix.node-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ['22.13.0', '24.x']
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
