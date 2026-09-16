@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "id": "vrcnotifier.infra.util",
+  "updated_at": "2026-09-16T14:35:31.627Z",
+  "mode": "grid",
+  "max_columns": 2,
+  "reading": {
+    "zh": "两个互不相关的工具，并列摆放即可。",
+    "en": "Two unrelated helpers, placed side by side."
+  },
+  "order": [
+    "vrcnotifier.infra.util.identity",
+    "vrcnotifier.infra.util.deadline"
+  ]
+}

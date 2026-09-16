@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "id": "vrcnotifier.app.lifecycle",
+  "updated_at": "2026-09-16T14:34:52.248Z",
+  "mode": "layers",
+  "max_columns": 3,
+  "reading": {
+    "zh": "进程时间线：启动自检（密钥可解性）→ 主流程编排（监听与恢复）→ 优雅退出。",
+    "en": "Process timeline: boot self-check (key decryptability), main orchestration (listen and recover), graceful shutdown."
+  },
+  "order": [
+    "vrcnotifier.app.lifecycle.startup",
+    "vrcnotifier.app.lifecycle.main",
+    "vrcnotifier.app.lifecycle.shutdown"
+  ]
+}

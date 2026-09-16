@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "id": "vrcnotifier.qq.templates",
+  "updated_at": "2026-09-16T14:35:21.329Z",
+  "mode": "layers",
+  "max_columns": 2,
+  "reading": {
+    "zh": "先构造变量（标签/转义/行序），再按站内通知或好友变更两种形态组装成最终消息。",
+    "en": "Build variables first (labels, escaping, line order), then assemble the final message in either the notification or the change shape."
+  },
+  "order": [
+    "vrcnotifier.qq.templates.vars",
+    "vrcnotifier.qq.templates.message"
+  ]
+}

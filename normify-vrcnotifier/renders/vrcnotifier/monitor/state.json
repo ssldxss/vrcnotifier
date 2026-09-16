@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "id": "vrcnotifier.monitor.state",
+  "updated_at": "2026-09-16T14:35:10.825Z",
+  "mode": "layers",
+  "max_columns": 3,
+  "reading": {
+    "zh": "两类写入入口（自己/好友）平行；好友的下线先挂 pending，由右侧的批量校验回头确认，确认结果再回灌左侧的状态机。",
+    "en": "Two parallel write funnels (self, friends). A suspected friend offline arms a pending state, confirmed by the batched check on the right, whose verdict re-enters the state machine on the left."
+  },
+  "order": [
+    "vrcnotifier.monitor.state.self-presence",
+    "vrcnotifier.monitor.state.friend-apply",
+    "vrcnotifier.monitor.state.pending-verification"
+  ]
+}

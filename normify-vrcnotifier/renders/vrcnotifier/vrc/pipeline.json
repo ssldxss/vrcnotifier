@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "id": "vrcnotifier.vrc.pipeline",
+  "updated_at": "2026-09-16T14:35:11.343Z",
+  "mode": "layers",
+  "max_columns": 4,
+  "reading": {
+    "zh": "从控制接口进入，经连接生命周期，帧在解析与串行队列里被处理，同时旁路累计速率统计。",
+    "en": "Enter through the control API, run the connection lifecycle, let frames flow through parsing and the serial queue, with rate counting off to the side."
+  },
+  "order": [
+    "vrcnotifier.vrc.pipeline.control",
+    "vrcnotifier.vrc.pipeline.connection",
+    "vrcnotifier.vrc.pipeline.frames",
+    "vrcnotifier.vrc.pipeline.stats"
+  ]
+}

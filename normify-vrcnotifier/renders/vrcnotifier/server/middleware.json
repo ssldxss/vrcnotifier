@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "id": "vrcnotifier.server.middleware",
+  "updated_at": "2026-09-16T14:35:00.908Z",
+  "mode": "layers",
+  "max_columns": 3,
+  "reading": {
+    "zh": "请求管线顺序：解析与跨域 → 令牌门 → （路由）→ 兵底错误处理。",
+    "en": "Pipeline order: parsing and CORS, then the token gate, then routes, with the fallback error handler last."
+  },
+  "order": [
+    "vrcnotifier.server.middleware.json-cors",
+    "vrcnotifier.server.middleware.access-token",
+    "vrcnotifier.server.middleware.error-handler"
+  ]
+}

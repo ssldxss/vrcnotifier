@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "id": "vrcnotifier.web",
+  "updated_at": "2026-09-16T14:35:31.736Z",
+  "mode": "groups",
+  "reading": {
+    "zh": "先看静态骨架，再看三个独立可测的小库（SDK/日志裁剪/外链），最后是使用它们的单页应用。",
+    "en": "Start with the static shell, then the three independently testable libraries (SDK, log trimming, deep links), and finally the single-page app that uses them."
+  },
+  "order": [
+    "vrcnotifier.web.shell",
+    "vrcnotifier.web.logview",
+    "vrcnotifier.web.vrclinks",
+    "vrcnotifier.web.sdk",
+    "vrcnotifier.web.app"
+  ],
+  "groups": [
+    {
+      "id": "static",
+      "title": {
+        "zh": "静态骨架",
+        "en": "Static Shell"
+      },
+      "children": [
+        "vrcnotifier.web.shell"
+      ]
+    },
+    {
+      "id": "libs",
+      "title": {
+        "zh": "可复用库",
+        "en": "Reusable Libraries"
+      },
+      "children": [
+        "vrcnotifier.web.sdk",
+        "vrcnotifier.web.logview",
+        "vrcnotifier.web.vrclinks"
+      ]
+    },
+    {
+      "id": "app",
+      "title": {
+        "zh": "应用",
+        "en": "Application"
+      },
+      "children": [
+        "vrcnotifier.web.app"
+      ]
+    }
+  ]
+}

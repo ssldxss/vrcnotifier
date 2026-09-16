@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "id": "vrcnotifier.vrc.api",
+  "updated_at": "2026-09-16T14:35:11.244Z",
+  "mode": "layers",
+  "max_columns": 3,
+  "reading": {
+    "zh": "传输层在底层（限流与退避），身份接口与社交接口都是它上面的薄封装。",
+    "en": "The transport layer sits underneath (throttling and backoff); the identity and social calls are thin wrappers above it."
+  },
+  "order": [
+    "vrcnotifier.vrc.api.transport",
+    "vrcnotifier.vrc.api.auth",
+    "vrcnotifier.vrc.api.social"
+  ]
+}

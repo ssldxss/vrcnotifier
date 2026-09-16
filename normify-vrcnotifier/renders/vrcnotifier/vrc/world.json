@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "id": "vrcnotifier.vrc.world",
+  "updated_at": "2026-09-16T14:35:11.446Z",
+  "mode": "layers",
+  "max_columns": 4,
+  "reading": {
+    "zh": "无状态传输在最左；调度器给并发与速率卡口；resolve 负责失败分类与兜底；cache 是入口策略（TTL/合并/冷却）并最终发起 resolve。",
+    "en": "Stateless transport on the far left; the scheduler caps concurrency and rate; resolve classifies failures and falls back; cache is the entry policy (TTL, coalescing, cooldown) that ultimately triggers a resolve."
+  },
+  "order": [
+    "vrcnotifier.vrc.world.transport",
+    "vrcnotifier.vrc.world.scheduler",
+    "vrcnotifier.vrc.world.resolve",
+    "vrcnotifier.vrc.world.cache"
+  ]
+}

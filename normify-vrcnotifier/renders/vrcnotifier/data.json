@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "id": "vrcnotifier.data",
+  "updated_at": "2026-09-16T14:35:21.430Z",
+  "mode": "groups",
+  "reading": {
+    "zh": "左侧是表结构与纯函数解析，中间是各张表的写入口，右侧是加密/清理与纯状态机（不碰 IO）。",
+    "en": "Left: schema and pure parsing. Middle: the write funnels for each table. Right: crypto, purge, and the pure state machine that performs no IO."
+  },
+  "order": [
+    "vrcnotifier.data.schema",
+    "vrcnotifier.data.location",
+    "vrcnotifier.data.users",
+    "vrcnotifier.data.settings",
+    "vrcnotifier.data.qq-binding",
+    "vrcnotifier.data.friends",
+    "vrcnotifier.data.friend-config",
+    "vrcnotifier.data.cache",
+    "vrcnotifier.data.dedupe",
+    "vrcnotifier.data.crypto-fields",
+    "vrcnotifier.data.purge",
+    "vrcnotifier.data.friend-state"
+  ],
+  "groups": [
+    {
+      "id": "schema",
+      "title": {
+        "zh": "表结构与解析",
+        "en": "Schema & Parsing"
+      },
+      "children": [
+        "vrcnotifier.data.schema",
+        "vrcnotifier.data.location"
+      ]
+    },
+    {
+      "id": "accounts",
+      "title": {
+        "zh": "账号与配置",
+        "en": "Accounts & Settings"
+      },
+      "children": [
+        "vrcnotifier.data.users",
+        "vrcnotifier.data.settings",
+        "vrcnotifier.data.qq-binding"
+      ]
+    },
+    {
+      "id": "friends",
+      "title": {
+        "zh": "好友与缓存",
+        "en": "Friends & Caches"
+      },
+      "children": [
+        "vrcnotifier.data.friends",
+        "vrcnotifier.data.friend-config",
+        "vrcnotifier.data.cache",
+        "vrcnotifier.data.dedupe"
+      ]
+    },
+    {
+      "id": "safety",
+      "title": {
+        "zh": "加密与生命周期",
+        "en": "Crypto & Lifecycle"
+      },
+      "children": [
+        "vrcnotifier.data.crypto-fields",
+        "vrcnotifier.data.purge"
+      ]
+    },
+    {
+      "id": "machine",
+      "title": {
+        "zh": "领域状态机",
+        "en": "Domain State Machine"
+      },
+      "children": [
+        "vrcnotifier.data.friend-state"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "id": "vrcnotifier.infra.logging",
+  "updated_at": "2026-09-16T14:35:21.744Z",
+  "mode": "layers",
+  "max_columns": 4,
+  "reading": {
+    "zh": "日志器在最右，它同时向内存环与文件段两侧写；时间格式化被日志器复用。",
+    "en": "The logger sits on the right, writing into both the memory ring and the file segments; time formatting is reused by the logger."
+  },
+  "order": [
+    "vrcnotifier.infra.logging.time",
+    "vrcnotifier.infra.logging.memory-stream",
+    "vrcnotifier.infra.logging.file-segments",
+    "vrcnotifier.infra.logging.logger"
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "id": "vrcnotifier.qq.bot",
+  "updated_at": "2026-09-16T14:35:21.120Z",
+  "mode": "layers",
+  "max_columns": 4,
+  "reading": {
+    "zh": "注册表按配置启停机器人；令牌是发送与 identify 的前置；发送与网关连接是两个并列的出口。",
+    "en": "The registry starts and stops bots from settings; the token gates both sending and identify; sending and the gateway socket are two parallel outlets."
+  },
+  "order": [
+    "vrcnotifier.qq.bot.registry",
+    "vrcnotifier.qq.bot.token",
+    "vrcnotifier.qq.bot.sender",
+    "vrcnotifier.qq.bot.socket"
+  ]
+}

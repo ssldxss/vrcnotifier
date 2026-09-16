@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "id": "vrcnotifier.web.app.shell",
+  "updated_at": "2026-09-16T14:35:32.147Z",
+  "mode": "layers",
+  "max_columns": 3,
+  "reading": {
+    "zh": "三个互相独立的外壳交互：页签切换、概览条与回到顶部、主题切换。",
+    "en": "Three independent shell interactions: tab switching, the overview strip with back-to-top, and theme switching."
+  },
+  "order": [
+    "vrcnotifier.web.app.shell.tabs",
+    "vrcnotifier.web.app.shell.overview",
+    "vrcnotifier.web.app.shell.theme"
+  ]
+}

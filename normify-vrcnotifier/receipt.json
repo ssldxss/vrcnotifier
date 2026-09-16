@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "ok": true,
+  "project": "normify-vrcnotifier",
+  "compiled_at": "2026-09-16T14:36:41.789Z",
+  "stats": {
+    "tree_count": 1,
+    "module_count": 164,
+    "leaf_count": 129,
+    "api_count": 362,
+    "dep_count": 289,
+    "cross_tree_dep_count": 0,
+    "max_depth": 5,
+    "layout_count": 35,
+    "planned_count": 0,
+    "deprecated_count": 0,
+    "policy_rule_count": 2,
+    "change_count": 1,
+    "open_change_count": 0
+  },
+  "warnings": {
+    "dep/unanchored": 1,
+    "structure/leaf-too-coarse": 15,
+    "structure/leaf-too-coarse-many": 1,
+    "evidence/root-no-source": 1
+  },
+  "artifacts": {
+    "tree.json": {
+      "sha256": "d6907ff6089f5a11dc529e30d9727e921ab2169fe1a759b53036eadf89e7ace5",
+      "bytes": 601437
+    },
+    "outline.md": {
+      "sha256": "1c8afc08bb348f0724f7e7e29d84afa0b333aa870165b0ea0aa5093bd8fb8f23",
+      "bytes": 51949
+    },
+    "api-index.json": {
+      "sha256": "df2ca63d8c419470b26cf9438e01082d1d6384a50e841c98648e6bc5d9806d22",
+      "bytes": 23860
+    },
+    "receipt.json": {
+      "sha256": "3da062eccef6007770e752d6eea128563bbca7f0f40d9ad5333af4dc61fd112a",
+      "bytes": 1034
+    }
+  }
+}

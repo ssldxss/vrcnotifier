@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "id": "vrcnotifier.app.config",
+  "updated_at": "2026-09-16T14:34:52.045Z",
+  "mode": "layers",
+  "max_columns": 3,
+  "reading": {
+    "zh": "从原始环境变量开始：先解析单项（env），再解析凭据（token），最后合并成运行时参数（parameters）。",
+    "en": "Starts from raw environment input: single values (env), then credentials (token), then the merged runtime parameters."
+  },
+  "order": [
+    "vrcnotifier.app.config.env",
+    "vrcnotifier.app.config.token",
+    "vrcnotifier.app.config.parameters"
+  ]
+}

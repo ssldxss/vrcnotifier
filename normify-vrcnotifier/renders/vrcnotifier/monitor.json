@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "id": "vrcnotifier.monitor",
+  "updated_at": "2026-09-16T14:35:01.424Z",
+  "mode": "groups",
+  "reading": {
+    "zh": "三个输入源（WS 事件、REST 快照、pending 校验）汇入状态层，状态层的输出经通知层出去；世界名/群组名与定时器是旁路支撑。",
+    "en": "Three inputs (WS events, REST snapshots, pending checks) feed the state layer, whose output leaves through the notification layer; world names, group names and timers support from the side."
+  },
+  "order": [
+    "vrcnotifier.monitor.core",
+    "vrcnotifier.monitor.session",
+    "vrcnotifier.monitor.fault",
+    "vrcnotifier.monitor.pipeline-router",
+    "vrcnotifier.monitor.state",
+    "vrcnotifier.monitor.snapshot",
+    "vrcnotifier.monitor.notify",
+    "vrcnotifier.monitor.world-name",
+    "vrcnotifier.monitor.group-name",
+    "vrcnotifier.monitor.timers",
+    "vrcnotifier.monitor.watchdog"
+  ],
+  "groups": [
+    {
+      "id": "base",
+      "title": {
+        "zh": "基础与会话",
+        "en": "Base & Session"
+      },
+      "children": [
+        "vrcnotifier.monitor.core",
+        "vrcnotifier.monitor.session",
+        "vrcnotifier.monitor.fault"
+      ]
+    },
+    {
+      "id": "inputs",
+      "title": {
+        "zh": "输入与状态",
+        "en": "Inputs & State"
+      },
+      "children": [
+        "vrcnotifier.monitor.pipeline-router",
+        "vrcnotifier.monitor.state",
+        "vrcnotifier.monitor.snapshot"
+      ]
+    },
+    {
+      "id": "output",
+      "title": {
+        "zh": "通知输出",
+        "en": "Notification Output"
+      },
+      "children": [
+        "vrcnotifier.monitor.notify"
+      ]
+    },
+    {
+      "id": "aux",
+      "title": {
+        "zh": "辅助与调度",
+        "en": "Auxiliary & Scheduling"
+      },
+      "children": [
+        "vrcnotifier.monitor.world-name",
+        "vrcnotifier.monitor.group-name",
+        "vrcnotifier.monitor.timers",
+        "vrcnotifier.monitor.watchdog"
+      ]
+    }
+  ]
+}

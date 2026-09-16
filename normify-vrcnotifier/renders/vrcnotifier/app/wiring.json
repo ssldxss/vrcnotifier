@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "id": "vrcnotifier.app.wiring",
+  "updated_at": "2026-09-16T14:34:52.146Z",
+  "mode": "layers",
+  "max_columns": 3,
+  "reading": {
+    "zh": "装配顺序即依赖顺序：基础服务（存储/日志/缓存）→ 领域服务（VRChat/QQ/监控）→ HTTP 应用。",
+    "en": "Assembly order is dependency order: foundation services (storage, logging, cache), then domain services (VRChat, QQ, monitor), then the HTTP app."
+  },
+  "order": [
+    "vrcnotifier.app.wiring.foundation",
+    "vrcnotifier.app.wiring.services",
+    "vrcnotifier.app.wiring.http"
+  ]
+}

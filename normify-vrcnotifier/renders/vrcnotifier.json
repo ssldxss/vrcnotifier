@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "id": "vrcnotifier",
+  "updated_at": "2026-09-16T14:34:51.836Z",
+  "mode": "groups",
+  "reading": {
+    "zh": "从左到右：先看装配与基础设施（app/infra），再看数据与状态机（data），然后是 VRChat 与 QQ 两个外部接入、核心的监控编排，最后是 HTTP 服务与 Web 面板。箭头表示调用方向。",
+    "en": "Left to right: runtime and infrastructure first, then data and the state machine, then the two integrations (VRChat, QQ), the monitoring core, and finally the HTTP server and web panel. Arrows show call direction."
+  },
+  "order": [
+    "vrcnotifier.app",
+    "vrcnotifier.infra",
+    "vrcnotifier.data",
+    "vrcnotifier.vrc",
+    "vrcnotifier.qq",
+    "vrcnotifier.monitor",
+    "vrcnotifier.server",
+    "vrcnotifier.web"
+  ],
+  "groups": [
+    {
+      "id": "runtime",
+      "title": {
+        "zh": "装配与基础设施",
+        "en": "Runtime & Infrastructure"
+      },
+      "children": [
+        "vrcnotifier.app",
+        "vrcnotifier.infra"
+      ]
+    },
+    {
+      "id": "state",
+      "title": {
+        "zh": "数据与状态",
+        "en": "Data & State"
+      },
+      "children": [
+        "vrcnotifier.data"
+      ]
+    },
+    {
+      "id": "integrations",
+      "title": {
+        "zh": "外部接入与推送",
+        "en": "Integrations & Delivery"
+      },
+      "children": [
+        "vrcnotifier.vrc",
+        "vrcnotifier.qq"
+      ]
+    },
+    {
+      "id": "domain",
+      "title": {
+        "zh": "监控编排",
+        "en": "Monitoring"
+      },
+      "children": [
+        "vrcnotifier.monitor"
+      ]
+    },
+    {
+      "id": "surfaces",
+      "title": {
+        "zh": "对外界面",
+        "en": "Surfaces"
+      },
+      "children": [
+        "vrcnotifier.server",
+        "vrcnotifier.web"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "id": "vrcnotifier.infra.avatar",
+  "updated_at": "2026-09-16T14:35:31.522Z",
+  "mode": "layers",
+  "max_columns": 3,
+  "reading": {
+    "zh": "命名规则是基础；下载与落盘按规则取地址；清理与淘汰在后头维护缓存。",
+    "en": "Naming rules first; download and store derive the address from them; sweeping and eviction maintain the cache behind."
+  },
+  "order": [
+    "vrcnotifier.infra.avatar.naming",
+    "vrcnotifier.infra.avatar.store",
+    "vrcnotifier.infra.avatar.maintenance"
+  ]
+}

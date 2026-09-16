@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "id": "vrcnotifier.vrc",
+  "updated_at": "2026-09-16T14:35:11.145Z",
+  "mode": "groups",
+  "reading": {
+    "zh": "带登录态的 REST 与无凭据的公开探针分居两侧；WS 管线与无 cookie 的世界名查询是两条互相独立的实时/查询通道。",
+    "en": "Authenticated REST and credential-free public probes sit on opposite sides; the WS pipeline and the cookie-free world lookup are independent realtime and query channels."
+  },
+  "order": [
+    "vrcnotifier.vrc.cookiejar",
+    "vrcnotifier.vrc.api",
+    "vrcnotifier.vrc.pipeline",
+    "vrcnotifier.vrc.world",
+    "vrcnotifier.vrc.health",
+    "vrcnotifier.vrc.status"
+  ],
+  "groups": [
+    {
+      "id": "rest",
+      "title": {
+        "zh": "REST 与会话",
+        "en": "REST & Session"
+      },
+      "children": [
+        "vrcnotifier.vrc.cookiejar",
+        "vrcnotifier.vrc.api"
+      ]
+    },
+    {
+      "id": "realtime",
+      "title": {
+        "zh": "实时与查询",
+        "en": "Realtime & Lookup"
+      },
+      "children": [
+        "vrcnotifier.vrc.pipeline",
+        "vrcnotifier.vrc.world"
+      ]
+    },
+    {
+      "id": "probes",
+      "title": {
+        "zh": "探针",
+        "en": "Probes"
+      },
+      "children": [
+        "vrcnotifier.vrc.health",
+        "vrcnotifier.vrc.status"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "id": "vrcnotifier.server.auth.relogin",
+  "updated_at": "2026-09-16T14:35:01.221Z",
+  "mode": "layers",
+  "max_columns": 2,
+  "reading": {
+    "zh": "重登尝试失败并需要 2FA 时从左侧转入右侧；验证码通过后回到左侧完成会话落地。",
+    "en": "A failed re-login that needs 2FA moves from the left to the right; once the code passes it returns to the left to finish the session."
+  },
+  "order": [
+    "vrcnotifier.server.auth.relogin.loop",
+    "vrcnotifier.server.auth.relogin.two-factor"
+  ]
+}

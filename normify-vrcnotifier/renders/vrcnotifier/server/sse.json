@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "id": "vrcnotifier.server.sse",
+  "updated_at": "2026-09-16T14:35:01.017Z",
+  "mode": "groups",
+  "reading": {
+    "zh": "事件的三个来源（后端总线、日志流、WS 统计）都汇到 broadcast，再经唯一的长连接端点推给浏览器。",
+    "en": "Three sources (the backend bus, the log stream, the WS statistics) all converge on broadcast and leave through the single long-lived endpoint."
+  },
+  "order": [
+    "vrcnotifier.server.sse.events-endpoint",
+    "vrcnotifier.server.sse.bus-bridge",
+    "vrcnotifier.server.sse.broadcast"
+  ],
+  "groups": [
+    {
+      "id": "in",
+      "title": {
+        "zh": "事件来源",
+        "en": "Event Sources"
+      },
+      "children": [
+        "vrcnotifier.server.sse.bus-bridge"
+      ]
+    },
+    {
+      "id": "out",
+      "title": {
+        "zh": "推送出口",
+        "en": "Delivery"
+      },
+      "children": [
+        "vrcnotifier.server.sse.events-endpoint",
+        "vrcnotifier.server.sse.broadcast"
+      ]
+    }
+  ]
+}

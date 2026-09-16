@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "id": "vrcnotifier.server.logs",
+  "updated_at": "2026-09-16T14:35:01.323Z",
+  "mode": "layers",
+  "max_columns": 2,
+  "reading": {
+    "zh": "谓词先行：先定义什么算匹配，再由查询端点按三种取数形态读出来。",
+    "en": "Predicates first: define what matches, then let the query endpoint fetch it in three shapes."
+  },
+  "order": [
+    "vrcnotifier.server.logs.filter",
+    "vrcnotifier.server.logs.query"
+  ]
+}

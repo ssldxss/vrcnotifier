@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "id": "vrcnotifier.web.app.boot",
+  "updated_at": "2026-09-16T14:35:31.941Z",
+  "mode": "layers",
+  "max_columns": 4,
+  "reading": {
+    "zh": "状态机是主线；数字条与光环是它驱动的两种视觉，入场与头像预热是它最后的收尾。",
+    "en": "The state machine is the spine; the odometer and halos are two visuals it drives, and avatar prewarm plus the entrance replay is how it finishes."
+  },
+  "order": [
+    "vrcnotifier.web.app.boot.state-machine",
+    "vrcnotifier.web.app.boot.percent-odometer",
+    "vrcnotifier.web.app.boot.halo",
+    "vrcnotifier.web.app.boot.entrance"
+  ]
+}

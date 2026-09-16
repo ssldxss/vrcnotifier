@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "id": "vrcnotifier.monitor.snapshot",
+  "updated_at": "2026-09-16T14:35:11.042Z",
+  "mode": "layers",
+  "max_columns": 3,
+  "reading": {
+    "zh": "对账主流程在中间；401 从左侧分支出去（重登/2FA/会话失效），进度从右侧上报给等待页。",
+    "en": "The reconciliation run is the core; 401s branch out on the left (re-login, 2FA, dead session) and progress is reported on the right to light the boot overlay."
+  },
+  "order": [
+    "vrcnotifier.monitor.snapshot.run",
+    "vrcnotifier.monitor.snapshot.auth-401",
+    "vrcnotifier.monitor.snapshot.progress"
+  ]
+}

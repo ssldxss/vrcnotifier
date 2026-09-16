@@ -1,0 +1,35 @@
+---
+uid: e67eb961
+id: vrcnotifier.server.middleware.json-cors
+parent: vrcnotifier.server.middleware
+name: {zh: "请求体解析与 CORS", en: "Body Parsing & CORS"}
+description:
+  zh: >
+      请求体解析与跨域策略：express.json 限制 1MB；CORS 头（来源可配，默认全放行）允许 GET/POST/PUT/DELETE/OPTIONS，预检直接返回 204。
+      
+  en: >
+      Body parsing and cross-origin policy: express.json with a 1MB limit, then CORS headers (origin configurable, default fully permissive) covering GET/POST/PUT/DELETE/OPTIONS with an immediate 204 for preflight.
+      
+revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
+updated_at: "2026-09-16T14:31:48.744Z"
+fingerprint: 8a87152c03841290a81ad1338ccae903301779179e5b623509869b3328eec77d
+source:
+  - path: "src/server.js"
+    line: 631
+    end_line: 640
+apis:
+  - protocol: rpc
+    path: "jsonBody({limit})"
+    description:
+      zh: >
+          解析最大 1MB 的 JSON 请求体。
+      en: >
+          Parse JSON bodies up to 1MB.
+  - protocol: rpc
+    path: "cors(req, res, next)"
+    description:
+      zh: >
+          写入 CORS 头，预检直接回 204。
+      en: >
+          Set CORS headers and answer preflight with 204.
+---
