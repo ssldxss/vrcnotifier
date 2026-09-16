@@ -979,21 +979,28 @@ async function loadFriends() {
 // 信任等级 → 名字颜色类(严格使用 VRChat 官方 5 色)
 const TRUST_CLASS = { 'Trusted User': 'tl-trusted', 'Known User': 'tl-known', 'User': 'tl-user', 'New User': 'tl-new', 'Visitor': 'tl-visitor' };
 
-// 头像+VRCX 圆点+状态行: 好友行与页面标题栏"我"共用
+// 头像+VRCX 圆点+状态行: 好友行与页面标题栏"我"共用。
+// 头像/昵称/世界名都点开对应 VRChat 网页(见 vrclinks.js); id 不合法时那里会自动退化为纯文本。
 function personParts(p) {
+  const userId = p.friend_vrchat_id || p.vrchat_user_id || null;
   const initial = escapeHtml((p.display_name || '?').charAt(0).toUpperCase());
-  const avatarHtml = p.avatarKey
+  const avatarInner = p.avatarKey
     ? "<img class=avatar src='" + avatarUrl(p.avatarKey) + "' loading='lazy' alt='' onerror=\"this.style.display='none';this.nextElementSibling.style.display='flex'\"><div class='avatar-fallback'>" + initial + '</div>'
     : "<div class='avatar-fallback' style='display:flex'>" + initial + '</div>';
+  // img 与字首兜底必须同处一个 <a> 内且保持相邻 —— onerror 依赖 nextElementSibling 找到兜底
+  const avatarHtml = VrcLinks.wrapHtml('user', userId, avatarInner);
   const statusCls = 'status-' + String(p.status || 'active').replace(/\s+/g, '');
   const wrapCls = 'st-' + (p.state || 'offline') + ' ' + statusCls;
   const worldTxt = p.world_id === 'private' ? '私密世界' : (p.world_name || '');
-  const stateTxt = [worldTxt, p.status_description].filter(Boolean).map(escapeHtml).join(' · ');
+  // 世界名可点开世界页; 名字还没到(或 private/离线)时那段文字本来就是空的, 无可点内容
+  const worldHtml = worldTxt ? VrcLinks.linkHtml('world', p.world_id, worldTxt) : '';
+  const descHtml = p.status_description ? escapeHtml(p.status_description) : '';
+  const stateInner = [worldHtml, descHtml].filter(Boolean).join(' · ');
   return {
     avatarWrap: "<div class='avatar-wrap " + wrapCls + "'>" + avatarHtml + '</div>',
-    name: escapeHtml(p.display_name || p.friend_vrchat_id || p.vrchat_user_id || '?'),
+    name: VrcLinks.linkHtml('user', userId, p.display_name || p.friend_vrchat_id || p.vrchat_user_id || '?'),
     nameCls: p.trust_level ? ' ' + (TRUST_CLASS[p.trust_level] || '') : '',
-    stateHtml: stateTxt ? "<div class='state'>" + stateTxt + '</div>' : ''
+    stateHtml: stateInner ? "<div class='state'>" + stateInner + '</div>' : ''
   };
 }
 
@@ -1270,18 +1277,21 @@ function captureRowsState() {
     rows.set(r.dataset.id, {
       group: body ? body.dataset.group : null,
       collapsed: !!(body && body.classList.contains('collapsed')),
-      stateTxt: st ? st.textContent : ''
+      stateTxt: st ? st.textContent : '',
+      stateHtml: st ? st.innerHTML : '' // 翻动结束时回写用: 状态行里可能含世界名链接
     });
   });
   return { rects, rows };
 }
-// 状态文案翻动: 旧文案向上滚出、新文案从下方滚入(与「平均 x 次/分钟」同款观感)
-function rollStateText(row, newTxt, oldTxt) {
+// 状态文案翻动: 旧文案向上滚出、新文案从下方滚入(与「平均 x 次/分钟」同款观感)。
+// 必须收 HTML 而不是文本: 状态行里可能含世界名链接, 用 textContent 回写会把 <a> 抹成纯文本。
+// newHtml/oldHtml 只可能是 personParts 的产物(文本已转义、href 已白名单校验), 原样嵌入是安全的。
+function rollStateText(row, newHtml, newTxt, oldHtml, oldTxt) {
   const st = row.querySelector('.state');
   if (!st || oldTxt === newTxt) return;
-  st.innerHTML = "<span class='st-roll st-new'>" + escapeHtml(newTxt) + "</span><span class='st-roll st-old'>" + escapeHtml(oldTxt) + '</span>';
+  st.innerHTML = "<span class='st-roll st-new'>" + newHtml + "</span><span class='st-roll st-old'>" + oldHtml + '</span>';
   const newEl = st.querySelector('.st-new');
-  if (newEl) newEl.addEventListener('animationend', () => { st.textContent = newTxt; }, { once: true });
+  if (newEl) newEl.addEventListener('animationend', () => { st.innerHTML = newHtml; }, { once: true });
 }
 function refreshFriendsWithMotion() {
   const old = captureRowsState();
@@ -1312,7 +1322,9 @@ function refreshFriendsWithMotion() {
         if (!info) return;
         const st = r.querySelector('.state');
         const newTxt = st ? st.textContent : '';
-        if (info.stateTxt !== newTxt) rollStateText(r, newTxt, info.stateTxt);
+        const newHtml = st ? st.innerHTML : '';
+        // 比较用纯文本(只有 href 变化时不白播一次动画), 渲染用 HTML(保住世界名链接)
+        if (info.stateTxt !== newTxt) rollStateText(r, newHtml, newTxt, info.stateHtml, info.stateTxt);
       });
     })
     .catch(() => {});
@@ -2087,12 +2099,14 @@ if (healthStatusItem) {
     window.open('https://status.vrchat.com', '_blank', 'noopener');
   });
 }
-// 外链(GitHub / QQ 开放平台): 与服务器状态卡一致 —— 无超链接, 点击经 JS window.open 打开新标签页; 视觉样式与原文字链接一致
-$$('.ext-link').forEach((el) => {
-  el.addEventListener('click', () => {
-    const url = el.dataset.href;
-    if (url) window.open(url, '_blank', 'noopener');
-  });
+// 外链(GitHub / QQ 开放平台 / 好友头像·昵称·世界名): 与服务器状态卡一致 —— 无超链接,
+// 点击经 JS window.open 打开新标签页; 视觉样式与原文字链接一致。
+// 委托到 document: 好友行是动态渲染的, 一次性的 $$('.ext-link') 绑定盖不住后加进来的链接。
+document.addEventListener('click', (e) => {
+  const el = e.target && e.target.closest ? e.target.closest('.ext-link') : null;
+  if (!el) return;
+  const url = el.dataset.href;
+  if (url) window.open(url, '_blank', 'noopener');
 });
 
 // 回到顶部按钮: 页面切换按钮(.tabs)滚到吸顶标题栏处或更下方时显示; 固定右下角、最顶层悬浮

@@ -140,6 +140,16 @@ input, textarea { user-select: text; -webkit-user-select: text; }
 }
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
+/* 外链(头像/昵称/世界名 → VRChat 网页): 与页脚 GitHub 链接同一套做法(span + data-href, 无超链接),
+   所以点击后不留焦点 —— 不会命中 .friend:focus-within::after 把行高亮卡住, 也没有 a:hover 下划线。
+   颜色一律继承所在位置(昵称的信任等级色 / 状态行的次级灰)。 */
+/* 头像: 整个 40px(标题栏 32px)方块都可点, 尺寸仍由 .avatar-wrap 决定 */
+.avatar-wrap .ext-link { display: block; width: 100%; height: 100%; border-radius: 50%; }
+/* 昵称: 判定范围适当加大 —— padding + 负 margin 撑大热区而文字位置不变。
+   保持 inline(不要 inline-block): 否则 .self-info .name 的 text-overflow 省略号会失效。 */
+.friend .name .ext-link, .self-info .name .ext-link { padding: 4px 8px; margin: 0 -8px; }
+/* 世界名: 状态行有 overflow:hidden(翻动动画需要), 纵向扩展会被裁掉, 只向右侧空地扩一点 */
+.state .ext-link { padding: 0 6px; margin: 0 -6px; }
 .muted { color: var(--text-3); }
 .hidden { display: none !important; }
 
