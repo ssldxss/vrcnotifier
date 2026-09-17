@@ -6,10 +6,12 @@ name: {zh: "API 健康探测", en: "API Health Probe"}
 description:
   zh: >
       定时探一下 VRChat，看它响应快不快。
+      
   en: >
       Pings VRChat regularly to see how responsive it is.
-revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T15:18:57.819Z"
+      
+revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
+updated_at: "2026-09-17T12:23:49.292Z"
 fingerprint: 09ea61db0463d2223bf23136d2210cdfd0f60a744385c3d523d27d211000db21
 source:
   - path: "src/health.js"

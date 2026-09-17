@@ -10,8 +10,8 @@ description:
   en: >
       The connection and message handling for the official QQ bot.
       
-revision: 6515ec0b18c3caed3cb0014a183ac3d34d011dd8
-updated_at: "2026-09-16T15:20:59.999Z"
+revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
+updated_at: "2026-09-17T12:23:49.275Z"
 fingerprint: 7094142f722e044697a2766956a9f4f48c08f4bd9cb1e41a940418989de21016
 source:
   - path: "src/qq.js"

@@ -6,10 +6,12 @@ name: {zh: "请求封装与视图切换", en: "Request Helper & View Switching"}
 description:
   zh: >
       所有请求都从这里出去，并区分「没登录」和「后端连不上」两种情况。
+      
   en: >
       Every request goes out through here, and it tells apart 'not signed in' from 'backend unreachable'.
-revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T15:19:37.674Z"
+      
+revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
+updated_at: "2026-09-17T12:23:49.298Z"
 fingerprint: 06609d43725c1483a940506f664ec39835212c390e7767362f17ac852efcc15d
 source:
   - path: "public/app.js"

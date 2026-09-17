@@ -6,11 +6,13 @@ name: {zh: "站内通知解析与推送", en: "VRChat Notification Parsing & Dis
 description:
   zh: >
       处理 VRChat 站内通知，但只转发你关心的三类：世界邀请、戳一戳、群组公告。
+      
   en: >
       Handles VRChat's own notifications, but only forwards the three kinds you care about: world invites, boops and group announcements.
-revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T15:18:39.661Z"
-fingerprint: ea088ca1010672a4d206d3d26e240acd50471b2ea31bd088667c9fdb6d00d8f0
+      
+revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
+updated_at: "2026-09-17T12:23:49.269Z"
+fingerprint: d2c0c0283691b2039e943a7dc58698aefb974e2411815468321d3d2cab21798a
 source:
   - path: "src/monitor.js"
     line: 329

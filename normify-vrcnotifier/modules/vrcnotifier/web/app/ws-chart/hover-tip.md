@@ -6,10 +6,12 @@ name: {zh: "图表数值提示", en: "Chart Value Tooltip"}
 description:
   zh: >
       鼠标停在图上时，显示那一刻的数字。
+      
   en: >
       Shows the number for the moment your pointer is over.
-revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T15:19:37.674Z"
+      
+revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
+updated_at: "2026-09-17T12:23:49.308Z"
 fingerprint: 06609d43725c1483a940506f664ec39835212c390e7767362f17ac852efcc15d
 source:
   - path: "public/app.js"

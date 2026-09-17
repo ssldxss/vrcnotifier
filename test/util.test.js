@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert');
-const { formatLocalTime, createLogger, setLogStream, getLogStream, withDeadline } = require('../src/util');
+const { formatLocalTime, createLogger, setLogStream, getLogStream, withDeadline, avatarFields } = require('../src/util');
 const { createLogStream } = require('../src/logstream');
 
 test('formatLocalTime returns local YYYY-MM-DD HH:mm:ss', () => {
@@ -92,4 +92,57 @@ test('withDeadline: 超时后清理定时器, 不留残余句柄', async () => {
     global.setTimeout = realSet;
     global.clearTimeout = realClear;
   }
+});
+
+// ---------- avatarFields: 全项目唯一的头像取值规则 ----------
+// 背景(真机实测 2026-09-17): VRChat 好友对象只剩 iconUrl 是"契约内"字段
+// (LimitedUserFriend 声明); currentAvatarImageUrl 是实际多返回但未声明的字段;
+// currentAvatarThumbnailImageUrl 与 profilePicOverrideThumbnail 已不再返回。
+// WS 推送的 user 对象更瘦: 25 个字段里只有 iconUrl 一个图片字段。
+
+test('avatarFields: 优先 iconUrl —— 两个通道唯一都有的字段', () => {
+  const r = avatarFields({
+    iconUrl: 'https://api.vrchat.cloud/api/1/image/file_icon/1/256',
+    currentAvatarImageUrl: 'https://api.vrchat.cloud/api/1/image/file_av/1/256'
+  });
+  assert.equal(r.avatarUrl, 'https://api.vrchat.cloud/api/1/image/file_icon/1/256');
+});
+
+test('avatarFields: 没有 iconUrl 时退回 currentAvatarImageUrl', () => {
+  const r = avatarFields({ currentAvatarImageUrl: 'https://api.vrchat.cloud/api/1/image/file_av/2/256' });
+  assert.equal(r.avatarUrl, 'https://api.vrchat.cloud/api/1/image/file_av/2/256');
+});
+
+test('avatarFields: iconUrl 是空串时也退回(VRChat 对未设置的图片字段回空串)', () => {
+  const r = avatarFields({ iconUrl: '', currentAvatarImageUrl: 'https://api.vrchat.cloud/api/1/image/file_av/3/256' });
+  assert.equal(r.avatarUrl, 'https://api.vrchat.cloud/api/1/image/file_av/3/256');
+});
+
+test('avatarFields: 两个都没有就是 null, 不抛错', () => {
+  assert.equal(avatarFields({}).avatarUrl, null);
+  assert.equal(avatarFields(null).avatarUrl, null);
+  assert.equal(avatarFields(undefined).avatarUrl, null);
+});
+
+test('avatarFields: 真实 WS user 形状(25 字段, 只有 iconUrl)也能出图', () => {
+  // 形状取自真机抓到的 friend-online / friend-update 内层 user 对象
+  const wsUser = {
+    id: 'usr_ws', displayName: '朋友usr_ws', iconUrl: 'https://api.vrchat.cloud/api/1/image/file_ws/7/256',
+    iconFrame: '', profileEffect: '', nameplateEffect: '', bannerType: 'color', bannerUrl: '',
+    isEconomyCreator: false, statusDescription: '', pronouns: '', ageVerificationStatus: 'hidden',
+    ageVerified: false, state: 'offline', last_mobile: null, tags: [],
+    developerType: 'none', last_login: '2026-09-01T00:00:00Z', last_platform: 'standalonewindows',
+    allowAvatarCopying: true, status: 'active', date_joined: '2024-01-01T00:00:00Z',
+    isFriend: true, friendKey: '', last_activity: ''
+  };
+  assert.equal(avatarFields(wsUser).avatarUrl, 'https://api.vrchat.cloud/api/1/image/file_ws/7/256');
+});
+
+test('avatarFields: 已失效的缩略图字段不再作为来源', () => {
+  const r = avatarFields({
+    currentAvatarThumbnailImageUrl: 'https://api.vrchat.cloud/api/1/image/file_dead/1/256',
+    profilePicOverrideThumbnail: 'https://api.vrchat.cloud/api/1/image/file_dead2/1/256'
+  });
+  assert.equal(r.avatarUrl, null, '这两个字段已不再返回, 读到它们等于读到空');
+  assert.ok(!('avatarThumbUrl' in r), '不再产出缩略图字段(该列已删除)');
 });

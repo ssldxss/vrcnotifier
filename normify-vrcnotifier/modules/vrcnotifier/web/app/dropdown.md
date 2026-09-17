@@ -6,10 +6,12 @@ name: {zh: "下拉框与筛选", en: "Dropdowns & Filters"}
 description:
   zh: >
       把系统自带的下拉框换成好看一点的，并记住你选的筛选条件。
+      
   en: >
       Replaces the plain dropdowns with nicer ones, and remembers the filters you picked.
-revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T15:19:37.674Z"
+      
+revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
+updated_at: "2026-09-17T12:23:49.301Z"
 fingerprint: 06609d43725c1483a940506f664ec39835212c390e7767362f17ac852efcc15d
 source:
   - path: "public/app.js"

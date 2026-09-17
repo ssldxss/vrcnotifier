@@ -6,10 +6,12 @@ name: {zh: "优雅退出", en: "Graceful Shutdown"}
 description:
   zh: >
       退出时按顺序收尾：先告知监控要停了，再关掉定时器和机器人，最后安全地存好数据库。
+      
   en: >
       Shuts down in order: tells you monitoring is stopping, stops the timers and bots, and closes the database safely.
-revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T15:18:02.088Z"
+      
+revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
+updated_at: "2026-09-17T12:23:49.251Z"
 fingerprint: f25564c89baf4114b3baf36c945152cf491a94287d92e6f2350aba5bd057df88
 source:
   - path: "src/index.js"

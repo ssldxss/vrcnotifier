@@ -10,9 +10,9 @@ description:
   en: >
       Every message VRChat pushes is first checked, then handed to the right place.
       
-revision: 6515ec0b18c3caed3cb0014a183ac3d34d011dd8
-updated_at: "2026-09-16T15:20:59.992Z"
-fingerprint: ea088ca1010672a4d206d3d26e240acd50471b2ea31bd088667c9fdb6d00d8f0
+revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
+updated_at: "2026-09-17T12:23:49.270Z"
+fingerprint: d2c0c0283691b2039e943a7dc58698aefb974e2411815468321d3d2cab21798a
 source:
   - path: "src/monitor.js"
 deps:

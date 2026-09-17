@@ -10,8 +10,8 @@ description:
   en: >
       Replies to the messages you send the bot.
       
-revision: 6515ec0b18c3caed3cb0014a183ac3d34d011dd8
-updated_at: "2026-09-16T15:21:00.000Z"
+revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
+updated_at: "2026-09-17T12:23:49.277Z"
 fingerprint: 652d724595a7f9952f451e353502dd7ab8b39d064c1b32db4ce6ed02cec64d20
 source:
   - path: "src/qq-commands.js"

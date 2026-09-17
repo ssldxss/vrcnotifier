@@ -10,8 +10,8 @@ description:
   en: >
       The refresh button and search box, plus a soft highlight on the row your pointer is over.
       
-revision: 6515ec0b18c3caed3cb0014a183ac3d34d011dd8
-updated_at: "2026-09-16T15:23:01.490Z"
+revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
+updated_at: "2026-09-17T12:23:49.303Z"
 fingerprint: 06609d43725c1483a940506f664ec39835212c390e7767362f17ac852efcc15d
 source:
   - path: "public/app.js"

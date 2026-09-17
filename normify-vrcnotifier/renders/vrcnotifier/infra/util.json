@@ -1,16 +1,15 @@
 {
   "schema_version": 1,
   "id": "vrcnotifier.infra.util",
-  "updated_at": "2026-09-16T15:20:44.374Z",
+  "updated_at": "2026-09-17T12:23:26.391Z",
   "mode": "grid",
-  "max_columns": 2,
-  "max_api_rows": 1,
   "reading": {
-    "zh": "两个互不相干的小工具，并排放着。",
-    "en": "Two unrelated small helpers, side by side."
+    "zh": "三个互不依赖的小工具：等待超时兜底、展示值适配（令牌打码、信任等级）、头像取值规则。",
+    "en": "Three independent helpers with no edges between them: the timeout fallback, the display-value adapters (token masking, trust level), and the avatar source rule."
   },
   "order": [
+    "vrcnotifier.infra.util.deadline",
     "vrcnotifier.infra.util.identity",
-    "vrcnotifier.infra.util.deadline"
+    "vrcnotifier.infra.util.avatar-fields"
   ]
 }

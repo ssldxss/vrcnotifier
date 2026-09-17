@@ -10,8 +10,8 @@ description:
   en: >
       The live channel to VRChat: friend activity arrives through it.
       
-revision: 6515ec0b18c3caed3cb0014a183ac3d34d011dd8
-updated_at: "2026-09-16T15:20:59.997Z"
+revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
+updated_at: "2026-09-17T12:23:49.294Z"
 fingerprint: fcec1a31e9954f30b8b2af8101c21e657a5bb6faf7760f9cd5cc6094782be79e
 source:
   - path: "src/pipeline.js"

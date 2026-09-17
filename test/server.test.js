@@ -403,12 +403,12 @@ test('login/session expose own presence fields and avatarKey', async (t) => {
   const ctx = setup({
     loginResult: {
       id: 'usr_me', displayName: '我', currentAvatarImageUrl: 'https://api.vrchat.cloud/api/1/file/file_me-111/1/file',
-      profilePicOverrideThumbnail: meThumb
+      iconUrl: meThumb
     },
     currentUser: {
       id: 'usr_me', displayName: '我', state: 'online', status: 'join me', statusDescription: '摸鱼',
       currentAvatarImageUrl: 'https://api.vrchat.cloud/api/1/file/file_me-111/1/file',
-      currentAvatarThumbnailImageUrl: meThumb,
+      iconUrl: meThumb,
       presence: { world: 'wrld_me', instance: '1~region(us)', platform: 'standalonewindows' },
       friends: [], onlineFriends: [], activeFriends: [], offlineFriends: []
     }
@@ -421,7 +421,7 @@ test('login/session expose own presence fields and avatarKey', async (t) => {
   assert.equal(r.data.user.avatarKey, 'file_me-111_1_128');
   assert.deepEqual(ctx.vrcapi.userCalls, [], '新模型: 自己的信息来自 me() presence, 不再调 users/{me}');
   const row = ctx.db.getUserByVrcId('usr_me');
-  assert.equal(row.avatar_thumb_url, meThumb);
+  assert.equal(row.avatar_url, meThumb, 'iconUrl 写进唯一那个头像列');
   assert.equal(row.status_description, '摸鱼');
   assert.equal(row.state, 'online');
   assert.equal(row.world_id, 'wrld_me');
@@ -1468,4 +1468,22 @@ test('SSE stream emits backend log lines live', async (t) => {
   assert.ok(buf.includes('event: log'));
   assert.ok(buf.includes('后端日志 abc'));
   ac.abort();
+});
+
+test('自己的头像只给 iconUrl 时也能出 avatarKey(契约内字段, WS 通道也只有它)', async (t) => {
+  const icon = 'https://api.vrchat.cloud/api/1/image/file_icon-999/2/256';
+  const ctx = setup({
+    loginResult: { id: 'usr_me', displayName: '我', iconUrl: icon },
+    currentUser: {
+      id: 'usr_me', displayName: '我', state: 'online', status: 'active', statusDescription: '',
+      iconUrl: icon,
+      presence: { world: 'wrld_me', instance: '1~region(us)', platform: 'standalonewindows' },
+      friends: [], onlineFriends: [], activeFriends: [], offlineFriends: []
+    }
+  });
+  t.after(() => close(ctx));
+  const r = await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: false });
+  assert.equal(r.status, 200);
+  assert.equal(r.data.user.avatarKey, 'file_icon-999_2_128', 'iconUrl 应被写进库并推出缓存 key');
+  assert.equal(ctx.db.getUserByVrcId('usr_me').avatar_url, icon);
 });

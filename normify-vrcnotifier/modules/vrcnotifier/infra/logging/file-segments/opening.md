@@ -6,10 +6,12 @@ name: {zh: "段命名与启停", en: "Segment Naming & Lifecycle"}
 description:
   zh: >
       决定日志文件叫什么名字，并负责打开和关闭。
+      
   en: >
       Names the log files, and opens and closes them.
-revision: 6515ec0b18c3caed3cb0014a183ac3d34d011dd8
-updated_at: "2026-09-16T15:19:17.770Z"
+      
+revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
+updated_at: "2026-09-17T12:23:49.263Z"
 fingerprint: 332fa6faeab819a79e7c3ed0c5e6120783ceeee315e1eeca6fc75daf3bc1eaf8
 source:
   - path: "src/filelog.js"

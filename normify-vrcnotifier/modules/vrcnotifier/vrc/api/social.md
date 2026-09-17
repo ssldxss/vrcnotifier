@@ -6,10 +6,12 @@ name: {zh: "好友/世界/群组接口", en: "Friend, World & Group Calls"}
 description:
   zh: >
       拉好友列表、查世界和群组。
+      
   en: >
       Reads the friend list and looks up worlds and groups.
-revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T15:18:57.819Z"
+      
+revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
+updated_at: "2026-09-17T12:23:49.291Z"
 fingerprint: 41550317630bd0c2e6ca7b19edbe553bad6fd8b8e48ed4f731379e1a8333b2ec
 source:
   - path: "src/vrcapi.js"

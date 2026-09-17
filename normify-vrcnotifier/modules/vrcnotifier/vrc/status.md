@@ -6,10 +6,12 @@ name: {zh: "VRChat 服务状态", en: "VRChat Service Status"}
 description:
   zh: >
       查 VRChat 官方公告的服务状态，看它是不是挂了。
+      
   en: >
       Checks VRChat's official status page to see whether the service is up.
-revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T15:18:57.819Z"
+      
+revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
+updated_at: "2026-09-17T12:23:49.295Z"
 fingerprint: a019a350767dacc7c04b88e0ea35383ccdc4fbd187398d599cc14b2762a69c01
 source:
   - path: "src/vrcstatus.js"

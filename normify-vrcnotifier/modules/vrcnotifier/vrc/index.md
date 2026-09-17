@@ -10,8 +10,8 @@ description:
   en: >
       Everything that talks to VRChat: signing in, reading friends, the live message feed, plus world names and service health.
       
-revision: 6515ec0b18c3caed3cb0014a183ac3d34d011dd8
-updated_at: "2026-09-17T00:14:58.616Z"
+revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
+updated_at: "2026-09-17T12:23:49.293Z"
 fingerprint: a346fcd7b99b0a43e403b008755c9765cc91b4bdc8311093ffc3dd7845ec8127
 source:
   - path: "src/vrcapi.js"

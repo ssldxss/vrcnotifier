@@ -10,9 +10,9 @@ description:
   en: >
       Masks a token for display, and turns trust tags into a readable level name.
       
-revision: 6515ec0b18c3caed3cb0014a183ac3d34d011dd8
-updated_at: "2026-09-16T15:22:26.673Z"
-fingerprint: d45be10322348d08689f4370017a56b85227e1051cb460ef6fd221c61535d6eb
+revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
+updated_at: "2026-09-17T12:23:49.266Z"
+fingerprint: dad346d151126757bfecb58b1aa65eee4ff6241bcf1640ee751c8b7a54d6d9ca
 source:
   - path: "src/util.js"
     line: 22

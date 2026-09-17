@@ -13,7 +13,6 @@ CREATE TABLE IF NOT EXISTS users (
   saved_username TEXT,
   display_name TEXT,
   avatar_url TEXT,
-  avatar_thumb_url TEXT,
   status TEXT,
   status_description TEXT,
   platform TEXT,
@@ -29,7 +28,7 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS friends (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   friend_vrchat_id TEXT NOT NULL,
-  display_name TEXT, avatar_url TEXT, avatar_thumb_url TEXT,
+  display_name TEXT, avatar_url TEXT,
   state TEXT DEFAULT 'offline',
   status TEXT,
   world_id TEXT, instance_id TEXT,
@@ -115,8 +114,9 @@ function createDb(location = ':memory:', opts = {}) {
     }
     return row;
   }
-  // 旧库补充: friends 表补 avatar_thumb_url 列(已存在则忽略)
-  try { db.exec('ALTER TABLE friends ADD COLUMN avatar_thumb_url TEXT'); } catch (e) { /* 已存在 */ }
+  // 头像只保留一个地址(见 util.avatarFields): 删除历史的缩略图列
+  try { db.exec('ALTER TABLE friends DROP COLUMN avatar_thumb_url'); } catch (e) { /* 新库无此列 */ }
+  try { db.exec('ALTER TABLE users DROP COLUMN avatar_thumb_url'); } catch (e) { /* 新库无此列 */ }
   // 旧库清理: 世界名查询失败不再入库, 失败退避列已无意义(群组名有自己的 group_cache 列, 不受影响)
   try { db.exec('ALTER TABLE world_cache DROP COLUMN fail_count'); } catch (e) { /* 新库无此列 */ }
   try { db.exec('ALTER TABLE world_cache DROP COLUMN retry_at'); } catch (e) { /* 新库无此列 */ }
@@ -145,7 +145,6 @@ function createDb(location = ':memory:', opts = {}) {
   // 旧库补充: users 补 status 列(已存在则忽略)
   try { db.exec('ALTER TABLE users ADD COLUMN status TEXT'); } catch (e) { /* 已存在 */ }
   // 旧库补充: users 补自己在线状态列(已存在则忽略)
-  try { db.exec('ALTER TABLE users ADD COLUMN avatar_thumb_url TEXT'); } catch (e) { /* 已存在 */ }
   try { db.exec('ALTER TABLE users ADD COLUMN status_description TEXT'); } catch (e) { /* 已存在 */ }
   try { db.exec('ALTER TABLE users ADD COLUMN platform TEXT'); } catch (e) { /* 已存在 */ }
   try { db.exec("ALTER TABLE users ADD COLUMN state TEXT DEFAULT 'offline'"); } catch (e) { /* 已存在 */ }
@@ -192,7 +191,7 @@ function createDb(location = ':memory:', opts = {}) {
       db.exec(`CREATE TABLE friends_new (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         friend_vrchat_id TEXT NOT NULL,
-        display_name TEXT, avatar_url TEXT, avatar_thumb_url TEXT,
+        display_name TEXT, avatar_url TEXT,
         state TEXT DEFAULT 'offline', status TEXT,
         world_id TEXT, instance_id TEXT, status_description TEXT, platform TEXT, trust_level TEXT,
         pending_state TEXT, pending_at INTEGER, last_seen INTEGER,
@@ -200,10 +199,10 @@ function createDb(location = ':memory:', opts = {}) {
         notify_status_change INTEGER DEFAULT 0, notify_world_change INTEGER DEFAULT 0,
         created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')),
         UNIQUE(friend_vrchat_id))`);
-      db.exec(`INSERT INTO friends_new (friend_vrchat_id, display_name, avatar_url, avatar_thumb_url, state, status,
+      db.exec(`INSERT INTO friends_new (friend_vrchat_id, display_name, avatar_url, state, status,
           world_id, instance_id, status_description, platform, trust_level, pending_state, pending_at, last_seen,
           favorite, notify_online, notify_offline, notify_status_change, notify_world_change, created_at, updated_at)
-        SELECT friend_vrchat_id, display_name, avatar_url, avatar_thumb_url, state, status,
+        SELECT friend_vrchat_id, display_name, avatar_url, state, status,
           world_id, instance_id, status_description, platform, trust_level, pending_state, pending_at, last_seen,
           favorite, notify_online, notify_offline, notify_status_change, notify_world_change, created_at, MAX(updated_at)
         FROM friends GROUP BY friend_vrchat_id`);
@@ -216,12 +215,11 @@ function createDb(location = ':memory:', opts = {}) {
     }
   }
   const stmt = {
-    upsertUser: db.prepare(`INSERT INTO users (vrchat_user_id, username, display_name, avatar_url, avatar_thumb_url, status, status_description, platform, state)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active')
+    upsertUser: db.prepare(`INSERT INTO users (vrchat_user_id, username, display_name, avatar_url, status, status_description, platform, state)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'active')
       ON CONFLICT(vrchat_user_id) DO UPDATE SET
         username = excluded.username, display_name = excluded.display_name,
         avatar_url = COALESCE(excluded.avatar_url, users.avatar_url),
-        avatar_thumb_url = COALESCE(excluded.avatar_thumb_url, users.avatar_thumb_url),
         status = COALESCE(excluded.status, users.status),
         status_description = COALESCE(excluded.status_description, users.status_description),
         platform = COALESCE(excluded.platform, users.platform),
@@ -229,7 +227,6 @@ function createDb(location = ':memory:', opts = {}) {
     updateSelfProfile: db.prepare(`UPDATE users SET
         display_name = COALESCE(?, display_name),
         avatar_url = COALESCE(?, avatar_url),
-        avatar_thumb_url = COALESCE(?, avatar_thumb_url),
         updated_at = datetime('now')
         WHERE id = ?`),
     updateSelfPresence: db.prepare(`UPDATE users SET
@@ -250,12 +247,11 @@ function createDb(location = ':memory:', opts = {}) {
     clearAllUsers: db.prepare('DELETE FROM users'),
     clearWorldCache: db.prepare('DELETE FROM world_cache'),
     clearGroupCache: db.prepare('DELETE FROM group_cache'),
-    upsertFriend: db.prepare(`INSERT INTO friends (friend_vrchat_id, display_name, avatar_url, avatar_thumb_url, state, status, world_id, instance_id, status_description, platform, trust_level, last_seen)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    upsertFriend: db.prepare(`INSERT INTO friends (friend_vrchat_id, display_name, avatar_url, state, status, world_id, instance_id, status_description, platform, trust_level, last_seen)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(friend_vrchat_id) DO UPDATE SET
         display_name = COALESCE(excluded.display_name, friends.display_name),
         avatar_url = COALESCE(excluded.avatar_url, friends.avatar_url),
-        avatar_thumb_url = COALESCE(excluded.avatar_thumb_url, friends.avatar_thumb_url),
         state = excluded.state,
         status = excluded.status,
         world_id = excluded.world_id,
@@ -271,7 +267,6 @@ function createDb(location = ':memory:', opts = {}) {
     updateFriendProfile: db.prepare(`UPDATE friends SET
         display_name = COALESCE(?, display_name),
         avatar_url = COALESCE(?, avatar_url),
-        avatar_thumb_url = COALESCE(?, avatar_thumb_url),
         trust_level = COALESCE(?, trust_level),
         updated_at = datetime('now')
         WHERE id = ?`),
@@ -366,17 +361,17 @@ function createDb(location = ':memory:', opts = {}) {
 
   return {
     // users
-    upsertUser(vrcId, { username, displayName, avatarUrl, avatarThumbUrl, status, statusDescription, platform }) {
+    upsertUser(vrcId, { username, displayName, avatarUrl, status, statusDescription, platform }) {
       stmt.upsertUser.run(
         vrcId,
         crypt ? crypt.encrypt(username, 'username:' + vrcId) : (username ?? null),
-        displayName ?? null, avatarUrl ?? null, avatarThumbUrl ?? null,
+        displayName ?? null, avatarUrl ?? null,
         status ?? null, statusDescription ?? null, platform ?? null
       );
       return stmt.getUserByVrcId.get(vrcId).id;
     },
-    updateSelfProfile(rowId, { displayName, avatarUrl, avatarThumbUrl }) {
-      stmt.updateSelfProfile.run(displayName ?? null, avatarUrl ?? null, avatarThumbUrl ?? null, rowId);
+    updateSelfProfile(rowId, { displayName, avatarUrl }) {
+      stmt.updateSelfProfile.run(displayName ?? null, avatarUrl ?? null, rowId);
     },
     updateSelfPresence(rowId, fields) {
       stmt.updateSelfPresence.run(
@@ -462,7 +457,7 @@ function createDb(location = ':memory:', opts = {}) {
       const existing = stmt.getFriend.get(friendVrcId);
       stmt.upsertFriend.run(
         friendVrcId,
-        fields.displayName ?? null, fields.avatarUrl ?? null, fields.avatarThumbUrl ?? null,
+        fields.displayName ?? null, fields.avatarUrl ?? null,
         fields.state ?? (existing ? existing.state : 'offline'),
         fields.status ?? null, fields.worldId ?? null,
         fields.instanceId ?? null,
@@ -475,8 +470,8 @@ function createDb(location = ':memory:', opts = {}) {
     getFriend: (friendVrcId) => stmt.getFriend.get(friendVrcId) || null,
     listFriends: () => stmt.listFriends.all(),
     deleteFriend(friendVrcId) { stmt.deleteFriend.run(friendVrcId); },
-    updateFriendProfile(rowId, { displayName, avatarUrl, avatarThumbUrl, trustLevel }) {
-      stmt.updateFriendProfile.run(displayName ?? null, avatarUrl ?? null, avatarThumbUrl ?? null, trustLevel ?? null, rowId);
+    updateFriendProfile(rowId, { displayName, avatarUrl, trustLevel }) {
+      stmt.updateFriendProfile.run(displayName ?? null, avatarUrl ?? null, trustLevel ?? null, rowId);
     },
     updateFriendState(id, fields) {
       stmt.updateFriendState.run(

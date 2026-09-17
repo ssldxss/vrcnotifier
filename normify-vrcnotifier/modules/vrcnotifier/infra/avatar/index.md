@@ -10,8 +10,8 @@ description:
   en: >
       Downloads a friend's avatar once, keeps it locally, and serves it from there.
       
-revision: 6515ec0b18c3caed3cb0014a183ac3d34d011dd8
-updated_at: "2026-09-16T15:21:00.007Z"
+revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
+updated_at: "2026-09-17T12:23:49.259Z"
 fingerprint: 9c82f0c327f3c92532f71d77be46f8fd3d1af9de54ad3726e629b785579a9c08
 source:
   - path: "src/avatar.js"

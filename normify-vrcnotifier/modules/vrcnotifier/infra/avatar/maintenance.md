@@ -6,10 +6,12 @@ name: {zh: "缓存清理与淘汰", en: "Cache Sweeping & Eviction"}
 description:
   zh: >
       定期清掉很久没用的头像；太多了就淘汰最旧的。
+      
   en: >
       Cleans up avatars that have not been used for a long time, and drops the oldest when there are too many.
-revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T15:19:17.770Z"
+      
+revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
+updated_at: "2026-09-17T12:23:49.259Z"
 fingerprint: 9c82f0c327f3c92532f71d77be46f8fd3d1af9de54ad3726e629b785579a9c08
 source:
   - path: "src/avatar.js"

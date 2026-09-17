@@ -6,10 +6,12 @@ name: {zh: "数据加密", en: "Data Encryption"}
 description:
   zh: >
       给敏感数据加密；钥匙可以来自环境变量或 Docker 密钥文件。
+      
   en: >
       Encrypts sensitive data; the key can come from an environment variable or a Docker secret file.
-revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T15:19:17.770Z"
+      
+revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
+updated_at: "2026-09-17T12:23:49.260Z"
 fingerprint: 2b4fcd3f009ec0862a89d04614a2639dcc9a983d5193dbb63593c9c335e76469
 source:
   - path: "src/crypto.js"

@@ -6,10 +6,12 @@ name: {zh: "访问令牌与凭据处理", en: "Access Token & Credential Handlin
 description:
   zh: >
       领取并缓存机器人的访问凭据；凭据失效就提示你重新配置。
+      
   en: >
       Gets and caches the bot's access credential; if it is rejected, tells you to set it up again.
-revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T15:18:57.819Z"
+      
+revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
+updated_at: "2026-09-17T12:23:49.276Z"
 fingerprint: 7094142f722e044697a2766956a9f4f48c08f4bd9cb1e41a940418989de21016
 source:
   - path: "src/qq.js"

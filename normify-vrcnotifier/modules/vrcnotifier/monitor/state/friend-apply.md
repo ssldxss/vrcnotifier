@@ -5,14 +5,14 @@ parent: vrcnotifier.monitor.state
 name: {zh: "好友数据保存", en: "Friend Input Persistence"}
 description:
   zh: >
-      好友信息进数据库的唯一入口，变化与否也在这里判断。
+      好友信息进数据库的唯一入口，变化与否也在这里判断。资料字段缺失时整段跳过更新，所以缺失的值不会覆盖已存的值。
       
   en: >
-      The only way friend data reaches the database, and where it decides whether anything really changed.
+      The single entry point through which friend data reaches the database, and where it decides whether anything really changed. When a profile field is absent the update is skipped entirely, so a missing value never overwrites a stored one.
       
-revision: 6515ec0b18c3caed3cb0014a183ac3d34d011dd8
-updated_at: "2026-09-16T15:22:26.684Z"
-fingerprint: ea088ca1010672a4d206d3d26e240acd50471b2ea31bd088667c9fdb6d00d8f0
+revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
+updated_at: "2026-09-17T12:24:09.513Z"
+fingerprint: d2c0c0283691b2039e943a7dc58698aefb974e2411815468321d3d2cab21798a
 source:
   - path: "src/monitor.js"
     line: 575

@@ -6,10 +6,12 @@ name: {zh: "网关连接与心跳", en: "Gateway Socket & Heartbeat"}
 description:
   zh: >
       和 QQ 服务器保持长连接，并定期报个到，让 QQ 知道它还活着。
+      
   en: >
       Keeps a long-lived connection to QQ and reports in periodically so QQ knows it is still there.
-revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T15:18:57.819Z"
+      
+revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
+updated_at: "2026-09-17T12:23:49.276Z"
 fingerprint: 7094142f722e044697a2766956a9f4f48c08f4bd9cb1e41a940418989de21016
 source:
   - path: "src/qq.js"

@@ -6,10 +6,12 @@ name: {zh: "模板变量与标签", en: "Template Variables & Labels"}
 description:
   zh: >
       把状态换算成人话，并把昵称里的特殊符号转义。
+      
   en: >
       Turns states into plain words, and escapes special characters in nicknames.
-revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T15:18:57.820Z"
+      
+revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
+updated_at: "2026-09-17T12:23:49.280Z"
 fingerprint: 883db5c48ad541745ac77c62cb229bdaa5bab2bb5cdba1945ffc08164b19eb6e
 source:
   - path: "src/templates.js"

@@ -6,10 +6,12 @@ name: {zh: "页面骨架与配色", en: "Page Skeleton & Colours"}
 description:
   zh: >
       页面的骨架和配色，包括三个主要画面和几个弹窗。
+      
   en: >
       The page skeleton and styling: the three main screens and the dialogs.
-revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T15:19:37.674Z"
+      
+revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
+updated_at: "2026-09-17T12:23:49.312Z"
 fingerprint: 013937bce15bc7fb04ff150819e6b707aa06780133628194f8d0b6aee44f1a11
 source:
   - path: "public/index.html"

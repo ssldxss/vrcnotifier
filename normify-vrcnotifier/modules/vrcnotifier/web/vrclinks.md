@@ -6,10 +6,12 @@ name: {zh: "VRChat 跳转链接", en: "VRChat Links"}
 description:
   zh: >
       点头像或世界名，就能跳到 VRChat 对应的页面。
+      
   en: >
       Clicking an avatar or world name opens the matching VRChat page.
-revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T15:19:37.674Z"
+      
+revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
+updated_at: "2026-09-17T12:23:49.312Z"
 fingerprint: a50676b3f8998f22f106c1546f8905fd885241ea1be36f87ef3bcee0f90a696d
 source:
   - path: "public/vrclinks.js"

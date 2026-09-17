@@ -6,10 +6,12 @@ name: {zh: "写入日志行", en: "Writing Lines"}
 description:
   zh: >
       把一行日志写进去；当前文件满了就换一个新的。
+      
   en: >
       Writes one line, starting a new file when the current one is full.
-revision: 6515ec0b18c3caed3cb0014a183ac3d34d011dd8
-updated_at: "2026-09-16T15:19:17.770Z"
+      
+revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
+updated_at: "2026-09-17T12:23:49.262Z"
 fingerprint: 332fa6faeab819a79e7c3ed0c5e6120783ceeee315e1eeca6fc75daf3bc1eaf8
 source:
   - path: "src/filelog.js"

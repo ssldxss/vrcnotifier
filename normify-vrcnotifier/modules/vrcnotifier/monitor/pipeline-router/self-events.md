@@ -5,27 +5,36 @@ parent: vrcnotifier.monitor.pipeline-router
 name: {zh: "自己的消息处理", en: "Your Own Messages"}
 description:
   zh: >
-      你自己改资料或换房间时的处理。
+      你自己改资料或换房间时的处理。这两个分支在 handlePipelineEvent 的 switch 里内联实现，没有独立的处理函数。
       
   en: >
-      Handles your own profile changes and world switches.
+      Handles your own profile changes and world switches. Both cases are inline in handlePipelineEvent's switch; there is no dedicated handler function.
       
-revision: 6515ec0b18c3caed3cb0014a183ac3d34d011dd8
-updated_at: "2026-09-16T15:22:26.683Z"
-fingerprint: ea088ca1010672a4d206d3d26e240acd50471b2ea31bd088667c9fdb6d00d8f0
+revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
+updated_at: "2026-09-17T12:23:49.271Z"
+fingerprint: d2c0c0283691b2039e943a7dc58698aefb974e2411815468321d3d2cab21798a
 source:
   - path: "src/monitor.js"
     line: 752
     end_line: 787
 apis:
-  - protocol: rpc
-    path: "handleSelfEvent(user, type, content)"
+  - protocol: ws
+    path: "user-update"
     description:
       zh: >
-          把 user-update 与 user-location 映射为自身在线状态输入。
+          自己资料变化（昵称/头像/状态），带完整 user 对象。
           
       en: >
-          Map user-update and user-location onto self presence input.
+          Own profile change (name/avatar/status) carrying a full user object.
+          
+  - protocol: ws
+    path: "user-location"
+    description:
+      zh: >
+          自己换房间；offline 或空位置按网页在线处理。
+          
+      en: >
+          Own world switch; an offline or empty location is treated as web-online.
           
 deps:
   - kind: call

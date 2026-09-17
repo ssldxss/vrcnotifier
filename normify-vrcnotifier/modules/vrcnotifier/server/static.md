@@ -10,9 +10,9 @@ description:
   en: >
       Also serves the web page files, so front end and back end can share one machine.
       
-revision: 930418f49d1a47dbbb3be7908060037f3d8dfdac
-updated_at: "2026-09-17T06:14:56.802Z"
-fingerprint: c6db8c1bef3c17e3fc24d177824020b0d73f7c641dbcc2e7a715555db2840ffb
+revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
+updated_at: "2026-09-17T12:23:49.289Z"
+fingerprint: 0b01f6faa64e00266c421863adc31d67ecfabe46ed5db86e0fd44a724e285305
 source:
   - path: "src/server.js"
     line: 1065

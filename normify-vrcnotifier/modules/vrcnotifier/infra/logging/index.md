@@ -10,9 +10,9 @@ description:
   en: >
       Logging in three layers: the writer, the recent lines kept in memory, and the full history on disk.
       
-revision: 6515ec0b18c3caed3cb0014a183ac3d34d011dd8
-updated_at: "2026-09-16T15:21:00.006Z"
-fingerprint: d72c5fec27ac01aefe5f06b32d6e20dc373c9191ce502588e97d3c991f72ddda
+revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
+updated_at: "2026-09-17T12:23:49.264Z"
+fingerprint: 1a1d0fd4801585a2fb0ab735b32aea03de0e2b93bb76047fe65d6bc0adb6f4ac
 source:
   - path: "src/util.js"
   - path: "src/logstream.js"

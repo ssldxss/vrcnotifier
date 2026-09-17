@@ -6,10 +6,12 @@ name: {zh: "前端静态服务器", en: "Frontend Static Server"}
 description:
   zh: >
       一个只负责发网页文件的小服务，用来把面板单独部署到别的地方。
+      
   en: >
       A tiny server that only serves the web page files, so the panel can be hosted somewhere else.
-revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T15:18:02.088Z"
+      
+revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
+updated_at: "2026-09-17T12:23:49.249Z"
 fingerprint: 97c5daf044998b542d836057ca5ee6bc159147b7285f2cc3adeb78ade24ea129
 source:
   - path: "serve.js"

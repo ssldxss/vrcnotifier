@@ -6,10 +6,12 @@ name: {zh: "好友分组与搜索", en: "Friend Groups & Search"}
 description:
   zh: >
       把好友分成特别关注、在线、离线几组，并支持搜索。
+      
   en: >
       Groups friends into favorites, online and offline, with a search box.
-revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T15:19:37.674Z"
+      
+revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
+updated_at: "2026-09-17T12:23:49.302Z"
 fingerprint: 06609d43725c1483a940506f664ec39835212c390e7767362f17ac852efcc15d
 source:
   - path: "public/app.js"

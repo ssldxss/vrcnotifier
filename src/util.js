@@ -35,6 +35,24 @@ function trustLevelFromTags(tags) {
   return 'Visitor';
 }
 
+/**
+ * VRChat user 对象 -> 本项目的头像取值。全项目唯一的头像映射规则, 所有通道共用。
+ *
+ * 2026-09-17 真机核查(见 .verify/audit-fields.js):
+ *  - 好友 schema(LimitedUserFriend)声明的是 iconUrl; 它是 REST 与 WS 两个通道唯一都有的头像字段;
+ *  - currentAvatarImageUrl 只挂在 CurrentUser / LimitedUserInstance 上, 好友响应里是"多返回的
+ *    未声明字段", 随时可能被收走, 所以只作兜底;
+ *  - currentAvatarThumbnailImageUrl 与 profilePicOverrideThumbnail 只文档化在 CurrentUser /
+ *    LimitedUserInstance 上, 好友侧两个通道都已不再返回, 因此不再读取;
+ *  - WS 推送的 user 对象(25 字段)里一个 currentAvatar* 都没有。
+ *
+ * 未设置的图片字段 VRChat 回空串, 故用 || 而非 ?? 让空串自然落到兜底。
+ */
+function avatarFields(u) {
+  const url = (u && (u.iconUrl || u.currentAvatarImageUrl)) || null;
+  return { avatarUrl: url };
+}
+
 // 分类规范化: 把正文开头的旧式内嵌标签(如 [启动]/[通知])提取为统一分类。
 const CATEGORY_ALIASES = {
   '启动': 'startup', '退出': 'startup', 'startup': 'startup', '轮转': 'startup',
@@ -103,4 +121,4 @@ function withDeadline(promise, timeoutMs, onTimeout) {
   return Promise.race([promise, fallback]).finally(() => { if (timer) clearTimeout(timer); });
 }
 
-module.exports = { formatLocalTime, createLogger, setLogStream, getLogStream, setFileLog, getFileLog, maskKey, trustLevelFromTags, withDeadline };
+module.exports = { formatLocalTime, createLogger, setLogStream, getLogStream, setFileLog, getFileLog, maskKey, trustLevelFromTags, avatarFields, withDeadline };

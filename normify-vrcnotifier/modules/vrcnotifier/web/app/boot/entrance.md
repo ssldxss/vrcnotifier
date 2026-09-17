@@ -6,10 +6,12 @@ name: {zh: "首屏等待与入场", en: "First Screen & Entrance"}
 description:
   zh: >
       等首屏头像加载完，然后让主界面重新「入场」一次。
+      
   en: >
       Waits for the first screen's avatars, then replays the main screen's entrance once.
-revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T15:19:37.674Z"
+      
+revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
+updated_at: "2026-09-17T12:23:49.298Z"
 fingerprint: 06609d43725c1483a940506f664ec39835212c390e7767362f17ac852efcc15d
 source:
   - path: "public/app.js"

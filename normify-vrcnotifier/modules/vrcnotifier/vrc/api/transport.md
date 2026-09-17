@@ -6,10 +6,12 @@ name: {zh: "发请求与重试", en: "Sending & Retrying"}
 description:
   zh: >
       真正发请求的地方：控制请求频率，遇到临时故障会重试。
+      
   en: >
       Where requests are actually sent: keeps the request rate in check, and retries temporary failures.
-revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T15:18:57.819Z"
+      
+revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
+updated_at: "2026-09-17T12:23:49.291Z"
 fingerprint: 41550317630bd0c2e6ca7b19edbe553bad6fd8b8e48ed4f731379e1a8333b2ec
 source:
   - path: "src/vrcapi.js"

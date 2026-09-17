@@ -4,7 +4,7 @@
 const { EventEmitter } = require('node:events');
 const { applyChange } = require('./state');
 const { parseLocation } = require('./location');
-const { formatLocalTime, createLogger, trustLevelFromTags, withDeadline } = require('./util');
+const { formatLocalTime, createLogger, trustLevelFromTags, avatarFields, withDeadline } = require('./util');
 const { isMissingCredentials, isUnauthorized } = require('./vrcapi');
 const { STARTUP_TEXT } = require('./qq-commands');
 
@@ -573,8 +573,7 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
   }
 
   async function applyFriendInput(user, friendVrcId, input, opts = {}) {
-    // 头像统一走 /api/1/image/ 缩略图: 优先显式缩略图 URL, 缺失时由原图 URL 转换
-    const thumbUrl = input.avatarThumbUrl || null;
+    // 头像只有一个地址(avatarFields 是全项目唯一的取值规则), 不再有第二份缩略图字段
     const existed = db.getFriend(friendVrcId);
     if (!existed) {
       // 首见: 直接按当前情况入库, 不比较不通知(变化才有通知)
@@ -583,15 +582,15 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
         worldId: input.worldId || null, worldName: input.worldName || null,
         instanceId: input.instanceId ?? null,
         statusDescription: input.statusDescription || null, platform: input.platform || null,
-        displayName: input.displayName || null, avatarUrl: input.avatarUrl || null, avatarThumbUrl: thumbUrl,
+        displayName: input.displayName || null, avatarUrl: input.avatarUrl || null,
         trustLevel: input.trustLevel || null,
         lastSeen: now()
       });
       return;
     }
     // 仅更新资料字段, 状态由状态机接管
-    if (input.displayName !== undefined || input.avatarUrl !== undefined || input.avatarThumbUrl !== undefined || input.trustLevel !== undefined) {
-      db.updateFriendProfile(existed.id, { displayName: input.displayName, avatarUrl: input.avatarUrl, avatarThumbUrl: thumbUrl, trustLevel: input.trustLevel });
+    if (input.displayName !== undefined || input.avatarUrl !== undefined || input.trustLevel !== undefined) {
+      db.updateFriendProfile(existed.id, { displayName: input.displayName, avatarUrl: input.avatarUrl, trustLevel: input.trustLevel });
     }
     const cur = db.getFriend(friendVrcId);
     // 世界名不再入库: 状态机要的"旧世界名"从世界名缓存同步取(peek, 不发请求);
@@ -632,11 +631,10 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
   async function applySelfInput(user, input) {
     const existed = db.getUserByVrcId(user.vrchat_user_id);
     if (!existed) return;
-    if (input.displayName !== undefined || input.avatarUrl !== undefined || input.avatarThumbUrl !== undefined) {
+    if (input.displayName !== undefined || input.avatarUrl !== undefined) {
       db.updateSelfProfile(existed.id, {
         displayName: input.displayName,
-        avatarUrl: input.avatarUrl,
-        avatarThumbUrl: input.avatarThumbUrl || null
+        avatarUrl: input.avatarUrl
       });
     }
     const hasPresence = [input.state, input.status, input.worldId, input.worldName, input.statusDescription, input.platform].some((v) => v !== undefined);
@@ -689,8 +687,7 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
             state: 'online', status: content.user?.status || 'active',
             statusDescription: content.user?.statusDescription || null,
             worldId, worldName, instanceId: loc.isReal ? loc.instanceId : null, platform: content.platform || null,
-            displayName: content.user?.displayName, avatarUrl: content.user?.currentAvatarImageUrl,
-            avatarThumbUrl: content.user?.profilePicOverrideThumbnail || content.user?.currentAvatarThumbnailImageUrl
+            displayName: content.user?.displayName, ...avatarFields(content.user)
           });
           break;
         }
@@ -700,8 +697,7 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
             state: 'active', status: content.user?.status || 'active',
             statusDescription: content.user?.statusDescription || null,
             worldId: null, worldName: null, instanceId: null, platform: content.platform || 'web',
-            displayName: content.user?.displayName, avatarUrl: content.user?.currentAvatarImageUrl,
-            avatarThumbUrl: content.user?.profilePicOverrideThumbnail || content.user?.currentAvatarThumbnailImageUrl
+            displayName: content.user?.displayName, ...avatarFields(content.user)
           });
           break;
         }
@@ -725,8 +721,7 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
             statusDescription: content.user?.statusDescription || null,
             worldId, worldName, instanceId: loc.isReal ? loc.instanceId : (traveling && existing ? (existing.instance_id ?? null) : null),
             platform: content.platform || null,
-            displayName: content.user?.displayName, avatarUrl: content.user?.currentAvatarImageUrl,
-            avatarThumbUrl: content.user?.profilePicOverrideThumbnail || content.user?.currentAvatarThumbnailImageUrl
+            displayName: content.user?.displayName, ...avatarFields(content.user)
           }, { eventType: 'friend-location' });
           break;
         }
@@ -743,7 +738,7 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
             status: u.status !== undefined ? u.status : undefined, // 缺失时继承旧值
             statusDescription: u.statusDescription !== undefined ? u.statusDescription : undefined,
             platform: u.last_platform || null,
-            displayName: u.displayName, avatarUrl: u.currentAvatarImageUrl, avatarThumbUrl: u.profilePicOverrideThumbnail || u.currentAvatarThumbnailImageUrl,
+            displayName: u.displayName, ...avatarFields(u),
             instanceId,
             ...world
           }, { eventType: 'friend-update' });
@@ -755,8 +750,7 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
           if (!u || !u.id) break;
           await applySelfInput(user, {
             displayName: u.displayName,
-            avatarUrl: u.currentAvatarImageUrl,
-            avatarThumbUrl: u.currentAvatarThumbnailImageUrl,
+            ...avatarFields(u),
             status: u.status,
             statusDescription: u.statusDescription
           });
@@ -780,23 +774,24 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
             worldId, worldName,
             platform: u.last_platform || u.platform,
             displayName: u.displayName,
-            avatarUrl: u.currentAvatarImageUrl,
-            avatarThumbUrl: u.profilePicOverrideThumbnail || u.currentAvatarThumbnailImageUrl
+            ...avatarFields(u)
           });
           break;
         }
         case 'friend-add': {
           const u = content.user || {};
           const id = content.userId || u.id;
-          const loc = parseLocation(u.location);
-          const state = loc.isReal || u.location === 'private' ? 'online' : 'offline';
+          // location 只在事件信封里(WS 的 user 对象没有这个字段), 优先取信封;
+          // 解析与判断都用同一个 rawLocation, 免得两处来源不一致
+          const rawLocation = content.location !== undefined ? content.location : u.location;
+          const loc = parseLocation(rawLocation);
+          const state = loc.isReal || rawLocation === 'private' ? 'online' : 'offline';
           await applyFriendInput(user, id, {
             state, status: u.status || 'active', statusDescription: u.statusDescription || null,
-            worldId: loc.isReal ? loc.worldId : (u.location === 'private' ? 'private' : null),
-            worldName: u.location === 'private' ? '私密世界' : null,
+            worldId: loc.isReal ? loc.worldId : (rawLocation === 'private' ? 'private' : null),
+            worldName: rawLocation === 'private' ? '私密世界' : null,
             instanceId: loc.isReal ? loc.instanceId : null,
-            platform: u.platform || null, displayName: u.displayName, avatarUrl: u.currentAvatarImageUrl,
-            avatarThumbUrl: u.profilePicOverrideThumbnail || u.currentAvatarThumbnailImageUrl
+            platform: u.last_platform || u.platform || null, displayName: u.displayName, ...avatarFields(u)
           });
           break;
         }
@@ -892,8 +887,7 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
           worldId: selfWorldId, worldName: selfWorldName,
           platform: pres.platform || null,
           displayName: currentUser.displayName,
-          avatarUrl: currentUser.currentAvatarImageUrl || null,
-          avatarThumbUrl: currentUser.profilePicOverrideThumbnail || currentUser.currentAvatarThumbnailImageUrl || null
+          ...avatarFields(currentUser),
         });
       } catch (e) {
         log.warn(`[monitor] 自己信息落地失败 userId=${userId}: ${e.message}`);
@@ -1003,8 +997,7 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
             worldId, worldName,
             instanceId: loc.isReal ? loc.instanceId : null,
             platform: f.last_platform || f.platform || null,
-            displayName: f.displayName, avatarUrl: f.currentAvatarImageUrl || null,
-            avatarThumbUrl: f.profilePicOverrideThumbnail || f.currentAvatarThumbnailImageUrl || null,
+            displayName: f.displayName, ...avatarFields(f),
             trustLevel: trustLevelFromTags(f.tags)
           }, applyOpts);
         } else {
@@ -1014,8 +1007,7 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
             state: 'offline', worldId: null, worldName: null, instanceId: null, platform: null,
             ...(seed ? {
               displayName: seed.displayName,
-              avatarUrl: seed.currentAvatarImageUrl || null,
-              avatarThumbUrl: seed.profilePicOverrideThumbnail || seed.currentAvatarThumbnailImageUrl || null,
+              ...avatarFields(seed),
               trustLevel: trustLevelFromTags(seed.tags)
             } : {})
           }, applyOpts);

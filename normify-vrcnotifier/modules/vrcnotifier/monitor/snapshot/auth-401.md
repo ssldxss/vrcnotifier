@@ -6,11 +6,13 @@ name: {zh: "登录失效的判断", en: "Judging a Refused Check"}
 description:
   zh: >
       核对时被拒绝，判断是密码过期了、需要验证码，还是会话彻底失效。
+      
   en: >
       When the check is refused, works out whether the password expired, a code is needed, or the session is truly dead.
-revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T15:18:39.661Z"
-fingerprint: ea088ca1010672a4d206d3d26e240acd50471b2ea31bd088667c9fdb6d00d8f0
+      
+revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
+updated_at: "2026-09-17T12:23:49.271Z"
+fingerprint: d2c0c0283691b2039e943a7dc58698aefb974e2411815468321d3d2cab21798a
 source:
   - path: "src/monitor.js"
     line: 834

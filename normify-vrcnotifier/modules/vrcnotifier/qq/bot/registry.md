@@ -6,10 +6,12 @@ name: {zh: "机器人注册与生命周期", en: "Bot Registry & Lifecycle"}
 description:
   zh: >
       按你的设置启动和停止机器人，并告诉你它当前是什么状态。
+      
   en: >
       Starts and stops the bot according to your settings, and reports what state it is in.
-revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T15:18:57.820Z"
+      
+revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
+updated_at: "2026-09-17T12:23:49.275Z"
 fingerprint: 7094142f722e044697a2766956a9f4f48c08f4bd9cb1e41a940418989de21016
 source:
   - path: "src/qq.js"

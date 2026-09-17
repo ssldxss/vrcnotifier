@@ -31,21 +31,21 @@ test('users: self profile and presence fields are stored and updated', () => {
   const db = newDb();
   const thumb = 'https://api.vrchat.cloud/api/1/image/file_me/1/256';
   const id = db.upsertUser('usr_1', {
-    username: 'u1', displayName: '我', avatarUrl: 'https://a.png',
-    avatarThumbUrl: thumb, statusDescription: '摸鱼中', platform: 'standalonewindows'
+    username: 'u1', displayName: '我', avatarUrl: thumb,
+    statusDescription: '摸鱼中', platform: 'standalonewindows'
   });
   let u = db.getUserByDbId(id);
-  assert.equal(u.avatar_thumb_url, thumb);
+  assert.equal(u.avatar_url, thumb);
+  assert.ok(!('avatar_thumb_url' in u), '头像只有一个列');
   assert.equal(u.status_description, '摸鱼中');
   assert.equal(u.platform, 'standalonewindows');
   assert.equal(u.state, 'active', '新用户基线: 网页会话在线');
 
   // 资料更新: 缺失字段保留旧值
-  db.updateSelfProfile(id, { displayName: '新名', avatarUrl: null, avatarThumbUrl: null });
+  db.updateSelfProfile(id, { displayName: '新名', avatarUrl: null });
   u = db.getUserByDbId(id);
   assert.equal(u.display_name, '新名');
-  assert.equal(u.avatar_url, 'https://a.png');
-  assert.equal(u.avatar_thumb_url, thumb);
+  assert.equal(u.avatar_url, thumb, '空值不回退');
 
   // presence 全量写入
   db.updateSelfPresence(id, {
@@ -296,23 +296,19 @@ test('friends 旧库迁移: 去掉 user_id, 好友与逐好友配置一起保留
   db.close?.();
 });
 
-test('friends: avatar_thumb_url stored and updated via profile', () => {
+test('friends: 头像只有一个地址, 缩略图列已删除且传入被忽略', () => {
   const db = newDb();
-  const uid = db.upsertUser('usr_1', { username: 'u1', displayName: 'n', avatarUrl: null });
+  db.upsertUser('usr_1', { username: 'u1', displayName: 'n', avatarUrl: null });
   db.upsertFriend('usr_f1', { displayName: 'F', avatarUrl: 'orig.png', avatarThumbUrl: 'thumb256.png' });
   let f = db.getFriend('usr_f1');
   assert.equal(f.avatar_url, 'orig.png');
-  assert.equal(f.avatar_thumb_url, 'thumb256.png');
-  db.updateFriendProfile(f.id, { avatarThumbUrl: 'thumb256-new.png' });
+  assert.ok(!('avatar_thumb_url' in f), '列已删除, 传 avatarThumbUrl 也不落库');
+  db.updateFriendProfile(f.id, { avatarUrl: 'new.png' });
   f = db.getFriend('usr_f1');
-  assert.equal(f.avatar_thumb_url, 'thumb256-new.png');
-  assert.equal(f.avatar_url, 'orig.png', '更新缩略图不应覆盖原图');
-  // 旧库迁移: 已存在表补列不报错
-  const db2 = createDb(':memory:');
-  db2.upsertUser('usr_2', { username: 'u2', displayName: 'n', avatarUrl: null });
-  const uid2 = db2.getUserByVrcId('usr_2').id;
-  db2.upsertFriend('usr_f1', { displayName: 'F', avatarUrl: 'a', avatarThumbUrl: 'b' });
-  assert.equal(db2.getFriend('usr_f1').avatar_thumb_url, 'b');
+  assert.equal(f.avatar_url, 'new.png');
+  db.updateFriendProfile(f.id, { avatarUrl: null });
+  f = db.getFriend('usr_f1');
+  assert.equal(f.avatar_url, 'new.png', '空值不回退旧值');
 });
 
 test('好友配置存在 friends 表里: 新好友默认全关, setFriendConfig 覆盖写入', () => {
@@ -597,4 +593,40 @@ test('qq_bindings 旧库迁移: 去掉 user_id, 绑定保留', () => {
   chk.close();
   assert.ok(!cols.includes('user_id'), 'user_id 列已删除');
   db.close?.();
+});
+
+test('头像改由单一地址承载: 旧库的 avatar_thumb_url 列被删除, 数据不丢', () => {
+  const { DatabaseSync } = require('node:sqlite');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vrcnt-db-thumb-'));
+  const dbPath = path.join(dir, 'old.db');
+  const raw = new DatabaseSync(dbPath);
+  // 旧 schema: friends/users 都还带着 avatar_thumb_url 列
+  raw.exec(`CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, vrchat_user_id TEXT UNIQUE, username TEXT,
+    saved_username TEXT, display_name TEXT, avatar_url TEXT, avatar_thumb_url TEXT, status TEXT,
+    status_description TEXT, platform TEXT, state TEXT DEFAULT 'offline', world_id TEXT,
+    last_seen INTEGER, remember_me INTEGER DEFAULT 0, cookie_data TEXT,
+    created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')))`);
+  raw.exec(`CREATE TABLE friends (id INTEGER PRIMARY KEY AUTOINCREMENT, friend_vrchat_id TEXT NOT NULL,
+    display_name TEXT, avatar_url TEXT, avatar_thumb_url TEXT,
+    state TEXT DEFAULT 'offline', status TEXT, world_id TEXT, instance_id TEXT,
+    status_description TEXT, platform TEXT, trust_level TEXT, pending_state TEXT, pending_at INTEGER,
+    last_seen INTEGER, created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(friend_vrchat_id))`);
+  raw.exec("INSERT INTO users (vrchat_user_id, username, display_name, avatar_url, avatar_thumb_url) VALUES ('usr_me','me','我','https://x/me-full.png','https://x/me-thumb.png')");
+  raw.exec("INSERT INTO friends (friend_vrchat_id, display_name, avatar_url, avatar_thumb_url, state) VALUES ('usr_f1','朋友','https://x/f1-full.png','https://x/f1-thumb.png','online')");
+  raw.close();
+
+  const db = createDb(dbPath);
+  const check = new DatabaseSync(dbPath, { readOnly: true });
+  assert.ok(!check.prepare('PRAGMA table_info(friends)').all().some((c) => c.name === 'avatar_thumb_url'),
+    'friends.avatar_thumb_url 旧列已删除');
+  assert.ok(!check.prepare('PRAGMA table_info(users)').all().some((c) => c.name === 'avatar_thumb_url'),
+    'users.avatar_thumb_url 旧列已删除');
+  assert.equal(check.prepare('SELECT avatar_url FROM friends WHERE friend_vrchat_id = ?').get('usr_f1').avatar_url,
+    'https://x/f1-full.png', '好友头像地址保留');
+  assert.equal(check.prepare('SELECT avatar_url FROM users').get().avatar_url,
+    'https://x/me-full.png', '自己的头像地址保留');
+  check.close();
+  assert.ok(db.getFriend('usr_f1'), '迁移后仍能按新 schema 读好友');
+  assert.equal(db.getFriend('usr_f1').avatar_url, 'https://x/f1-full.png');
 });

@@ -5,12 +5,14 @@ parent: vrcnotifier.monitor.pipeline-router
 name: {zh: "消息分流", en: "Message Dispatch"}
 description:
   zh: >
-      决定这条消息收不收、归谁管。
+      决定这条消息收不收、归谁管：未完成对账前一律忽略，会话不存在时丢弃，没有 content 的消息直接丢弃，其余按 type 分派。
+      
   en: >
-      Decides whether to accept a message and which part should handle it.
-revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T15:18:39.661Z"
-fingerprint: ea088ca1010672a4d206d3d26e240acd50471b2ea31bd088667c9fdb6d00d8f0
+      Decides whether to accept a message and which part should handle it: messages are ignored until reconciliation finishes, dropped when the caller's session is gone, and dropped outright when content is missing; everything else is dispatched by type.
+      
+revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
+updated_at: "2026-09-17T12:23:49.269Z"
+fingerprint: d2c0c0283691b2039e943a7dc58698aefb974e2411815468321d3d2cab21798a
 source:
   - path: "src/monitor.js"
     line: 669

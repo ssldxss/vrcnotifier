@@ -10,8 +10,8 @@ description:
   en: >
       What messages look like: the title, the body, and the words and emoji used for each state.
       
-revision: 6515ec0b18c3caed3cb0014a183ac3d34d011dd8
-updated_at: "2026-09-16T15:21:00.000Z"
+revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
+updated_at: "2026-09-17T12:23:49.279Z"
 fingerprint: 883db5c48ad541745ac77c62cb229bdaa5bab2bb5cdba1945ffc08164b19eb6e
 source:
   - path: "src/templates.js"

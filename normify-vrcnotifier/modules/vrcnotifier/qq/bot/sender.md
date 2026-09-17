@@ -6,10 +6,12 @@ name: {zh: "消息发送与重试", en: "Message Sending & Retry"}
 description:
   zh: >
       把消息发给 QQ；发太快会排队，失败了会重试。
+      
   en: >
       Sends messages to QQ, queuing them so they do not go out too fast, and retrying failures.
-revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T15:18:57.819Z"
+      
+revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
+updated_at: "2026-09-17T12:23:49.276Z"
 fingerprint: 7094142f722e044697a2766956a9f4f48c08f4bd9cb1e41a940418989de21016
 source:
   - path: "src/qq.js"

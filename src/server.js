@@ -9,7 +9,7 @@ const { parseLocation } = require('./location');
 const { deriveStateFromSnapshot } = require('./state');
 const { detectImageType, toThumbUrl } = require('./avatar');
 const { isMissingCredentials, isUnauthorized } = require('./vrcapi');
-const { formatLocalTime, getLogStream } = require('./util');
+const { formatLocalTime, getLogStream, avatarFields } = require('./util');
 
 const MASK = '••••••••';
 const SECRET_FIELDS = new Set(['qq_app_secret']);
@@ -109,10 +109,9 @@ function createApp({
   function friendRow(f) {
     const out = { ...f };
     out.world_name = worldNameOf(f);
-    // 与 selfUserForClient 同口径: 优先已存的缩略图, 兜底把原图 URL 转成缩略图。
-    // 只认 avatar_thumb_url 时, 任何没写上缩略图的行都会永久丢头像 —— 写库用 COALESCE
-    // (excluded 为空就保留旧值), 空值永远修不好已有的 NULL, 所以兜底必须放在读侧。
-    const thumbUrl = f.avatar_thumb_url || toThumbUrl(f.avatar_url);
+    // 头像只有一个地址: 由 avatarFields 写库(util.js), 这里按缓存尺寸换算成 key。
+    // toThumbUrl 对 /image/…/{尺寸} 与 /file/…/file 两种形态都有效, 拿不到地址就给 null。
+    const thumbUrl = toThumbUrl(f.avatar_url);
     out.avatarKey = thumbUrl && avatarCache ? avatarCache.thumbKeyFromUrl(thumbUrl) : null;
     out.config = configOf(f);
     return out;
@@ -126,12 +125,12 @@ function createApp({
     return out;
   }
 
-  // 当前用户返回体: 附带缩略图缓存 key(优先已存的缩略图, 兜底原图转换)
+  // 当前用户返回体: 附带头像缓存 key(与 friendRow 同口径)
   function selfUserForClient(row) {
     const out = maskUser(row);
     if (!out) return null;
     out.world_name = worldNameOf(out);
-    const thumbUrl = out.avatar_thumb_url || toThumbUrl(out.avatar_url);
+    const thumbUrl = toThumbUrl(out.avatar_url);
     out.avatarKey = thumbUrl && avatarCache ? avatarCache.thumbKeyFromUrl(thumbUrl) : null;
     return out;
   }
@@ -207,8 +206,7 @@ function createApp({
     const dbId = db.upsertUser(userId, {
       username,
       displayName: currentUser.displayName || null,
-      avatarUrl: currentUser.currentAvatarImageUrl || null,
-      avatarThumbUrl: currentUser.profilePicOverrideThumbnail || currentUser.currentAvatarThumbnailImageUrl || null,
+      ...avatarFields(currentUser),
       status: currentUser.status || null,
       statusDescription: currentUser.statusDescription || null,
       platform: currentUser.last_platform || currentUser.platform || null

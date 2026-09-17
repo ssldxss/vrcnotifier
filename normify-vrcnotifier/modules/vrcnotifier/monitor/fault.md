@@ -6,11 +6,13 @@ name: {zh: "断线与恢复提醒", en: "Outage & Recovery Notices"}
 description:
   zh: >
       网络断了或登录失效时先安静等一会儿；拖得太久才提醒你一次，恢复了再补一句。
+      
   en: >
       When the connection drops or a login expires it stays quiet at first; only a longer outage is worth a message, and recovery gets a short follow-up.
-revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T15:18:39.661Z"
-fingerprint: ea088ca1010672a4d206d3d26e240acd50471b2ea31bd088667c9fdb6d00d8f0
+      
+revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
+updated_at: "2026-09-17T12:23:49.267Z"
+fingerprint: d2c0c0283691b2039e943a7dc58698aefb974e2411815468321d3d2cab21798a
 source:
   - path: "src/monitor.js"
     line: 60

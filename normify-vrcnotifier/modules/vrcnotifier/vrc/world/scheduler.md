@@ -6,10 +6,12 @@ name: {zh: "请求排队", en: "Request Queue"}
 description:
   zh: >
       排队控制：同时最多问几个、每分钟最多问几次。
+      
   en: >
       Queues requests so only a few run at once and the rate stays within limits.
-revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T15:18:57.819Z"
+      
+revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
+updated_at: "2026-09-17T12:23:49.296Z"
 fingerprint: a27d6e390af2c711d653bf972b2aa6d291b709f0c609f79a7a75933b50146777
 source:
   - path: "src/world.js"

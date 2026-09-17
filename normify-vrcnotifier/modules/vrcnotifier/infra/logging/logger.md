@@ -6,11 +6,13 @@ name: {zh: "日志器与行格式", en: "Logger & Line Format"}
 description:
   zh: >
       统一的日志格式：时间、级别、类别、正文，同时送去终端和日志文件。
+      
   en: >
       One format for every line — time, level, category, text — sent to the terminal and the log file at the same time.
-revision: 6515ec0b18c3caed3cb0014a183ac3d34d011dd8
-updated_at: "2026-09-16T15:19:17.770Z"
-fingerprint: d45be10322348d08689f4370017a56b85227e1051cb460ef6fd221c61535d6eb
+      
+revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
+updated_at: "2026-09-17T12:23:49.264Z"
+fingerprint: dad346d151126757bfecb58b1aa65eee4ff6241bcf1640ee751c8b7a54d6d9ca
 source:
   - path: "src/util.js"
     line: 11

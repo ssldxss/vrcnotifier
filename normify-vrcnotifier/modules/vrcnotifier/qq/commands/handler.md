@@ -6,10 +6,12 @@ name: {zh: "指令处理与世界名补全", en: "Command Handler & World Fill"}
 description:
   zh: >
       收到消息就回一份在线列表；正在等验证码时例外，那时直接发数字会被当成验证码。
+      
   en: >
       Replies with the online list, except while a login code is expected — then a bare code is treated as the code.
-revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T15:18:57.820Z"
+      
+revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
+updated_at: "2026-09-17T12:23:49.277Z"
 fingerprint: 652d724595a7f9952f451e353502dd7ab8b39d064c1b32db4ce6ed02cec64d20
 source:
   - path: "src/qq-commands.js"

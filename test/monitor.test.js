@@ -457,26 +457,25 @@ test('standard mode monitors all enabled friends without limit', async () => {
   assert.equal(notified.length, 6, '6 个好友都监控且无上限');
 });
 
-test('snapshot stores avatar image and thumb urls separately', async () => {
+test('snapshot 从 iconUrl 取头像(契约内字段), 只存一个地址', async () => {
   const t = setup({
     onlineFriends: [onlineFriend('usr_f1', {
-      currentAvatarImageUrl: 'https://api.vrchat.cloud/api/1/file/file_a/1/file',
-      currentAvatarThumbnailImageUrl: 'https://api.vrchat.cloud/api/1/image/file_a/1/256'
+      iconUrl: 'https://api.vrchat.cloud/api/1/image/file_a/9/256',
+      currentAvatarImageUrl: 'https://api.vrchat.cloud/api/1/file/file_a/1/file'
     })]
   });
   const user = addUser(t.db);
   addConfig(t, 'usr_f1');
   await t.monitor.activateUser(user, t.vrcapi);
   const f = t.db.getFriend('usr_f1');
-  assert.equal(f.avatar_url, 'https://api.vrchat.cloud/api/1/file/file_a/1/file');
-  assert.equal(f.avatar_thumb_url, 'https://api.vrchat.cloud/api/1/image/file_a/1/256');
+  assert.equal(f.avatar_url, 'https://api.vrchat.cloud/api/1/image/file_a/9/256', 'iconUrl 优先');
+  assert.ok(!('avatar_thumb_url' in f), '缩略图列已删除, 不再有第二份头像地址');
 });
 
-test('snapshot leaves thumb null when only full image url present', async () => {
+test('snapshot: 没有 iconUrl 时退回 currentAvatarImageUrl(未声明的多余字段)', async () => {
   const t = setup({
     onlineFriends: [onlineFriend('usr_f1', {
-      currentAvatarImageUrl: 'https://api.vrchat.cloud/api/1/file/file_b/3/file',
-      currentAvatarThumbnailImageUrl: undefined
+      currentAvatarImageUrl: 'https://api.vrchat.cloud/api/1/file/file_b/3/file'
     })]
   });
   const user = addUser(t.db);
@@ -484,7 +483,6 @@ test('snapshot leaves thumb null when only full image url present', async () => 
   await t.monitor.activateUser(user, t.vrcapi);
   const f = t.db.getFriend('usr_f1');
   assert.equal(f.avatar_url, 'https://api.vrchat.cloud/api/1/file/file_b/3/file');
-  assert.equal(f.avatar_thumb_url, null);
 });
 
 test('runSnapshot returns ok:false when API call fails, ok:true on success', async () => {
@@ -1275,7 +1273,7 @@ const currentUserOnline = () => ({
   id: 'usr_me', state: 'online', status: 'join me', statusDescription: '摸鱼中',
   displayName: '我',
   currentAvatarImageUrl: 'https://x/me.png',
-  currentAvatarThumbnailImageUrl: 'https://api.vrchat.cloud/api/1/image/file_me/1/256',
+  iconUrl: 'https://api.vrchat.cloud/api/1/image/file_me_icon/2/256',
   presence: { world: 'wrld_self', instance: '1~region(jp)', platform: 'standalonewindows' },
   friends: [], onlineFriends: [], activeFriends: [], offlineFriends: []
 });
@@ -1294,8 +1292,7 @@ test('self: snapshot stores own info from me() presence without notification', a
   assert.equal(me.world_id, 'wrld_self');
   assert.equal(t.monitor.worldName.peek('wrld_self'), '世界_wrld_self', '名字由世界名缓存提供');
   assert.equal(me.platform, 'standalonewindows');
-  assert.equal(me.avatar_url, 'https://x/me.png');
-  assert.equal(me.avatar_thumb_url, 'https://api.vrchat.cloud/api/1/image/file_me/1/256');
+  assert.equal(me.avatar_url, 'https://api.vrchat.cloud/api/1/image/file_me_icon/2/256', 'iconUrl 优先于 currentAvatarImageUrl');
   assert.equal(t.notifications.length, 0, '自己变化不通知');
   assert.ok(t.events.some((e) => e.kind === 'self-state'));
 });
@@ -1337,15 +1334,13 @@ test('self: WS user-update updates profile/status, keeps state and world', async
       userId: 'usr_me',
       user: {
         id: 'usr_me', displayName: '新我', status: 'busy', statusDescription: '忙',
-        currentAvatarImageUrl: 'https://x/new.png',
-        currentAvatarThumbnailImageUrl: 'https://api.vrchat.cloud/api/1/image/file_new/1/256'
+        iconUrl: 'https://api.vrchat.cloud/api/1/image/file_new/1/256'
       }
     }
   });
   const me = t.db.getUserByVrcId('usr_me');
   assert.equal(me.display_name, '新我');
-  assert.equal(me.avatar_url, 'https://x/new.png');
-  assert.equal(me.avatar_thumb_url, 'https://api.vrchat.cloud/api/1/image/file_new/1/256');
+  assert.equal(me.avatar_url, 'https://api.vrchat.cloud/api/1/image/file_new/1/256');
   assert.equal(me.status, 'busy');
   assert.equal(me.status_description, '忙');
   assert.equal(me.state, 'online');
@@ -1607,4 +1602,72 @@ test('首次对账进度: 实拉条数比名册少时, 收尾也要跳到 100%',
   const last = friends[friends.length - 1];
   assert.equal(last.fetched, 4, '收尾必须补到名册总数 —— 实际: ' + JSON.stringify(friends));
   assert.equal(last.total, 4);
+});
+
+// ---------- 头像来源 + friend-add 的信封字段 ----------
+// 真机实测(2026-09-17): WS 推送的 user 对象只有 25 个字段, 图片字段仅 iconUrl;
+// REST 好友对象也只剩 iconUrl(契约内) 与 currentAvatarImageUrl(未声明的多余字段)。
+const WS_USER_SHAPE = {
+  id: 'usr_ws', displayName: '朋友usr_ws', iconUrl: 'https://api.vrchat.cloud/api/1/image/file_ws/7/256',
+  iconFrame: '', profileEffect: '', nameplateEffect: '', bannerType: 'color', bannerUrl: '',
+  isEconomyCreator: false, statusDescription: '', pronouns: '', ageVerificationStatus: 'hidden',
+  ageVerified: false, state: 'offline', last_mobile: null, tags: [],
+  developerType: 'none', last_login: '2026-09-01T00:00:00Z', last_platform: 'standalonewindows',
+  allowAvatarCopying: true, status: 'active', date_joined: '2024-01-01T00:00:00Z',
+  isFriend: true, friendKey: '', last_activity: ''
+};
+
+test('friend-online 用 WS 形状的 user 对象(只有 iconUrl)也能把头像写进库', async () => {
+  const t = setup({ offlineFriends: [offlineFriend('usr_ws')] });
+  const user = addUser(t.db);
+  addConfig(t, 'usr_ws');
+  await t.monitor.activateUser(user, t.vrcapi);
+  assert.equal(t.db.getFriend('usr_ws').avatar_url, null, '前提: 离线名册给不出头像');
+
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'evt1', {
+    type: 'friend-online',
+    content: { userId: 'usr_ws', location: 'wrld_a:1~region(us)', user: { ...WS_USER_SHAPE } }
+  });
+
+  assert.equal(t.db.getFriend('usr_ws').avatar_url,
+    'https://api.vrchat.cloud/api/1/image/file_ws/7/256', 'WS 通道靠 iconUrl 拿到头像');
+});
+
+test('friend-add: user 对象不带 location 时从信封取, 状态按在线记, 平台取 last_platform', async () => {
+  const t = setup({ onlineFriends: [] });
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'evt2', {
+    type: 'friend-add',
+    content: {
+      userId: 'usr_new', location: 'wrld_z:9~region(jp)',
+      user: { id: 'usr_new', displayName: '新朋友', status: 'active', last_platform: 'standalonewindows',
+        iconUrl: 'https://api.vrchat.cloud/api/1/image/file_new/1/256' }
+    }
+  });
+
+  const f = t.db.getFriend('usr_new');
+  assert.equal(f.state, 'online', '信封里有真实 location, 应记成在线而不是 offline');
+  assert.equal(f.world_id, 'wrld_z');
+  assert.equal(f.platform, 'standalonewindows', 'WS 没有 platform, 应从 last_platform 取');
+  assert.equal(f.avatar_url, 'https://api.vrchat.cloud/api/1/image/file_new/1/256');
+});
+
+test('friend-add: 信封 location 是 private 时同样按在线记(修 loc 换源后的判断)', async () => {
+  const t = setup({ onlineFriends: [] });
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'evt3', {
+    type: 'friend-add',
+    content: {
+      userId: 'usr_priv', location: 'private',
+      user: { id: 'usr_priv', displayName: '私密朋友', status: 'active' }
+    }
+  });
+
+  const f = t.db.getFriend('usr_priv');
+  assert.equal(f.state, 'online', 'private 位置也是在线的');
+  assert.equal(f.world_id, 'private');
 });

@@ -10,8 +10,8 @@ description:
   en: >
       Start-up checks: find the encryption key, and if it no longer matches the saved data, wipe and start over.
       
-revision: 6515ec0b18c3caed3cb0014a183ac3d34d011dd8
-updated_at: "2026-09-16T15:22:26.689Z"
+revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
+updated_at: "2026-09-17T12:23:49.251Z"
 fingerprint: f25564c89baf4114b3baf36c945152cf491a94287d92e6f2350aba5bd057df88
 source:
   - path: "src/index.js"

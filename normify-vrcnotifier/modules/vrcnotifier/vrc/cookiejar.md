@@ -6,10 +6,12 @@ name: {zh: "登录凭据", en: "Login Credentials"}
 description:
   zh: >
       记住 VRChat 给的登录凭据，让后续请求不用重新登录。
+      
   en: >
       Remembers the credentials VRChat hands out, so later requests do not need to sign in again.
-revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T15:18:57.819Z"
+      
+revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
+updated_at: "2026-09-17T12:23:49.291Z"
 fingerprint: 39e1c54bde1e9cae990ba67572bb451343b4bdfc4d83e99f97083f5afa2673ad
 source:
   - path: "src/cookiejar.js"

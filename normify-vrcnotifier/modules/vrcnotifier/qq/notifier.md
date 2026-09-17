@@ -6,10 +6,12 @@ name: {zh: "通知渠道分发", en: "Notification Fan-out"}
 description:
   zh: >
       把一条变化渲染成消息并发出。
+      
   en: >
       Renders a change into a message and sends it out.
-revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T15:18:57.820Z"
+      
+revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
+updated_at: "2026-09-17T12:23:49.279Z"
 fingerprint: 0ed32c13ab7327b4479d8267b8a441440778a3908f41b102927015c69bb3b051
 source:
   - path: "src/notify.js"

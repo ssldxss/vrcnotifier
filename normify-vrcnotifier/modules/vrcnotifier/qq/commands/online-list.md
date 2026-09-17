@@ -6,10 +6,12 @@ name: {zh: "在线列表渲染", en: "Online List Rendering"}
 description:
   zh: >
       把在线好友整理成一张好读的列表。
+      
   en: >
       Turns the online friends into a readable list.
-revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T15:18:57.820Z"
+      
+revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
+updated_at: "2026-09-17T12:23:49.278Z"
 fingerprint: 652d724595a7f9952f451e353502dd7ab8b39d064c1b32db4ce6ed02cec64d20
 source:
   - path: "src/qq-commands.js"

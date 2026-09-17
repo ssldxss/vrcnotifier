@@ -10,9 +10,9 @@ description:
   en: >
       The low-level pieces everything else leans on: logging, encryption and the avatar cache.
       
-revision: 6515ec0b18c3caed3cb0014a183ac3d34d011dd8
-updated_at: "2026-09-17T00:14:27.119Z"
-fingerprint: 0fcc26c5970d1e8b6046e59aff9cb6b810812fbd7eff0a01b9f15a551e8ec67f
+revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
+updated_at: "2026-09-17T12:23:49.262Z"
+fingerprint: d3259fdf646e2a782ef32f0faf0d1665902e7d44931d76121449baca01a41a69
 source:
   - path: "src/util.js"
   - path: "src/crypto.js"
