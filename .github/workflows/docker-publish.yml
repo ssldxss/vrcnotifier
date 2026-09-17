@@ -97,6 +97,9 @@ jobs:
           file: Dockerfile
           platforms: linux/amd64
           push: true
+          # 与 release.yml 同口径: 把版本注入镜像, 容器里 /api/config 报的就是它
+          build-args: |
+            APP_VERSION=${{ steps.meta.outputs.ver }}
           tags: |
             sihenglu/vrcnotifier-backend:latest
             sihenglu/vrcnotifier-backend:${{ steps.meta.outputs.ver }}

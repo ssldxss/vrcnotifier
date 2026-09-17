@@ -10,8 +10,8 @@ description:
   en: >
       Encrypts sensitive data; the key can come from an environment variable or a Docker secret file.
       
-revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
-updated_at: "2026-09-17T12:23:49.260Z"
+revision: 1e6d2c26d295da7875c40ecbd1ba3f855df96a4c
+updated_at: "2026-09-17T13:58:27.871Z"
 fingerprint: 2b4fcd3f009ec0862a89d04614a2639dcc9a983d5193dbb63593c9c335e76469
 source:
   - path: "src/crypto.js"

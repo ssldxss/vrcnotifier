@@ -10,8 +10,8 @@ description:
   en: >
       The low-level pieces everything else leans on: logging, encryption and the avatar cache.
       
-revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
-updated_at: "2026-09-17T12:23:49.262Z"
+revision: 1e6d2c26d295da7875c40ecbd1ba3f855df96a4c
+updated_at: "2026-09-17T13:58:27.873Z"
 fingerprint: d3259fdf646e2a782ef32f0faf0d1665902e7d44931d76121449baca01a41a69
 source:
   - path: "src/util.js"

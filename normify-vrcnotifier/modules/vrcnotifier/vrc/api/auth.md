@@ -10,8 +10,8 @@ description:
   en: >
       Signing in, verifying codes, and reading your own profile.
       
-revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
-updated_at: "2026-09-17T12:23:49.290Z"
+revision: 1e6d2c26d295da7875c40ecbd1ba3f855df96a4c
+updated_at: "2026-09-17T13:58:27.907Z"
 fingerprint: 41550317630bd0c2e6ca7b19edbe553bad6fd8b8e48ed4f731379e1a8333b2ec
 source:
   - path: "src/vrcapi.js"

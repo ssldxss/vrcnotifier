@@ -10,8 +10,8 @@ description:
   en: >
       How each of the seven friend messages is handled: online, active, offline, world change, profile edit, add and delete. The branches are inline in handlePipelineEvent's switch, with no dedicated handler function; every case but friend-offline carries a user object.
       
-revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
-updated_at: "2026-09-17T12:24:09.513Z"
+revision: 1e6d2c26d295da7875c40ecbd1ba3f855df96a4c
+updated_at: "2026-09-17T13:58:27.882Z"
 fingerprint: d2c0c0283691b2039e943a7dc58698aefb974e2411815468321d3d2cab21798a
 source:
   - path: "src/monitor.js"

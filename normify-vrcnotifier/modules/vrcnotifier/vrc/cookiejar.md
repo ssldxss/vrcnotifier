@@ -10,8 +10,8 @@ description:
   en: >
       Remembers the credentials VRChat hands out, so later requests do not need to sign in again.
       
-revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
-updated_at: "2026-09-17T12:23:49.291Z"
+revision: 1e6d2c26d295da7875c40ecbd1ba3f855df96a4c
+updated_at: "2026-09-17T13:58:27.909Z"
 fingerprint: 39e1c54bde1e9cae990ba67572bb451343b4bdfc4d83e99f97083f5afa2673ad
 source:
   - path: "src/cookiejar.js"

@@ -10,9 +10,9 @@ description:
   en: >
       Two endpoints reachable without a token: read the basic config, and check whether a token is correct.
       
-revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
-updated_at: "2026-09-17T12:23:49.280Z"
-fingerprint: 0b01f6faa64e00266c421863adc31d67ecfabe46ed5db86e0fd44a724e285305
+revision: 1e6d2c26d295da7875c40ecbd1ba3f855df96a4c
+updated_at: "2026-09-17T13:59:42.576Z"
+fingerprint: e5c1fac4c7d5710c916cfdaa1c8d26838639422ea3a597b32f6790a2b30d8674
 source:
   - path: "src/server.js"
     line: 659
@@ -23,10 +23,10 @@ apis:
     path: "/api/config"
     description:
       zh: >
-          前端引导配置，无需令牌。
+          前端引导配置，无需令牌。同时报出本构建的版本号（镜像构建时注入的 APP_VERSION，否则用 package.json）。
           
       en: >
-          Bootstrap configuration for the UI; no token required.
+          Bootstrap configuration for the UI; no token required. Reports the build version (APP_VERSION injected at image build time, else package.json).
           
   - protocol: http
     method: POST
@@ -38,4 +38,10 @@ apis:
       en: >
           Verify a submitted access key; no token required.
           
+deps:
+  - kind: call
+    to: vrcnotifier.infra.util.version
+    from_api: "GET /api/config"
+    to_api: "rpc:currentVersion(env)"
+    label: {zh: "取版本号", en: "Read the build version"}
 ---

@@ -1,0 +1,157 @@
+# ============================================================
+#  vrcnotifier 发版流水线: 每次 push 到 main → 打 tag → 发版本化镜像
+#
+#  流程:
+#    test    复用 test.yml(workflow_call), 测试不过就不发版
+#    tag     算下一个版本(patch 自增, 见 src/version.js) → 打 v<版本> tag 并推送
+#    publish 构建镜像并推送到 Docker Hub, 再创建 GitHub Release
+#
+#  ★ 为什么 tag 与 publish 写在同一个 workflow 里:
+#    GitHub Actions 用默认 GITHUB_TOKEN 推的 tag **不会触发其它 workflow**(官方防递归)。
+#    所以"打完 tag 指望 docker-publish.yml 的 tags 触发"是行不通的 —— 那条路径只对
+#    人手推的 tag 生效。这里用 needs 把两步串在同一个 workflow 内, 不依赖下游触发。
+#    副作用正好: CI 打的 tag 不会重复触发 docker-publish.yml, 因此不会重复构建。
+#
+#  版本约定(git tag 是唯一真相):
+#    取形如 v<数字>.<数字>.<数字> 的最高 tag, patch +1; 一个都没有则以 package.json
+#    的版本为起点 +1。想发 0.2.0 就自己打个 v0.2.0, 之后继续自动 +1。版本经
+#    build-arg APP_VERSION 注入镜像, 于是 镜像报的版本 == git tag == Docker tag。
+#
+#  幂等: 当前 commit 已有 v* tag(例如重跑失败的任务)时复用该 tag, 不会打出第二个号。
+#
+#  需要仓库 Secrets:
+#    DOCKERHUB_TOKEN  Docker Hub 访问令牌
+# ============================================================
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# 打 tag 与建 Release 需要写权限
+permissions:
+  contents: write
+
+# 串行发版: 两次 push 同时算版本会算出同一个号并撞 tag
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  # 复用 test.yml 的两档矩阵(node 22.13.0 / 24.x), 不复制测试定义
+  test:
+    name: Test
+    uses: ./.github/workflows/test.yml
+
+  tag:
+    name: Tag the next version
+    needs: test
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      # fetch-depth: 0 + fetch-tags: 版本要读完整 tag 历史, 浅克隆拿不到
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Compute & push tag
+        id: version
+        run: |
+          set -euo pipefail
+          EXISTING="$(git tag --points-at HEAD | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true)"
+          if [ -n "$EXISTING" ]; then
+            VER="${EXISTING#v}"
+            echo "当前 commit 已有 tag ${EXISTING}, 复用它(重跑不重复打号)"
+          else
+            # git tag -l 'v*' | node src/version.js → 打印下一个版本(纯函数, 有单测覆盖)
+            VER="$(git tag -l 'v*' | node src/version.js)"
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag "v${VER}"
+            git push origin "v${VER}"
+            echo "已打 tag v${VER}"
+          fi
+          echo "version=${VER}" >> "$GITHUB_OUTPUT"
+
+  publish:
+    name: Build & push image
+    needs: tag
+    runs-on: ubuntu-latest
+    env:
+      REGISTRY: docker.io
+      DOCKERHUB_USER: sihenglu
+      IMAGE: sihenglu/vrcnotifier-backend
+      VERSION: ${{ needs.tag.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # 后端 Dockerfile 直接 COPY node_modules(依赖为纯 JS, 无原生模块); 故先装一份
+      - name: Install JS dependencies
+        run: npm ci --omit=dev
+
+      - name: Compute short sha
+        id: meta
+        run: echo "sha12=${GITHUB_SHA:0:12}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ env.DOCKERHUB_USER }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build & push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64
+          push: true
+          # APP_VERSION 注入镜像: 容器里 /api/config 报的版本就是它
+          build-args: |
+            APP_VERSION=${{ env.VERSION }}
+          tags: |
+            ${{ env.IMAGE }}:latest
+            ${{ env.IMAGE }}:${{ env.VERSION }}
+            ${{ env.IMAGE }}:v${{ env.VERSION }}
+            ${{ env.IMAGE }}:sha-${{ steps.meta.outputs.sha12 }}
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: v${{ needs.tag.outputs.version }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG 已存在, 跳过"
+            exit 0
+          fi
+          {
+            echo "镜像：\`${IMAGE}:${VERSION}\` / \`${IMAGE}:latest\`"
+            echo
+            echo '```'
+            echo 'docker compose pull && docker compose up -d'
+            echo '```'
+          } > /tmp/release-notes.md
+          gh release create "$TAG" --title "$TAG" --notes-file /tmp/release-notes.md

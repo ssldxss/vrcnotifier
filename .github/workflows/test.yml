@@ -18,6 +18,8 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  # 被 release.yml 复用(workflow_call): 测试定义只此一份, 发版那条流水线不复制粘贴
+  workflow_call:
 
 permissions:
   contents: read

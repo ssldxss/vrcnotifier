@@ -10,8 +10,8 @@ description:
   en: >
       The page skeleton and styling: the three main screens and the dialogs.
       
-revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
-updated_at: "2026-09-17T12:23:49.312Z"
+revision: 1e6d2c26d295da7875c40ecbd1ba3f855df96a4c
+updated_at: "2026-09-17T13:58:27.934Z"
 fingerprint: 013937bce15bc7fb04ff150819e6b707aa06780133628194f8d0b6aee44f1a11
 source:
   - path: "public/index.html"

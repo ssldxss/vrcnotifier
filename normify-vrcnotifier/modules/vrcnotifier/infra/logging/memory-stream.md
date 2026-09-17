@@ -10,8 +10,8 @@ description:
   en: >
       Keeps the most recent lines in memory for the panel's live log view.
       
-revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
-updated_at: "2026-09-17T12:23:49.265Z"
+revision: 1e6d2c26d295da7875c40ecbd1ba3f855df96a4c
+updated_at: "2026-09-17T13:58:27.876Z"
 fingerprint: 320d1c9498f6ca37a95120a4a4446298eaf407d3bee5580057965efb7ef08f35
 source:
   - path: "src/logstream.js"

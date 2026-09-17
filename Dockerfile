@@ -1,6 +1,9 @@
 # syntax=docker/dockerfile:1
 # vrcnotifier 生产镜像: 后端 API + 前端静态同源托管(SERVE_STATIC=1), 单容器开箱即用。
 # 构建: docker build -t vrcnotifier .
+#
+# 版本: 由 release workflow 传入 tag 版本(build-arg APP_VERSION), 镜像内 /api/config 就报它,
+# 于是"镜像报的版本 == git tag == Docker tag"。不传则回落到 package.json(src/version.js)。
 
 # ---------- 依赖构建阶段 ----------
 # 依赖为纯 JS(express/ws, 无原生模块), 直接复用本地已安装的 node_modules,
@@ -13,10 +16,12 @@ COPY node_modules ./node_modules
 # ---------- 运行阶段 ----------
 # alpine 基础镜像(依赖为纯 JS, 无原生模块): 比 bookworm-slim 小约 26%
 FROM node:22-alpine
+ARG APP_VERSION=
 ENV NODE_ENV=production \
     PORT=3000 \
     SERVE_STATIC=1 \
-    TZ=Asia/Shanghai
+    TZ=Asia/Shanghai \
+    APP_VERSION=${APP_VERSION}
 WORKDIR /app
 # tzdata: 让 TZ 生效, 日志/通知时间使用本地时区
 # setpriv: entrypoint 降权到 node 用户运行主进程(alpine 需单独安装, debian 内置)

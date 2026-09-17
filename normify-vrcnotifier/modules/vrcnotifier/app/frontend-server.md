@@ -10,8 +10,8 @@ description:
   en: >
       A tiny server that only serves the web page files, so the panel can be hosted somewhere else.
       
-revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
-updated_at: "2026-09-17T12:23:49.249Z"
+revision: 1e6d2c26d295da7875c40ecbd1ba3f855df96a4c
+updated_at: "2026-09-17T13:58:27.856Z"
 fingerprint: 97c5daf044998b542d836057ca5ee6bc159147b7285f2cc3adeb78ade24ea129
 source:
   - path: "serve.js"

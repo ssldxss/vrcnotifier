@@ -4,7 +4,7 @@
 
 ## vrcnotifier（https://github.com/ssldxss/vrcnotifier.git）
 
-- vrcnotifier — VRChat 好友监控通知器 / VRChat Friend Monitor & Notifier — 盯着你的 VRChat 好友：谁上线、谁下线、谁换了世界，都会第一时间发到你的 QQ。自带网页面板，账号密码等敏感信息加密保存。 — [模块 169 · API 372]
+- vrcnotifier — VRChat 好友监控通知器 / VRChat Friend Monitor & Notifier — 盯着你的 VRChat 好友：谁上线、谁下线、谁换了世界，都会第一时间发到你的 QQ。自带网页面板，账号密码等敏感信息加密保存。 — [模块 170 · API 374]
   - vrcnotifier.app — 应用组装与启动 / Application Assembly & Boot — 把整个程序拼起来，并负责开机和关机：读配置、连数据库、拉起监控和 QQ 机器人、开网页服务。 — [模块 14 · API 16]
     - vrcnotifier.app.config — 配置与凭据解析 / Configuration & Credential Resolution — 收集程序需要的各种设置：环境变量、网页访问令牌，以及监控用到的时间参数。 — [模块 4 · API 4]
       - vrcnotifier.app.config.env — 环境变量读取 / Environment Variable Reading — 从环境变量里读配置，没填就用默认值。 — [模块 1 · API 2]
@@ -35,7 +35,7 @@
     - vrcnotifier.data.schema — 表结构与迁移 / Schema & Migrations — 数据库的表结构，以及把旧版本数据库升级到新结构的过程。 — [模块 1 · API 10]
     - vrcnotifier.data.settings — 全局设置与渠道配置 / Global Settings & Channel Config — 全局设置，比如 QQ 机器人的开关和密钥。 — [模块 1 · API 4]
     - vrcnotifier.data.users — 账号与凭据持久化 / Users & Credential Persistence — 保存你的账号和登录凭据；敏感内容都是加密存的。 — [模块 1 · API 7]
-  - vrcnotifier.infra — 基础设施 / Cross-cutting Infrastructure — 各处都要用到的底层能力：日志、加密、头像缓存。 — [模块 19 · API 35]
+  - vrcnotifier.infra — 基础设施 / Cross-cutting Infrastructure — 各处都要用到的底层能力：日志、加密、头像缓存。 — [模块 20 · API 37]
     - vrcnotifier.infra.avatar — 头像缓存 / Avatar Cache — 好友头像下载一次就存在本地，下次直接给。 — [模块 4 · API 13]
       - vrcnotifier.infra.avatar.maintenance — 缓存清理与淘汰 / Cache Sweeping & Eviction — 定期清掉很久没用的头像；太多了就淘汰最旧的。 — [模块 1 · API 4]
       - vrcnotifier.infra.avatar.naming — 头像文件命名 / File Naming — 从头像地址推出本地文件名，反过来也能推回去。 — [模块 1 · API 4]
@@ -50,10 +50,11 @@
       - vrcnotifier.infra.logging.logger — 日志器与行格式 / Logger & Line Format — 统一的日志格式：时间、级别、类别、正文，同时送去终端和日志文件。 — [模块 1 · API 2]
       - vrcnotifier.infra.logging.memory-stream — 内存日志流 / In-memory Log Stream — 在内存里留着最近几百条日志，给面板实时显示。 — [模块 1 · API 4]
       - vrcnotifier.infra.logging.time — 本地时间格式化 / Local Time Formatting — 把时间显示成本地时间，方便跟自己的钟对照。 — [模块 1 · API 1]
-    - vrcnotifier.infra.util — 共享工具 / Shared Helpers — 两个小工具：把令牌加星号显示，以及「等太久就先用旧值」。 — [模块 4 · API 4]
+    - vrcnotifier.infra.util — 共享工具 / Shared Helpers — 两个小工具：把令牌加星号显示，以及「等太久就先用旧值」。 — [模块 5 · API 6]
       - vrcnotifier.infra.util.avatar-fields — 头像取值规则 / Avatar Source Rule — 全项目唯一决定"取哪张头像"的地方：iconUrl 优先（好友 schema 唯一声明的头像字段，也是 REST 快照与 WS 事件唯一都有的），缺失时退回 c… — [模块 1 · API 1]
       - vrcnotifier.infra.util.deadline — 等待超时兜底 / Giving Up Gracefully — 给一个操作设个时限；超时就用备用的旧值先返回，不再干等。 — [模块 1 · API 1]
       - vrcnotifier.infra.util.identity — 令牌加星号与信任等级 / Hiding Tokens & Trust Levels — 把令牌加星号显示，并把信任标签换算成人能看懂的等级名。 — [模块 1 · API 2]
+      - vrcnotifier.infra.util.version — 版本号 / Version Numbers — 版本号的唯一决定处。约定 git tag 是唯一真相：发版流水线取形如 v<主>.<次>.<补丁> 的最高 tag 做 patch 自增（想提 minor 就自… — [模块 1 · API 2]
   - vrcnotifier.monitor — 好友监控总控 / Friend Monitoring Control — 监控的总指挥：盯着好友的一举一动，判断哪些值得告诉你。 — [模块 25 · API 44]
     - vrcnotifier.monitor.core — 监控的组装与状态 / Assembly & State — 把监控需要的部件装到一起，并记住当前在监控哪个账号。 — [模块 1 · API 2]
     - vrcnotifier.monitor.fault — 断线与恢复提醒 / Outage & Recovery Notices — 网络断了或登录失效时先安静等一会儿；拖得太久才提醒你一次，恢复了再补一句。 — [模块 1 · API 4]

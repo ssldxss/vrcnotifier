@@ -10,8 +10,8 @@ description:
   en: >
       Renders a change into a message and sends it out.
       
-revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
-updated_at: "2026-09-17T12:23:49.279Z"
+revision: 1e6d2c26d295da7875c40ecbd1ba3f855df96a4c
+updated_at: "2026-09-17T13:58:27.893Z"
 fingerprint: 0ed32c13ab7327b4479d8267b8a441440778a3908f41b102927015c69bb3b051
 source:
   - path: "src/notify.js"

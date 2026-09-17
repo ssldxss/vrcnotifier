@@ -10,8 +10,8 @@ description:
   en: >
       Checks VRChat's official status page to see whether the service is up.
       
-revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
-updated_at: "2026-09-17T12:23:49.295Z"
+revision: 1e6d2c26d295da7875c40ecbd1ba3f855df96a4c
+updated_at: "2026-09-17T13:58:27.914Z"
 fingerprint: a019a350767dacc7c04b88e0ea35383ccdc4fbd187398d599cc14b2762a69c01
 source:
   - path: "src/vrcstatus.js"

@@ -10,8 +10,8 @@ description:
   en: >
       Pages forwards or backwards, returning only the lines that match the filter.
       
-revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
-updated_at: "2026-09-17T12:23:49.263Z"
+revision: 1e6d2c26d295da7875c40ecbd1ba3f855df96a4c
+updated_at: "2026-09-17T13:58:27.874Z"
 fingerprint: 332fa6faeab819a79e7c3ed0c5e6120783ceeee315e1eeca6fc75daf3bc1eaf8
 source:
   - path: "src/filelog.js"

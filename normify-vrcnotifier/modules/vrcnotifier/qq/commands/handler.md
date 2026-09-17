@@ -10,8 +10,8 @@ description:
   en: >
       Replies with the online list, except while a login code is expected — then a bare code is treated as the code.
       
-revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
-updated_at: "2026-09-17T12:23:49.277Z"
+revision: 1e6d2c26d295da7875c40ecbd1ba3f855df96a4c
+updated_at: "2026-09-17T13:58:27.890Z"
 fingerprint: 652d724595a7f9952f451e353502dd7ab8b39d064c1b32db4ce6ed02cec64d20
 source:
   - path: "src/qq-commands.js"

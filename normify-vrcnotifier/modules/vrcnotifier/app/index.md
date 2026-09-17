@@ -10,8 +10,8 @@ description:
   en: >
       Puts the whole program together and handles start-up and shut-down: reads settings, opens the database, starts monitoring, the QQ bot and the web server.
       
-revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
-updated_at: "2026-09-17T12:23:49.250Z"
+revision: 1e6d2c26d295da7875c40ecbd1ba3f855df96a4c
+updated_at: "2026-09-17T13:59:42.578Z"
 fingerprint: 137ccc5696e85476106021a03ff213d4fb00a4d6225ab41d4a12f6aec8ba4c1d
 source:
   - path: "src/index.js"

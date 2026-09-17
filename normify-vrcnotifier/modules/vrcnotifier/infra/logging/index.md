@@ -10,8 +10,8 @@ description:
   en: >
       Logging in three layers: the writer, the recent lines kept in memory, and the full history on disk.
       
-revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
-updated_at: "2026-09-17T12:23:49.264Z"
+revision: 1e6d2c26d295da7875c40ecbd1ba3f855df96a4c
+updated_at: "2026-09-17T13:58:27.875Z"
 fingerprint: 1a1d0fd4801585a2fb0ab735b32aea03de0e2b93bb76047fe65d6bc0adb6f4ac
 source:
   - path: "src/util.js"

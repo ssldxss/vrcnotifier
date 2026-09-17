@@ -10,8 +10,8 @@ description:
   en: >
       Gets every message to your QQ: the bot connection, the replies it sends, and the message templates.
       
-revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
-updated_at: "2026-09-17T12:23:49.279Z"
+revision: 1e6d2c26d295da7875c40ecbd1ba3f855df96a4c
+updated_at: "2026-09-17T13:58:27.892Z"
 fingerprint: a7062d3ab86b06e87dece803a89437f40798c540c10c93596d055ef636885920
 source:
   - path: "src/qq.js"

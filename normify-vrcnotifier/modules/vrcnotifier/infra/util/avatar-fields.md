@@ -11,8 +11,8 @@ description:
   en: >
       The one place that decides which avatar a user gets: iconUrl first (the only avatar field the friend schema declares, and the only one both the REST snapshot and the WS events carry), falling back to currentAvatarImageUrl. The two thumbnail fields VRChat stopped returning are deliberately not read.
       
-revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
-updated_at: "2026-09-17T12:24:09.511Z"
+revision: 1e6d2c26d295da7875c40ecbd1ba3f855df96a4c
+updated_at: "2026-09-17T13:59:42.577Z"
 fingerprint: dad346d151126757bfecb58b1aa65eee4ff6241bcf1640ee751c8b7a54d6d9ca
 source:
   - path: "src/util.js"
@@ -20,7 +20,7 @@ source:
     end_line: 54
 apis:
   - protocol: rpc
-    path: "rpc:avatarFields(u)"
+    path: "avatarFields(u)"
     description:
       zh: >
           把 VRChat user 对象映射成本项目唯一的头像字段。

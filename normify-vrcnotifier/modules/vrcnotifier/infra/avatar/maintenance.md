@@ -10,8 +10,8 @@ description:
   en: >
       Cleans up avatars that have not been used for a long time, and drops the oldest when there are too many.
       
-revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
-updated_at: "2026-09-17T12:23:49.259Z"
+revision: 1e6d2c26d295da7875c40ecbd1ba3f855df96a4c
+updated_at: "2026-09-17T13:58:27.870Z"
 fingerprint: 9c82f0c327f3c92532f71d77be46f8fd3d1af9de54ad3726e629b785579a9c08
 source:
   - path: "src/avatar.js"

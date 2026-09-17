@@ -1487,3 +1487,14 @@ test('自己的头像只给 iconUrl 时也能出 avatarKey(契约内字段, WS �
   assert.equal(r.data.user.avatarKey, 'file_icon-999_2_128', 'iconUrl 应被写进库并推出缓存 key');
   assert.equal(ctx.db.getUserByVrcId('usr_me').avatar_url, icon);
 });
+
+test('/api/config 报的版本优先取 APP_VERSION(镜像构建时注入的 tag 版本)', async (t) => {
+  const prev = process.env.APP_VERSION;
+  process.env.APP_VERSION = '9.9.9-injected';
+  t.after(() => { if (prev === undefined) delete process.env.APP_VERSION; else process.env.APP_VERSION = prev; });
+  const ctx = setup({});
+  t.after(() => close(ctx));
+  const r = await get(ctx, '/api/config');
+  assert.equal(r.status, 200);
+  assert.equal(r.data.version, '9.9.9-injected', '版本来自 APP_VERSION, 而不是源码里写死的常量');
+});

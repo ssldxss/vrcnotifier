@@ -10,6 +10,7 @@ const { deriveStateFromSnapshot } = require('./state');
 const { detectImageType, toThumbUrl } = require('./avatar');
 const { isMissingCredentials, isUnauthorized } = require('./vrcapi');
 const { formatLocalTime, getLogStream, avatarFields } = require('./util');
+const { currentVersion } = require('./version');
 
 const MASK = '••••••••';
 const SECRET_FIELDS = new Set(['qq_app_secret']);
@@ -668,7 +669,7 @@ function createApp({
       dedupeWindowMs: config.dedupeWindowMs ?? 30000,
       encryptionEnabled: !!config.encryptionEnabled,
       encryptionMode: config.encryptionMode || (config.encryptionEnabled ? 'encrypted' : 'none'),
-      version: '0.1.0'
+      version: currentVersion()
     });
   });
 

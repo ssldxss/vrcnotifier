@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "id": "2026-09-17-auto-release-versioning",
+  "title": {
+    "en": "Auto-tag and publish a versioned image on every push",
+    "zh": "每次 push 自动打 tag 并发版本化镜像"
+  },
+  "status": "verified",
+  "intent": {
+    "en": "The image was only built on manual dispatch and latest sat days behind, which is what let the avatar bug ship unnoticed. Add a release pipeline that tags and publishes on every push to main, and collapse the two copies of the version number into one module driven by git tags: the workflow bumps the patch of the highest v* tag, injects it as APP_VERSION, and the app reports it from /api/config.",
+    "zh": "镜像此前只能手动触发构建、latest 会滞后好几天，这正是头像 bug 得以悄悄进入生产的原因。新增发版流水线：每次 push 到 main 自动打 tag 并发版本化镜像；同时把两份版本号收敛成一个由 git tag 驱动的模块——流水线对最高 v* tag 做 patch 自增、作为 APP_VERSION 注入，程序通过 /api/config 把它报出来。"
+  },
+  "modules": {
+    "create": [
+      "vrcnotifier.infra.util.version"
+    ],
+    "modify": [
+      "vrcnotifier.server.access",
+      "vrcnotifier.infra.util",
+      "vrcnotifier.infra.util.avatar-fields",
+      "vrcnotifier.server.serialization",
+      "vrcnotifier.app"
+    ]
+  },
+  "acceptance": [
+    "版本号只有一处来源：src/version.js；src/server.js 不再写死 '0.1.0'",
+    "nextVersion 取最高的 v<主>.<次>.<补丁> tag 做 patch 自增，按数字比较而非字典序，并忽略中文名/无前缀等非法 tag",
+    "nextVersion 幂等：同一 commit 重跑时复用已有的 v* tag，不会重复打号",
+    "/api/config 报的版本优先取 APP_VERSION，未注入时回落 package.json",
+    "release.yml 每次 push 到 main 走 test → tag → publish，并在同一 workflow 内串联以绕开 GITHUB_TOKEN 不触发下游的限制",
+    "image 构建传入 APP_VERSION，使 镜像报的版本 == git tag == Docker tag",
+    "新增叶子 vrcnotifier.app.version 并激活，且 server.access 指向它的箭头已锚定到 API",
+    "normify_validate 0 error，build 与 render 反映本次改动"
+  ],
+  "note": "TDD: 先写 test/version.test.js 11 个用例(含 v0.1.9 vs v0.1.10 的字典序陷阱、非法 tag 忽略、空行容忍)与 /api/config 的 APP_VERSION 集成用例, 确认失败原因正确后实现 src/version.js。YAML 属配置: 用 PyYAML 校验结构, 并在临时克隆里把 tag job 的 shell 完整模拟四种情形(首次打号 / 重跑复用 / 新提交递增 / 手动提 minor 后继续自增)全部通过。454/454 测试通过。\n\n收尾时被两道门禁拦下并修正:\n① dep/to-api-invalid + policy/layer-order: version 原本放在 app 层, 而 server → app 是逆向依赖。层序为 app→server→monitor→integration→data→infra→web, 故移到 vrcnotifier.infra.util.version(server→infra 为向前依赖), 并把 app/infra.util 两层渲染数据同步。\n② 发现上一轮(Avatar 变更)我引入的键格式错误: rpc 协议的 path 应写裸名字(键由 protocol:path 派生), 我却在 serialization 的 8 个键与 avatar-fields 的 1 个键上带了 rpc: 前缀, 产生 9 个 rpc:rpc:* 错键——这类错键因为没人用 to_api 引用它而未被之前的校验发现。本轮一并改正。另确认 Dockerfile 与 .github 未被结构库建模, 故工作流改动无需结构同步。",
+  "revision": {
+    "before": null,
+    "after": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c"
+  },
+  "created_at": "2026-09-17T13:58:25.664Z",
+  "updated_at": "2026-09-17T13:59:43.718Z",
+  "closed_at": "2026-09-17T13:59:43.718Z"
+}

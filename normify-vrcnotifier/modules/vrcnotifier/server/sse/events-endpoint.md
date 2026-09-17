@@ -10,9 +10,9 @@ description:
   en: >
       The address the browser subscribes to; it sends a small ping so the connection is not dropped while idle.
       
-revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
-updated_at: "2026-09-17T12:23:49.289Z"
-fingerprint: 0b01f6faa64e00266c421863adc31d67ecfabe46ed5db86e0fd44a724e285305
+revision: 1e6d2c26d295da7875c40ecbd1ba3f855df96a4c
+updated_at: "2026-09-17T13:58:27.905Z"
+fingerprint: e5c1fac4c7d5710c916cfdaa1c8d26838639422ea3a597b32f6790a2b30d8674
 source:
   - path: "src/server.js"
     line: 1044

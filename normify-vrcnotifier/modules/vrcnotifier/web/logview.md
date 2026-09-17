@@ -10,8 +10,8 @@ description:
   en: >
       Decides which end of the log window to drop when it gets too long.
       
-revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
-updated_at: "2026-09-17T12:23:49.311Z"
+revision: 1e6d2c26d295da7875c40ecbd1ba3f855df96a4c
+updated_at: "2026-09-17T13:58:27.933Z"
 fingerprint: 460b15ef6d9cbc8053f581e474a5ad1c9e15ea4769edc72ba7438666fce2d73c
 source:
   - path: "public/logview.js"

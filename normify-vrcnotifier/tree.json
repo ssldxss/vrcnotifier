@@ -9,20 +9,20 @@
         "repository": "https://github.com/ssldxss/vrcnotifier.git"
       }
     ],
-    "compiled_at": "2026-09-17T12:24:10.958Z",
+    "compiled_at": "2026-09-17T13:59:43.909Z",
     "stats": {
       "tree_count": 1,
-      "module_count": 169,
-      "leaf_count": 133,
-      "api_count": 372,
-      "dep_count": 320,
+      "module_count": 170,
+      "leaf_count": 134,
+      "api_count": 374,
+      "dep_count": 321,
       "cross_tree_dep_count": 0,
       "max_depth": 5,
       "layout_count": 36,
       "planned_count": 0,
       "deprecated_count": 0,
       "policy_rule_count": 4,
-      "change_count": 10,
+      "change_count": 11,
       "open_change_count": 0
     }
   },
@@ -53,9 +53,9 @@
       "fingerprint": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "repository": "https://github.com/ssldxss/vrcnotifier.git",
       "aggregate": {
-        "descendant_count": 168,
+        "descendant_count": 169,
         "own_api_count": 0,
-        "inherited_api_count": 372,
+        "inherited_api_count": 374,
         "dep_out": 0,
         "dep_in": 0
       }
@@ -82,8 +82,8 @@
           "path": "serve.js"
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.250Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:59:42.578Z",
       "fingerprint": "137ccc5696e85476106021a03ff213d4fb00a4d6225ab41d4a12f6aec8ba4c1d",
       "deps": [
         {
@@ -168,8 +168,8 @@
           "path": "src/index.js"
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.248Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.855Z",
       "fingerprint": "f25564c89baf4114b3baf36c945152cf491a94287d92e6f2350aba5bd057df88",
       "aggregate": {
         "descendant_count": 3,
@@ -205,8 +205,8 @@
           "end_line": 65
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.248Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.854Z",
       "fingerprint": "f25564c89baf4114b3baf36c945152cf491a94287d92e6f2350aba5bd057df88",
       "apis": [
         {
@@ -257,8 +257,8 @@
           "end_line": 132
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.248Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.855Z",
       "fingerprint": "f25564c89baf4114b3baf36c945152cf491a94287d92e6f2350aba5bd057df88",
       "apis": [
         {
@@ -300,8 +300,8 @@
           "end_line": 60
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.249Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.855Z",
       "fingerprint": "f25564c89baf4114b3baf36c945152cf491a94287d92e6f2350aba5bd057df88",
       "apis": [
         {
@@ -354,8 +354,8 @@
           "end_line": 60
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.249Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.856Z",
       "fingerprint": "97c5daf044998b542d836057ca5ee6bc159147b7285f2cc3adeb78ade24ea129",
       "apis": [
         {
@@ -426,8 +426,8 @@
           "path": "src/index.js"
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.250Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.857Z",
       "fingerprint": "f25564c89baf4114b3baf36c945152cf491a94287d92e6f2350aba5bd057df88",
       "deps": [
         {
@@ -478,8 +478,8 @@
           "end_line": 362
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.250Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.857Z",
       "fingerprint": "f25564c89baf4114b3baf36c945152cf491a94287d92e6f2350aba5bd057df88",
       "apis": [
         {
@@ -559,8 +559,8 @@
           "end_line": 384
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.251Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.857Z",
       "fingerprint": "f25564c89baf4114b3baf36c945152cf491a94287d92e6f2350aba5bd057df88",
       "apis": [
         {
@@ -658,8 +658,8 @@
           "end_line": 320
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.251Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.858Z",
       "fingerprint": "f25564c89baf4114b3baf36c945152cf491a94287d92e6f2350aba5bd057df88",
       "apis": [
         {
@@ -728,8 +728,8 @@
           "path": "src/index.js"
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.252Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.859Z",
       "fingerprint": "f25564c89baf4114b3baf36c945152cf491a94287d92e6f2350aba5bd057df88",
       "aggregate": {
         "descendant_count": 3,
@@ -760,8 +760,8 @@
           "end_line": 102
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.251Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.858Z",
       "fingerprint": "f25564c89baf4114b3baf36c945152cf491a94287d92e6f2350aba5bd057df88",
       "apis": [
         {
@@ -859,8 +859,8 @@
           "end_line": 272
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.252Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.859Z",
       "fingerprint": "f25564c89baf4114b3baf36c945152cf491a94287d92e6f2350aba5bd057df88",
       "apis": [
         {
@@ -913,8 +913,8 @@
           "end_line": 236
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.253Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.860Z",
       "fingerprint": "f25564c89baf4114b3baf36c945152cf491a94287d92e6f2350aba5bd057df88",
       "apis": [
         {
@@ -1043,8 +1043,8 @@
           "path": "src/location.js"
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.256Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.866Z",
       "fingerprint": "83cbf2f83065c2ebe7fa298a62aa84607866bcd3b94c2e47454ca9fac83ecd00",
       "deps": [
         {
@@ -1124,8 +1124,8 @@
           "end_line": 513
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.253Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.860Z",
       "fingerprint": "ede0832a0dde4d3316920c9c7478bf1ed1f2e4eef00e237dbfe482ae2eac46fd",
       "apis": [
         {
@@ -1210,8 +1210,8 @@
           "end_line": 442
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.253Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.861Z",
       "fingerprint": "ede0832a0dde4d3316920c9c7478bf1ed1f2e4eef00e237dbfe482ae2eac46fd",
       "apis": [
         {
@@ -1297,8 +1297,8 @@
           "end_line": 523
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.254Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.861Z",
       "fingerprint": "ede0832a0dde4d3316920c9c7478bf1ed1f2e4eef00e237dbfe482ae2eac46fd",
       "apis": [
         {
@@ -1375,8 +1375,8 @@
           "end_line": 492
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.254Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.861Z",
       "fingerprint": "ede0832a0dde4d3316920c9c7478bf1ed1f2e4eef00e237dbfe482ae2eac46fd",
       "apis": [
         {
@@ -1427,8 +1427,8 @@
           "path": "src/state.js"
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.255Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.863Z",
       "fingerprint": "94e7424b0e15c0915e0d862db1151905b15d804c5b9a07b443e26c7f3cf2ff0b",
       "deps": [
         {
@@ -1493,8 +1493,8 @@
           "end_line": 155
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.254Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.862Z",
       "fingerprint": "94e7424b0e15c0915e0d862db1151905b15d804c5b9a07b443e26c7f3cf2ff0b",
       "apis": [
         {
@@ -1556,8 +1556,8 @@
           "end_line": 22
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.255Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.862Z",
       "fingerprint": "94e7424b0e15c0915e0d862db1151905b15d804c5b9a07b443e26c7f3cf2ff0b",
       "apis": [
         {
@@ -1619,8 +1619,8 @@
           "end_line": 56
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.255Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.863Z",
       "fingerprint": "94e7424b0e15c0915e0d862db1151905b15d804c5b9a07b443e26c7f3cf2ff0b",
       "apis": [
         {
@@ -1667,8 +1667,8 @@
           "end_line": 488
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:24:09.512Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.863Z",
       "fingerprint": "ede0832a0dde4d3316920c9c7478bf1ed1f2e4eef00e237dbfe482ae2eac46fd",
       "apis": [
         {
@@ -1766,8 +1766,8 @@
           "end_line": 49
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.257Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.867Z",
       "fingerprint": "5c142f296dc1f27d011aacdd89c2945020b40128c39c6210c3507cc36f43001a",
       "apis": [
         {
@@ -1828,8 +1828,8 @@
           "end_line": 505
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.257Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.867Z",
       "fingerprint": "ede0832a0dde4d3316920c9c7478bf1ed1f2e4eef00e237dbfe482ae2eac46fd",
       "apis": [
         {
@@ -1924,8 +1924,8 @@
           "end_line": 410
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.257Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.868Z",
       "fingerprint": "ede0832a0dde4d3316920c9c7478bf1ed1f2e4eef00e237dbfe482ae2eac46fd",
       "apis": [
         {
@@ -1997,8 +1997,8 @@
           "end_line": 529
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.258Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.868Z",
       "fingerprint": "ede0832a0dde4d3316920c9c7478bf1ed1f2e4eef00e237dbfe482ae2eac46fd",
       "apis": [
         {
@@ -2136,8 +2136,8 @@
           "end_line": 510
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.258Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.868Z",
       "fingerprint": "ede0832a0dde4d3316920c9c7478bf1ed1f2e4eef00e237dbfe482ae2eac46fd",
       "apis": [
         {
@@ -2236,8 +2236,8 @@
           "end_line": 410
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:24:09.513Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.869Z",
       "fingerprint": "ede0832a0dde4d3316920c9c7478bf1ed1f2e4eef00e237dbfe482ae2eac46fd",
       "apis": [
         {
@@ -2363,8 +2363,8 @@
           "path": "src/avatar.js"
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.262Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.873Z",
       "fingerprint": "d3259fdf646e2a782ef32f0faf0d1665902e7d44931d76121449baca01a41a69",
       "deps": [
         {
@@ -2405,9 +2405,9 @@
         }
       ],
       "aggregate": {
-        "descendant_count": 18,
+        "descendant_count": 19,
         "own_api_count": 0,
-        "inherited_api_count": 35,
+        "inherited_api_count": 37,
         "dep_out": 4,
         "dep_in": 1
       }
@@ -2431,8 +2431,8 @@
           "path": "src/avatar.js"
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.259Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.869Z",
       "fingerprint": "9c82f0c327f3c92532f71d77be46f8fd3d1af9de54ad3726e629b785579a9c08",
       "deps": [
         {
@@ -2492,8 +2492,8 @@
           "end_line": 211
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.259Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.870Z",
       "fingerprint": "9c82f0c327f3c92532f71d77be46f8fd3d1af9de54ad3726e629b785579a9c08",
       "apis": [
         {
@@ -2573,8 +2573,8 @@
           "end_line": 87
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.259Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.870Z",
       "fingerprint": "9c82f0c327f3c92532f71d77be46f8fd3d1af9de54ad3726e629b785579a9c08",
       "apis": [
         {
@@ -2643,8 +2643,8 @@
           "end_line": 147
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.260Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.870Z",
       "fingerprint": "9c82f0c327f3c92532f71d77be46f8fd3d1af9de54ad3726e629b785579a9c08",
       "apis": [
         {
@@ -2733,8 +2733,8 @@
           "end_line": 79
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.260Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.871Z",
       "fingerprint": "2b4fcd3f009ec0862a89d04614a2639dcc9a983d5193dbb63593c9c335e76469",
       "apis": [
         {
@@ -2807,8 +2807,8 @@
           "path": "src/filelog.js"
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.264Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.875Z",
       "fingerprint": "1a1d0fd4801585a2fb0ab735b32aea03de0e2b93bb76047fe65d6bc0adb6f4ac",
       "deps": [
         {
@@ -2868,8 +2868,8 @@
           "end_line": 280
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.262Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.874Z",
       "fingerprint": "332fa6faeab819a79e7c3ed0c5e6120783ceeee315e1eeca6fc75daf3bc1eaf8",
       "aggregate": {
         "descendant_count": 4,
@@ -2900,8 +2900,8 @@
           "end_line": 161
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.262Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.873Z",
       "fingerprint": "332fa6faeab819a79e7c3ed0c5e6120783ceeee315e1eeca6fc75daf3bc1eaf8",
       "apis": [
         {
@@ -2943,8 +2943,8 @@
           "end_line": 235
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.262Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.874Z",
       "fingerprint": "332fa6faeab819a79e7c3ed0c5e6120783ceeee315e1eeca6fc75daf3bc1eaf8",
       "apis": [
         {
@@ -2996,8 +2996,8 @@
           "end_line": 277
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.263Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.874Z",
       "fingerprint": "332fa6faeab819a79e7c3ed0c5e6120783ceeee315e1eeca6fc75daf3bc1eaf8",
       "apis": [
         {
@@ -3057,8 +3057,8 @@
           "end_line": 264
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.263Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.874Z",
       "fingerprint": "332fa6faeab819a79e7c3ed0c5e6120783ceeee315e1eeca6fc75daf3bc1eaf8",
       "apis": [
         {
@@ -3120,8 +3120,8 @@
           "end_line": 91
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.264Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.876Z",
       "fingerprint": "dad346d151126757bfecb58b1aa65eee4ff6241bcf1640ee751c8b7a54d6d9ca",
       "apis": [
         {
@@ -3201,8 +3201,8 @@
           "end_line": 74
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.265Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.876Z",
       "fingerprint": "320d1c9498f6ca37a95120a4a4446298eaf407d3bee5580057965efb7ef08f35",
       "apis": [
         {
@@ -3271,8 +3271,8 @@
           "end_line": 9
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.265Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.876Z",
       "fingerprint": "dad346d151126757bfecb58b1aa65eee4ff6241bcf1640ee751c8b7a54d6d9ca",
       "apis": [
         {
@@ -3312,8 +3312,8 @@
           "path": "src/util.js"
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:24:09.512Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:59:42.577Z",
       "fingerprint": "dad346d151126757bfecb58b1aa65eee4ff6241bcf1640ee751c8b7a54d6d9ca",
       "deps": [
         {
@@ -3336,9 +3336,9 @@
         }
       ],
       "aggregate": {
-        "descendant_count": 3,
+        "descendant_count": 4,
         "own_api_count": 0,
-        "inherited_api_count": 4,
+        "inherited_api_count": 6,
         "dep_out": 2,
         "dep_in": 1
       }
@@ -3368,18 +3368,18 @@
           "end_line": 54
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:24:09.511Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:59:42.577Z",
       "fingerprint": "dad346d151126757bfecb58b1aa65eee4ff6241bcf1640ee751c8b7a54d6d9ca",
       "apis": [
         {
           "protocol": "rpc",
-          "path": "rpc:avatarFields(u)",
+          "path": "avatarFields(u)",
           "description": {
             "zh": "把 VRChat user 对象映射成本项目唯一的头像字段。\n",
             "en": "Map a VRChat user object onto this project's single avatar field.\n"
           },
-          "key": "rpc:rpc:avatarFields(u)"
+          "key": "rpc:avatarFields(u)"
         }
       ],
       "aggregate": {
@@ -3411,8 +3411,8 @@
           "end_line": 104
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.265Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.877Z",
       "fingerprint": "dad346d151126757bfecb58b1aa65eee4ff6241bcf1640ee751c8b7a54d6d9ca",
       "apis": [
         {
@@ -3454,8 +3454,8 @@
           "end_line": 36
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.266Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.877Z",
       "fingerprint": "dad346d151126757bfecb58b1aa65eee4ff6241bcf1640ee751c8b7a54d6d9ca",
       "apis": [
         {
@@ -3485,6 +3485,60 @@
         "dep_in": 1
       }
     },
+    "vrcnotifier.infra.util.version": {
+      "uid": "a5c7e19b",
+      "id": "vrcnotifier.infra.util.version",
+      "parent": "vrcnotifier.infra.util",
+      "tree": "vrcnotifier",
+      "depth": 4,
+      "tags": [
+        "release",
+        "versioning"
+      ],
+      "name": {
+        "zh": "版本号",
+        "en": "Version Numbers"
+      },
+      "description": {
+        "zh": "版本号的唯一决定处。约定 git tag 是唯一真相：发版流水线取形如 v<主>.<次>.<补丁> 的最高 tag 做 patch 自增（想提 minor 就自己打个 tag，之后继续自增），并把该版本作为 APP_VERSION 注入镜像，于是 /api/config 报的版本 == git tag == Docker tag。\n",
+        "en": "The single place that decides version numbers. Git tags are the source of truth: the release workflow bumps the patch of the highest v<major>.<minor>.<patch> tag (bump minor by hand and auto-increment continues from there), and injects that version into the image as APP_VERSION, so the version reported by /api/config equals the git tag equals the Docker tag.\n"
+      },
+      "source": [
+        {
+          "path": "src/version.js"
+        }
+      ],
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:59:42.575Z",
+      "fingerprint": "138ddedacf8810be5c35405cb5cdc5adb13e2f804028ca2e01e02cc6da5f01a8",
+      "apis": [
+        {
+          "protocol": "rpc",
+          "path": "nextVersion(tagNames, baseVersion)",
+          "description": {
+            "zh": "从已有 tag 名算出下一个 patch 版本，非 v<数字>.<数字>.<数字> 形态的一律忽略。\n",
+            "en": "Compute the next patch version from the existing tag names, ignoring anything that is not v<major>.<minor>.<patch>.\n"
+          },
+          "key": "rpc:nextVersion(tagNames, baseVersion)"
+        },
+        {
+          "protocol": "rpc",
+          "path": "currentVersion(env)",
+          "description": {
+            "zh": "本构建对外报的版本：镜像构建时注入的 APP_VERSION 优先，否则用 package.json。\n",
+            "en": "The version this build reports: APP_VERSION when injected at image build time, otherwise package.json.\n"
+          },
+          "key": "rpc:currentVersion(env)"
+        }
+      ],
+      "aggregate": {
+        "descendant_count": 0,
+        "own_api_count": 2,
+        "inherited_api_count": 0,
+        "dep_out": 0,
+        "dep_in": 1
+      }
+    },
     "vrcnotifier.monitor": {
       "uid": "cb383a2d",
       "id": "vrcnotifier.monitor",
@@ -3504,8 +3558,8 @@
           "path": "src/monitor.js"
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.267Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.879Z",
       "fingerprint": "d2c0c0283691b2039e943a7dc58698aefb974e2411815468321d3d2cab21798a",
       "deps": [
         {
@@ -3606,8 +3660,8 @@
           "end_line": 1106
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.266Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.878Z",
       "fingerprint": "d2c0c0283691b2039e943a7dc58698aefb974e2411815468321d3d2cab21798a",
       "apis": [
         {
@@ -3687,8 +3741,8 @@
           "end_line": 194
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.267Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.879Z",
       "fingerprint": "d2c0c0283691b2039e943a7dc58698aefb974e2411815468321d3d2cab21798a",
       "apis": [
         {
@@ -3777,8 +3831,8 @@
           "end_line": 301
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.267Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.879Z",
       "fingerprint": "d2c0c0283691b2039e943a7dc58698aefb974e2411815468321d3d2cab21798a",
       "apis": [
         {
@@ -3847,8 +3901,8 @@
           "path": "src/monitor.js"
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.268Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.881Z",
       "fingerprint": "d2c0c0283691b2039e943a7dc58698aefb974e2411815468321d3d2cab21798a",
       "deps": [
         {
@@ -3917,8 +3971,8 @@
           "end_line": 327
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.268Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.880Z",
       "fingerprint": "d2c0c0283691b2039e943a7dc58698aefb974e2411815468321d3d2cab21798a",
       "apis": [
         {
@@ -3989,8 +4043,8 @@
           "end_line": 482
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.268Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.880Z",
       "fingerprint": "d2c0c0283691b2039e943a7dc58698aefb974e2411815468321d3d2cab21798a",
       "apis": [
         {
@@ -4052,8 +4106,8 @@
           "end_line": 447
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.269Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.881Z",
       "fingerprint": "d2c0c0283691b2039e943a7dc58698aefb974e2411815468321d3d2cab21798a",
       "apis": [
         {
@@ -4149,8 +4203,8 @@
           "path": "src/monitor.js"
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.270Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.882Z",
       "fingerprint": "d2c0c0283691b2039e943a7dc58698aefb974e2411815468321d3d2cab21798a",
       "deps": [
         {
@@ -4242,8 +4296,8 @@
           "end_line": 832
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.269Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.881Z",
       "fingerprint": "d2c0c0283691b2039e943a7dc58698aefb974e2411815468321d3d2cab21798a",
       "apis": [
         {
@@ -4319,8 +4373,8 @@
           "end_line": 810
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:24:09.513Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.882Z",
       "fingerprint": "d2c0c0283691b2039e943a7dc58698aefb974e2411815468321d3d2cab21798a",
       "apis": [
         {
@@ -4454,8 +4508,8 @@
           "end_line": 667
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.270Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.882Z",
       "fingerprint": "d2c0c0283691b2039e943a7dc58698aefb974e2411815468321d3d2cab21798a",
       "apis": [
         {
@@ -4508,8 +4562,8 @@
           "end_line": 787
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.271Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.883Z",
       "fingerprint": "d2c0c0283691b2039e943a7dc58698aefb974e2411815468321d3d2cab21798a",
       "apis": [
         {
@@ -4589,8 +4643,8 @@
           "end_line": 229
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.271Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.883Z",
       "fingerprint": "d2c0c0283691b2039e943a7dc58698aefb974e2411815468321d3d2cab21798a",
       "apis": [
         {
@@ -4713,8 +4767,8 @@
           "path": "src/monitor.js"
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.272Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.884Z",
       "fingerprint": "d2c0c0283691b2039e943a7dc58698aefb974e2411815468321d3d2cab21798a",
       "deps": [
         {
@@ -4774,8 +4828,8 @@
           "end_line": 853
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.271Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.884Z",
       "fingerprint": "d2c0c0283691b2039e943a7dc58698aefb974e2411815468321d3d2cab21798a",
       "apis": [
         {
@@ -4822,8 +4876,8 @@
           "end_line": 975
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.272Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.884Z",
       "fingerprint": "d2c0c0283691b2039e943a7dc58698aefb974e2411815468321d3d2cab21798a",
       "apis": [
         {
@@ -4865,8 +4919,8 @@
           "end_line": 1056
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.272Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.885Z",
       "fingerprint": "d2c0c0283691b2039e943a7dc58698aefb974e2411815468321d3d2cab21798a",
       "apis": [
         {
@@ -4962,8 +5016,8 @@
           "path": "src/monitor.js"
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.273Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.886Z",
       "fingerprint": "d2c0c0283691b2039e943a7dc58698aefb974e2411815468321d3d2cab21798a",
       "deps": [
         {
@@ -5032,8 +5086,8 @@
           "end_line": 619
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:24:09.513Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.885Z",
       "fingerprint": "d2c0c0283691b2039e943a7dc58698aefb974e2411815468321d3d2cab21798a",
       "apis": [
         {
@@ -5113,8 +5167,8 @@
           "end_line": 573
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.273Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.886Z",
       "fingerprint": "d2c0c0283691b2039e943a7dc58698aefb974e2411815468321d3d2cab21798a",
       "apis": [
         {
@@ -5203,8 +5257,8 @@
           "end_line": 658
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.274Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.886Z",
       "fingerprint": "d2c0c0283691b2039e943a7dc58698aefb974e2411815468321d3d2cab21798a",
       "apis": [
         {
@@ -5266,8 +5320,8 @@
           "end_line": 1098
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.274Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.887Z",
       "fingerprint": "d2c0c0283691b2039e943a7dc58698aefb974e2411815468321d3d2cab21798a",
       "apis": [
         {
@@ -5356,8 +5410,8 @@
           "end_line": 1070
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.274Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.887Z",
       "fingerprint": "d2c0c0283691b2039e943a7dc58698aefb974e2411815468321d3d2cab21798a",
       "apis": [
         {
@@ -5410,8 +5464,8 @@
           "end_line": 247
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.275Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.887Z",
       "fingerprint": "d2c0c0283691b2039e943a7dc58698aefb974e2411815468321d3d2cab21798a",
       "apis": [
         {
@@ -5489,8 +5543,8 @@
           "path": "src/templates.js"
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.279Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.892Z",
       "fingerprint": "a7062d3ab86b06e87dece803a89437f40798c540c10c93596d055ef636885920",
       "deps": [
         {
@@ -5566,8 +5620,8 @@
           "path": "src/qq.js"
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.275Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.888Z",
       "fingerprint": "7094142f722e044697a2766956a9f4f48c08f4bd9cb1e41a940418989de21016",
       "deps": [
         {
@@ -5650,8 +5704,8 @@
           "end_line": 509
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.275Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.888Z",
       "fingerprint": "7094142f722e044697a2766956a9f4f48c08f4bd9cb1e41a940418989de21016",
       "apis": [
         {
@@ -5763,8 +5817,8 @@
           "end_line": 225
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.276Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.889Z",
       "fingerprint": "7094142f722e044697a2766956a9f4f48c08f4bd9cb1e41a940418989de21016",
       "apis": [
         {
@@ -5855,8 +5909,8 @@
           "end_line": 435
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.276Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.889Z",
       "fingerprint": "7094142f722e044697a2766956a9f4f48c08f4bd9cb1e41a940418989de21016",
       "apis": [
         {
@@ -5972,8 +6026,8 @@
           "end_line": 128
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.276Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.890Z",
       "fingerprint": "7094142f722e044697a2766956a9f4f48c08f4bd9cb1e41a940418989de21016",
       "apis": [
         {
@@ -6043,8 +6097,8 @@
           "path": "src/qq-commands.js"
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.277Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.890Z",
       "fingerprint": "652d724595a7f9952f451e353502dd7ab8b39d064c1b32db4ce6ed02cec64d20",
       "deps": [
         {
@@ -6100,8 +6154,8 @@
           "end_line": 118
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.277Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.890Z",
       "fingerprint": "652d724595a7f9952f451e353502dd7ab8b39d064c1b32db4ce6ed02cec64d20",
       "apis": [
         {
@@ -6190,8 +6244,8 @@
           "end_line": 58
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.278Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.891Z",
       "fingerprint": "652d724595a7f9952f451e353502dd7ab8b39d064c1b32db4ce6ed02cec64d20",
       "apis": [
         {
@@ -6251,8 +6305,8 @@
           "end_line": 69
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.279Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.893Z",
       "fingerprint": "0ed32c13ab7327b4479d8267b8a441440778a3908f41b102927015c69bb3b051",
       "apis": [
         {
@@ -6357,8 +6411,8 @@
           "path": "src/templates.js"
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.279Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.893Z",
       "fingerprint": "883db5c48ad541745ac77c62cb229bdaa5bab2bb5cdba1945ffc08164b19eb6e",
       "deps": [
         {
@@ -6418,8 +6472,8 @@
           "end_line": 107
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.280Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.893Z",
       "fingerprint": "883db5c48ad541745ac77c62cb229bdaa5bab2bb5cdba1945ffc08164b19eb6e",
       "apis": [
         {
@@ -6499,8 +6553,8 @@
           "end_line": 88
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.280Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.894Z",
       "fingerprint": "883db5c48ad541745ac77c62cb229bdaa5bab2bb5cdba1945ffc08164b19eb6e",
       "apis": [
         {
@@ -6567,9 +6621,9 @@
           "path": "src/server.js"
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.284Z",
-      "fingerprint": "0b01f6faa64e00266c421863adc31d67ecfabe46ed5db86e0fd44a724e285305",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.899Z",
+      "fingerprint": "e5c1fac4c7d5710c916cfdaa1c8d26838639422ea3a597b32f6790a2b30d8674",
       "deps": [
         {
           "kind": "call",
@@ -6664,17 +6718,17 @@
           "end_line": 679
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.280Z",
-      "fingerprint": "0b01f6faa64e00266c421863adc31d67ecfabe46ed5db86e0fd44a724e285305",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:59:42.576Z",
+      "fingerprint": "e5c1fac4c7d5710c916cfdaa1c8d26838639422ea3a597b32f6790a2b30d8674",
       "apis": [
         {
           "protocol": "http",
           "method": "GET",
           "path": "/api/config",
           "description": {
-            "zh": "前端引导配置，无需令牌。\n",
-            "en": "Bootstrap configuration for the UI; no token required.\n"
+            "zh": "前端引导配置，无需令牌。同时报出本构建的版本号（镜像构建时注入的 APP_VERSION，否则用 package.json）。\n",
+            "en": "Bootstrap configuration for the UI; no token required. Reports the build version (APP_VERSION injected at image build time, else package.json).\n"
           },
           "key": "GET /api/config"
         },
@@ -6689,11 +6743,24 @@
           "key": "POST /api/access/verify"
         }
       ],
+      "deps": [
+        {
+          "kind": "call",
+          "to": "vrcnotifier.infra.util.version",
+          "from_api": "GET /api/config",
+          "to_api": "rpc:currentVersion(env)",
+          "label": {
+            "zh": "取版本号",
+            "en": "Read the build version"
+          },
+          "cross_tree": false
+        }
+      ],
       "aggregate": {
         "descendant_count": 0,
         "own_api_count": 2,
         "inherited_api_count": 0,
-        "dep_out": 0,
+        "dep_out": 1,
         "dep_in": 0
       }
     },
@@ -6716,9 +6783,9 @@
           "path": "src/server.js"
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.281Z",
-      "fingerprint": "0b01f6faa64e00266c421863adc31d67ecfabe46ed5db86e0fd44a724e285305",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.895Z",
+      "fingerprint": "e5c1fac4c7d5710c916cfdaa1c8d26838639422ea3a597b32f6790a2b30d8674",
       "deps": [
         {
           "kind": "call",
@@ -6786,9 +6853,9 @@
           "end_line": 352
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.281Z",
-      "fingerprint": "0b01f6faa64e00266c421863adc31d67ecfabe46ed5db86e0fd44a724e285305",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.895Z",
+      "fingerprint": "e5c1fac4c7d5710c916cfdaa1c8d26838639422ea3a597b32f6790a2b30d8674",
       "apis": [
         {
           "protocol": "rpc",
@@ -6935,9 +7002,9 @@
           "end_line": 739
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.281Z",
-      "fingerprint": "0b01f6faa64e00266c421863adc31d67ecfabe46ed5db86e0fd44a724e285305",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.896Z",
+      "fingerprint": "e5c1fac4c7d5710c916cfdaa1c8d26838639422ea3a597b32f6790a2b30d8674",
       "apis": [
         {
           "protocol": "http",
@@ -7006,9 +7073,9 @@
           "path": "src/server.js"
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.282Z",
-      "fingerprint": "0b01f6faa64e00266c421863adc31d67ecfabe46ed5db86e0fd44a724e285305",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.896Z",
+      "fingerprint": "e5c1fac4c7d5710c916cfdaa1c8d26838639422ea3a597b32f6790a2b30d8674",
       "deps": [
         {
           "kind": "call",
@@ -7068,9 +7135,9 @@
           "end_line": 475
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.282Z",
-      "fingerprint": "0b01f6faa64e00266c421863adc31d67ecfabe46ed5db86e0fd44a724e285305",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.896Z",
+      "fingerprint": "e5c1fac4c7d5710c916cfdaa1c8d26838639422ea3a597b32f6790a2b30d8674",
       "apis": [
         {
           "protocol": "rpc",
@@ -7181,9 +7248,9 @@
           "end_line": 791
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.282Z",
-      "fingerprint": "0b01f6faa64e00266c421863adc31d67ecfabe46ed5db86e0fd44a724e285305",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.897Z",
+      "fingerprint": "e5c1fac4c7d5710c916cfdaa1c8d26838639422ea3a597b32f6790a2b30d8674",
       "apis": [
         {
           "protocol": "rpc",
@@ -7295,9 +7362,9 @@
           "end_line": 853
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.283Z",
-      "fingerprint": "0b01f6faa64e00266c421863adc31d67ecfabe46ed5db86e0fd44a724e285305",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.897Z",
+      "fingerprint": "e5c1fac4c7d5710c916cfdaa1c8d26838639422ea3a597b32f6790a2b30d8674",
       "apis": [
         {
           "protocol": "rpc",
@@ -7415,9 +7482,9 @@
           "end_line": 777
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.283Z",
-      "fingerprint": "0b01f6faa64e00266c421863adc31d67ecfabe46ed5db86e0fd44a724e285305",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.898Z",
+      "fingerprint": "e5c1fac4c7d5710c916cfdaa1c8d26838639422ea3a597b32f6790a2b30d8674",
       "apis": [
         {
           "protocol": "http",
@@ -7479,9 +7546,9 @@
           "end_line": 894
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.283Z",
-      "fingerprint": "0b01f6faa64e00266c421863adc31d67ecfabe46ed5db86e0fd44a724e285305",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.898Z",
+      "fingerprint": "e5c1fac4c7d5710c916cfdaa1c8d26838639422ea3a597b32f6790a2b30d8674",
       "apis": [
         {
           "protocol": "http",
@@ -7548,9 +7615,9 @@
           "end_line": 909
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.284Z",
-      "fingerprint": "0b01f6faa64e00266c421863adc31d67ecfabe46ed5db86e0fd44a724e285305",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.898Z",
+      "fingerprint": "e5c1fac4c7d5710c916cfdaa1c8d26838639422ea3a597b32f6790a2b30d8674",
       "apis": [
         {
           "protocol": "http",
@@ -7629,9 +7696,9 @@
           "path": "src/server.js"
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.285Z",
-      "fingerprint": "0b01f6faa64e00266c421863adc31d67ecfabe46ed5db86e0fd44a724e285305",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.900Z",
+      "fingerprint": "e5c1fac4c7d5710c916cfdaa1c8d26838639422ea3a597b32f6790a2b30d8674",
       "deps": [
         {
           "kind": "call",
@@ -7681,9 +7748,9 @@
           "end_line": 32
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.284Z",
-      "fingerprint": "0b01f6faa64e00266c421863adc31d67ecfabe46ed5db86e0fd44a724e285305",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.899Z",
+      "fingerprint": "e5c1fac4c7d5710c916cfdaa1c8d26838639422ea3a597b32f6790a2b30d8674",
       "apis": [
         {
           "protocol": "rpc",
@@ -7733,9 +7800,9 @@
           "end_line": 1042
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.285Z",
-      "fingerprint": "0b01f6faa64e00266c421863adc31d67ecfabe46ed5db86e0fd44a724e285305",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.900Z",
+      "fingerprint": "e5c1fac4c7d5710c916cfdaa1c8d26838639422ea3a597b32f6790a2b30d8674",
       "apis": [
         {
           "protocol": "http",
@@ -7813,9 +7880,9 @@
           "path": "src/server.js"
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.286Z",
-      "fingerprint": "0b01f6faa64e00266c421863adc31d67ecfabe46ed5db86e0fd44a724e285305",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.901Z",
+      "fingerprint": "e5c1fac4c7d5710c916cfdaa1c8d26838639422ea3a597b32f6790a2b30d8674",
       "aggregate": {
         "descendant_count": 3,
         "own_api_count": 0,
@@ -7850,9 +7917,9 @@
           "end_line": 657
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.285Z",
-      "fingerprint": "0b01f6faa64e00266c421863adc31d67ecfabe46ed5db86e0fd44a724e285305",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.901Z",
+      "fingerprint": "e5c1fac4c7d5710c916cfdaa1c8d26838639422ea3a597b32f6790a2b30d8674",
       "apis": [
         {
           "protocol": "rpc",
@@ -7902,9 +7969,9 @@
           "end_line": 1074
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.286Z",
-      "fingerprint": "0b01f6faa64e00266c421863adc31d67ecfabe46ed5db86e0fd44a724e285305",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.901Z",
+      "fingerprint": "e5c1fac4c7d5710c916cfdaa1c8d26838639422ea3a597b32f6790a2b30d8674",
       "apis": [
         {
           "protocol": "rpc",
@@ -7945,9 +8012,9 @@
           "end_line": 640
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.286Z",
-      "fingerprint": "0b01f6faa64e00266c421863adc31d67ecfabe46ed5db86e0fd44a724e285305",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.902Z",
+      "fingerprint": "e5c1fac4c7d5710c916cfdaa1c8d26838639422ea3a597b32f6790a2b30d8674",
       "apis": [
         {
           "protocol": "rpc",
@@ -8002,9 +8069,9 @@
           "end_line": 1003
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.287Z",
-      "fingerprint": "0b01f6faa64e00266c421863adc31d67ecfabe46ed5db86e0fd44a724e285305",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.902Z",
+      "fingerprint": "e5c1fac4c7d5710c916cfdaa1c8d26838639422ea3a597b32f6790a2b30d8674",
       "apis": [
         {
           "protocol": "http",
@@ -8081,9 +8148,9 @@
           "end_line": 1076
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.287Z",
-      "fingerprint": "0b01f6faa64e00266c421863adc31d67ecfabe46ed5db86e0fd44a724e285305",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.903Z",
+      "fingerprint": "e5c1fac4c7d5710c916cfdaa1c8d26838639422ea3a597b32f6790a2b30d8674",
       "apis": [
         {
           "protocol": "rpc",
@@ -8138,81 +8205,81 @@
           "end_line": 148
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:24:09.512Z",
-      "fingerprint": "0b01f6faa64e00266c421863adc31d67ecfabe46ed5db86e0fd44a724e285305",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:59:42.577Z",
+      "fingerprint": "e5c1fac4c7d5710c916cfdaa1c8d26838639422ea3a597b32f6790a2b30d8674",
       "apis": [
         {
           "protocol": "rpc",
-          "path": "rpc:friendRow(f)",
+          "path": "friendRow(f)",
           "description": {
             "zh": "为好友行补充 world_name/avatarKey/逐好友配置；avatarKey 由 avatar_url 换算。\n",
             "en": "Attach world_name, avatarKey and per-friend config to a friend row.\n"
           },
-          "key": "rpc:rpc:friendRow(f)"
+          "key": "rpc:friendRow(f)"
         },
         {
           "protocol": "rpc",
-          "path": "rpc:selfUserForClient(row)",
+          "path": "selfUserForClient(row)",
           "description": {
             "zh": "序列化当前用户（含头像 key 与世界名）。\n",
             "en": "Serialize the current user with avatar key and world name.\n"
           },
-          "key": "rpc:rpc:selfUserForClient(row)"
+          "key": "rpc:selfUserForClient(row)"
         },
         {
           "protocol": "rpc",
-          "path": "rpc:maskUser(row)",
+          "path": "maskUser(row)",
           "description": {
             "zh": "从用户行中移除 cookie 与密码。\n",
             "en": "Drop cookie data and password from a user row.\n"
           },
-          "key": "rpc:rpc:maskUser(row)"
+          "key": "rpc:maskUser(row)"
         },
         {
           "protocol": "rpc",
-          "path": "rpc:maskSettings(row)",
+          "path": "maskSettings(row)",
           "description": {
             "zh": "把设置里的密钥字段加星号。\n",
             "en": "Mask secret settings fields.\n"
           },
-          "key": "rpc:rpc:maskSettings(row)"
+          "key": "rpc:maskSettings(row)"
         },
         {
           "protocol": "rpc",
-          "path": "rpc:maskOut(line)",
+          "path": "maskOut(line)",
           "description": {
             "zh": "把要发出去的文本里的访问令牌换成星号。\n",
             "en": "Replace the configured access token on outbound text.\n"
           },
-          "key": "rpc:rpc:maskOut(line)"
+          "key": "rpc:maskOut(line)"
         },
         {
           "protocol": "rpc",
-          "path": "rpc:worldNameOf(row)",
+          "path": "worldNameOf(row)",
           "description": {
             "zh": "用缓存同步补世界名，不发请求。\n",
             "en": "Read a cached world name without issuing a request.\n"
           },
-          "key": "rpc:rpc:worldNameOf(row)"
+          "key": "rpc:worldNameOf(row)"
         },
         {
           "protocol": "rpc",
-          "path": "rpc:kickWorldNames(rows)",
+          "path": "kickWorldNames(rows)",
           "description": {
             "zh": "为一批行触发后台世界名查询。\n",
             "en": "Kick background world-name lookups for a batch of rows.\n"
           },
-          "key": "rpc:rpc:kickWorldNames(rows)"
+          "key": "rpc:kickWorldNames(rows)"
         },
         {
           "protocol": "rpc",
-          "path": "rpc:configOf(f)",
+          "path": "configOf(f)",
           "description": {
             "zh": "把逐好友通知开关还原成嵌套 config 形状。\n",
             "en": "Project per-friend notification flags into the nested config shape.\n"
           },
-          "key": "rpc:rpc:configOf(f)"
+          "key": "rpc:configOf(f)"
         }
       ],
       "deps": [
@@ -8264,9 +8331,9 @@
           "end_line": 936
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.288Z",
-      "fingerprint": "0b01f6faa64e00266c421863adc31d67ecfabe46ed5db86e0fd44a724e285305",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.904Z",
+      "fingerprint": "e5c1fac4c7d5710c916cfdaa1c8d26838639422ea3a597b32f6790a2b30d8674",
       "apis": [
         {
           "protocol": "http",
@@ -8345,9 +8412,9 @@
           "path": "src/server.js"
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.289Z",
-      "fingerprint": "0b01f6faa64e00266c421863adc31d67ecfabe46ed5db86e0fd44a724e285305",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.906Z",
+      "fingerprint": "e5c1fac4c7d5710c916cfdaa1c8d26838639422ea3a597b32f6790a2b30d8674",
       "aggregate": {
         "descendant_count": 3,
         "own_api_count": 0,
@@ -8382,9 +8449,9 @@
           "end_line": 170
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.288Z",
-      "fingerprint": "0b01f6faa64e00266c421863adc31d67ecfabe46ed5db86e0fd44a724e285305",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.904Z",
+      "fingerprint": "e5c1fac4c7d5710c916cfdaa1c8d26838639422ea3a597b32f6790a2b30d8674",
       "apis": [
         {
           "protocol": "rpc",
@@ -8459,9 +8526,9 @@
           "end_line": 629
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.288Z",
-      "fingerprint": "0b01f6faa64e00266c421863adc31d67ecfabe46ed5db86e0fd44a724e285305",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.905Z",
+      "fingerprint": "e5c1fac4c7d5710c916cfdaa1c8d26838639422ea3a597b32f6790a2b30d8674",
       "apis": [
         {
           "protocol": "rpc",
@@ -8531,9 +8598,9 @@
           "end_line": 1061
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.289Z",
-      "fingerprint": "0b01f6faa64e00266c421863adc31d67ecfabe46ed5db86e0fd44a724e285305",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.905Z",
+      "fingerprint": "e5c1fac4c7d5710c916cfdaa1c8d26838639422ea3a597b32f6790a2b30d8674",
       "apis": [
         {
           "protocol": "http",
@@ -8586,9 +8653,9 @@
           "end_line": 1067
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.289Z",
-      "fingerprint": "0b01f6faa64e00266c421863adc31d67ecfabe46ed5db86e0fd44a724e285305",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.906Z",
+      "fingerprint": "e5c1fac4c7d5710c916cfdaa1c8d26838639422ea3a597b32f6790a2b30d8674",
       "apis": [
         {
           "protocol": "http",
@@ -8646,9 +8713,9 @@
           "end_line": 986
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.290Z",
-      "fingerprint": "0b01f6faa64e00266c421863adc31d67ecfabe46ed5db86e0fd44a724e285305",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.907Z",
+      "fingerprint": "e5c1fac4c7d5710c916cfdaa1c8d26838639422ea3a597b32f6790a2b30d8674",
       "apis": [
         {
           "protocol": "rpc",
@@ -8789,8 +8856,8 @@
           "path": "src/health.js"
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.293Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.912Z",
       "fingerprint": "a346fcd7b99b0a43e403b008755c9765cc91b4bdc8311093ffc3dd7845ec8127",
       "aggregate": {
         "descendant_count": 17,
@@ -8819,8 +8886,8 @@
           "path": "src/vrcapi.js"
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.290Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.908Z",
       "fingerprint": "41550317630bd0c2e6ca7b19edbe553bad6fd8b8e48ed4f731379e1a8333b2ec",
       "deps": [
         {
@@ -8862,8 +8929,8 @@
           "end_line": 146
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.290Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.907Z",
       "fingerprint": "41550317630bd0c2e6ca7b19edbe553bad6fd8b8e48ed4f731379e1a8333b2ec",
       "apis": [
         {
@@ -8952,8 +9019,8 @@
           "end_line": 182
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.291Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.908Z",
       "fingerprint": "41550317630bd0c2e6ca7b19edbe553bad6fd8b8e48ed4f731379e1a8333b2ec",
       "apis": [
         {
@@ -9038,8 +9105,8 @@
           "end_line": 193
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.291Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.908Z",
       "fingerprint": "41550317630bd0c2e6ca7b19edbe553bad6fd8b8e48ed4f731379e1a8333b2ec",
       "apis": [
         {
@@ -9119,8 +9186,8 @@
           "end_line": 97
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.291Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.909Z",
       "fingerprint": "39e1c54bde1e9cae990ba67572bb451343b4bdfc4d83e99f97083f5afa2673ad",
       "apis": [
         {
@@ -9189,8 +9256,8 @@
           "end_line": 105
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.292Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.910Z",
       "fingerprint": "09ea61db0463d2223bf23136d2210cdfd0f60a744385c3d523d27d211000db21",
       "apis": [
         {
@@ -9257,8 +9324,8 @@
           "path": "src/pipeline.js"
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.294Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.914Z",
       "fingerprint": "fcec1a31e9954f30b8b2af8101c21e657a5bb6faf7760f9cd5cc6094782be79e",
       "deps": [
         {
@@ -9314,8 +9381,8 @@
           "end_line": 263
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.293Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.912Z",
       "fingerprint": "fcec1a31e9954f30b8b2af8101c21e657a5bb6faf7760f9cd5cc6094782be79e",
       "apis": [
         {
@@ -9409,8 +9476,8 @@
           "end_line": 274
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.294Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.913Z",
       "fingerprint": "fcec1a31e9954f30b8b2af8101c21e657a5bb6faf7760f9cd5cc6094782be79e",
       "apis": [
         {
@@ -9513,8 +9580,8 @@
           "end_line": 213
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.294Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.913Z",
       "fingerprint": "fcec1a31e9954f30b8b2af8101c21e657a5bb6faf7760f9cd5cc6094782be79e",
       "apis": [
         {
@@ -9574,8 +9641,8 @@
           "end_line": 54
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.295Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.914Z",
       "fingerprint": "fcec1a31e9954f30b8b2af8101c21e657a5bb6faf7760f9cd5cc6094782be79e",
       "apis": [
         {
@@ -9626,8 +9693,8 @@
           "end_line": 104
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.295Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.914Z",
       "fingerprint": "a019a350767dacc7c04b88e0ea35383ccdc4fbd187398d599cc14b2762a69c01",
       "apis": [
         {
@@ -9667,8 +9734,8 @@
           "path": "src/world.js"
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.296Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.915Z",
       "fingerprint": "a27d6e390af2c711d653bf972b2aa6d291b709f0c609f79a7a75933b50146777",
       "deps": [
         {
@@ -9733,8 +9800,8 @@
           "end_line": 284
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.295Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.915Z",
       "fingerprint": "a27d6e390af2c711d653bf972b2aa6d291b709f0c609f79a7a75933b50146777",
       "apis": [
         {
@@ -9823,8 +9890,8 @@
           "end_line": 246
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.296Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.915Z",
       "fingerprint": "a27d6e390af2c711d653bf972b2aa6d291b709f0c609f79a7a75933b50146777",
       "apis": [
         {
@@ -9904,8 +9971,8 @@
           "end_line": 121
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.296Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.916Z",
       "fingerprint": "a27d6e390af2c711d653bf972b2aa6d291b709f0c609f79a7a75933b50146777",
       "apis": [
         {
@@ -9956,8 +10023,8 @@
           "end_line": 65
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.297Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.916Z",
       "fingerprint": "a27d6e390af2c711d653bf972b2aa6d291b709f0c609f79a7a75933b50146777",
       "apis": [
         {
@@ -10012,8 +10079,8 @@
           "path": "public/vrclinks.js"
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.311Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.933Z",
       "fingerprint": "fd6f9f2531be0c603222c79d09d75f7265058dcf28ef4a0a941e11422c82ce94",
       "deps": [
         {
@@ -10062,8 +10129,8 @@
           "path": "public/app.js"
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.302Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.922Z",
       "fingerprint": "06609d43725c1483a940506f664ec39835212c390e7767362f17ac852efcc15d",
       "deps": [
         {
@@ -10182,8 +10249,8 @@
           "end_line": 341
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.298Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.917Z",
       "fingerprint": "06609d43725c1483a940506f664ec39835212c390e7767362f17ac852efcc15d",
       "apis": [
         {
@@ -10261,8 +10328,8 @@
           "path": "public/app.js"
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.299Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.918Z",
       "fingerprint": "06609d43725c1483a940506f664ec39835212c390e7767362f17ac852efcc15d",
       "deps": [
         {
@@ -10336,8 +10403,8 @@
           "end_line": 956
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.298Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.918Z",
       "fingerprint": "06609d43725c1483a940506f664ec39835212c390e7767362f17ac852efcc15d",
       "apis": [
         {
@@ -10397,8 +10464,8 @@
           "end_line": 859
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.298Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.918Z",
       "fingerprint": "06609d43725c1483a940506f664ec39835212c390e7767362f17ac852efcc15d",
       "apis": [
         {
@@ -10449,8 +10516,8 @@
           "end_line": 785
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.299Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.919Z",
       "fingerprint": "06609d43725c1483a940506f664ec39835212c390e7767362f17ac852efcc15d",
       "apis": [
         {
@@ -10525,8 +10592,8 @@
           "end_line": 967
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.300Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.919Z",
       "fingerprint": "06609d43725c1483a940506f664ec39835212c390e7767362f17ac852efcc15d",
       "apis": [
         {
@@ -10638,8 +10705,8 @@
           "end_line": 2367
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.300Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.920Z",
       "fingerprint": "06609d43725c1483a940506f664ec39835212c390e7767362f17ac852efcc15d",
       "apis": [
         {
@@ -10719,8 +10786,8 @@
           "end_line": 437
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.300Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.920Z",
       "fingerprint": "06609d43725c1483a940506f664ec39835212c390e7767362f17ac852efcc15d",
       "apis": [
         {
@@ -10791,8 +10858,8 @@
           "end_line": 2306
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.301Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.921Z",
       "fingerprint": "06609d43725c1483a940506f664ec39835212c390e7767362f17ac852efcc15d",
       "apis": [
         {
@@ -10843,8 +10910,8 @@
           "end_line": 1256
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.301Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.921Z",
       "fingerprint": "06609d43725c1483a940506f664ec39835212c390e7767362f17ac852efcc15d",
       "apis": [
         {
@@ -10915,8 +10982,8 @@
           "end_line": 1364
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.302Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.921Z",
       "fingerprint": "06609d43725c1483a940506f664ec39835212c390e7767362f17ac852efcc15d",
       "apis": [
         {
@@ -10978,8 +11045,8 @@
           "end_line": 1141
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.302Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.922Z",
       "fingerprint": "06609d43725c1483a940506f664ec39835212c390e7767362f17ac852efcc15d",
       "apis": [
         {
@@ -11050,8 +11117,8 @@
           "end_line": 326
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.303Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.923Z",
       "fingerprint": "06609d43725c1483a940506f664ec39835212c390e7767362f17ac852efcc15d",
       "apis": [
         {
@@ -11149,8 +11216,8 @@
           "end_line": 604
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.303Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.923Z",
       "fingerprint": "06609d43725c1483a940506f664ec39835212c390e7767362f17ac852efcc15d",
       "apis": [
         {
@@ -11257,8 +11324,8 @@
           "end_line": 1431
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.303Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.923Z",
       "fingerprint": "06609d43725c1483a940506f664ec39835212c390e7767362f17ac852efcc15d",
       "apis": [
         {
@@ -11338,8 +11405,8 @@
           "end_line": 1331
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.304Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.924Z",
       "fingerprint": "06609d43725c1483a940506f664ec39835212c390e7767362f17ac852efcc15d",
       "apis": [
         {
@@ -11410,8 +11477,8 @@
           "end_line": 1037
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.304Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.924Z",
       "fingerprint": "06609d43725c1483a940506f664ec39835212c390e7767362f17ac852efcc15d",
       "apis": [
         {
@@ -11491,8 +11558,8 @@
           "end_line": 1515
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.305Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.925Z",
       "fingerprint": "06609d43725c1483a940506f664ec39835212c390e7767362f17ac852efcc15d",
       "apis": [
         {
@@ -11579,8 +11646,8 @@
           "path": "public/app.js"
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.305Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.925Z",
       "fingerprint": "06609d43725c1483a940506f664ec39835212c390e7767362f17ac852efcc15d",
       "deps": [
         {
@@ -11640,8 +11707,8 @@
           "end_line": 2135
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.305Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.926Z",
       "fingerprint": "06609d43725c1483a940506f664ec39835212c390e7767362f17ac852efcc15d",
       "apis": [
         {
@@ -11703,8 +11770,8 @@
           "end_line": 2078
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.306Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.926Z",
       "fingerprint": "06609d43725c1483a940506f664ec39835212c390e7767362f17ac852efcc15d",
       "apis": [
         {
@@ -11775,8 +11842,8 @@
           "end_line": 2157
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.306Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.927Z",
       "fingerprint": "06609d43725c1483a940506f664ec39835212c390e7767362f17ac852efcc15d",
       "apis": [
         {
@@ -11838,8 +11905,8 @@
           "end_line": 2349
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.307Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.927Z",
       "fingerprint": "06609d43725c1483a940506f664ec39835212c390e7767362f17ac852efcc15d",
       "apis": [
         {
@@ -11890,8 +11957,8 @@
           "end_line": 2005
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.307Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.927Z",
       "fingerprint": "06609d43725c1483a940506f664ec39835212c390e7767362f17ac852efcc15d",
       "apis": [
         {
@@ -11989,8 +12056,8 @@
           "end_line": 1608
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.307Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.928Z",
       "fingerprint": "06609d43725c1483a940506f664ec39835212c390e7767362f17ac852efcc15d",
       "apis": [
         {
@@ -12068,8 +12135,8 @@
           "path": "public/app.js"
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.308Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.929Z",
       "fingerprint": "06609d43725c1483a940506f664ec39835212c390e7767362f17ac852efcc15d",
       "deps": [
         {
@@ -12125,8 +12192,8 @@
           "end_line": 1928
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.308Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.928Z",
       "fingerprint": "06609d43725c1483a940506f664ec39835212c390e7767362f17ac852efcc15d",
       "apis": [
         {
@@ -12206,8 +12273,8 @@
           "end_line": 1829
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.308Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.929Z",
       "fingerprint": "06609d43725c1483a940506f664ec39835212c390e7767362f17ac852efcc15d",
       "apis": [
         {
@@ -12276,8 +12343,8 @@
           "end_line": 30
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.311Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.933Z",
       "fingerprint": "460b15ef6d9cbc8053f581e474a5ad1c9e15ea4769edc72ba7438666fce2d73c",
       "apis": [
         {
@@ -12328,8 +12395,8 @@
           "end_line": 179
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.311Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.933Z",
       "fingerprint": "d1a019f2ed4563bc5f3e5b961e9f27b28ffa1fbe27d5dd7e97547e24ddfe21ef",
       "apis": [
         {
@@ -12399,8 +12466,8 @@
           "path": "public/app.css"
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.312Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.934Z",
       "fingerprint": "013937bce15bc7fb04ff150819e6b707aa06780133628194f8d0b6aee44f1a11",
       "apis": [
         {
@@ -12461,8 +12528,8 @@
           "end_line": 71
         }
       ],
-      "revision": "64a1a8c837de5d7fc9738124f5779478a2a90026",
-      "updated_at": "2026-09-17T12:23:49.312Z",
+      "revision": "1e6d2c26d295da7875c40ecbd1ba3f855df96a4c",
+      "updated_at": "2026-09-17T13:58:27.934Z",
       "fingerprint": "a50676b3f8998f22f106c1546f8905fd885241ea1be36f87ef3bcee0f90a696d",
       "apis": [
         {
@@ -12568,6 +12635,7 @@
     "rpc:attemptRequest(path, opts)": "vrcnotifier.vrc.api.transport",
     "rpc:authToken()": "vrcnotifier.vrc.api.auth",
     "rpc:autoLogin()": "vrcnotifier.server.runtime",
+    "rpc:avatarFields(u)": "vrcnotifier.infra.util.avatar-fields",
     "rpc:bindNotifyToggle(id, key)": "vrcnotifier.web.app.settings",
     "rpc:bindTest(kind, btnId)": "vrcnotifier.web.app.settings",
     "rpc:bootDone()": "vrcnotifier.web.app.boot.state-machine",
@@ -12604,6 +12672,7 @@
     "rpc:Client.subscribeEvents(handlers)": "vrcnotifier.web.sdk",
     "rpc:close()": "vrcnotifier.data.schema",
     "rpc:closeLog()": "vrcnotifier.infra.logging.file-segments.opening",
+    "rpc:configOf(f)": "vrcnotifier.server.serialization",
     "rpc:connect(bot)": "vrcnotifier.qq.bot.socket",
     "rpc:connect(userId, displayName)": "vrcnotifier.vrc.pipeline.control",
     "rpc:connectEvents()": "vrcnotifier.web.app.sse-events",
@@ -12626,6 +12695,7 @@
     "rpc:createLogger(defaultCategory, out)": "vrcnotifier.infra.logging.logger",
     "rpc:createLogStream({capacity})": "vrcnotifier.infra.logging.memory-stream",
     "rpc:createMonitor(opts)": "vrcnotifier.monitor.core",
+    "rpc:currentVersion(env)": "vrcnotifier.infra.util.version",
     "rpc:cycleTheme()": "vrcnotifier.web.app.shell.theme",
     "rpc:deactivateUser(vrcId)": "vrcnotifier.monitor.session",
     "rpc:decodeKey(text)": "vrcnotifier.infra.crypto",
@@ -12663,6 +12733,7 @@
     "rpc:forceReconnect(userId)": "vrcnotifier.vrc.pipeline.control",
     "rpc:formatLocalTime(ts)": "vrcnotifier.infra.logging.time",
     "rpc:freshName(worldId)": "vrcnotifier.vrc.world.cache",
+    "rpc:friendRow(f)": "vrcnotifier.server.serialization",
     "rpc:friends({offline, pageSize, onPage})": "vrcnotifier.vrc.api.social",
     "rpc:get(worldId)": "vrcnotifier.vrc.world.cache",
     "rpc:getConnectionStatus(dbId)": "vrcnotifier.server.auth.auto-login",
@@ -12695,6 +12766,7 @@
     "rpc:isUnauthorized(e)": "vrcnotifier.vrc.api.transport",
     "rpc:isVrcNotification(change)": "vrcnotifier.qq.templates.message",
     "rpc:jsonBody({limit})": "vrcnotifier.server.middleware.json-cors",
+    "rpc:kickWorldNames(rows)": "vrcnotifier.server.serialization",
     "rpc:lastSeq()": "vrcnotifier.infra.logging.file-segments.cursor",
     "rpc:latencyClass(ms)": "vrcnotifier.web.app.status",
     "rpc:linkHtml(kind, id, text)": "vrcnotifier.web.vrclinks",
@@ -12711,6 +12783,9 @@
     "rpc:makeDropdown(sel, opts)": "vrcnotifier.web.app.dropdown",
     "rpc:markNotified(key, atMs)": "vrcnotifier.data.dedupe",
     "rpc:maskKey(token)": "vrcnotifier.infra.util.identity",
+    "rpc:maskOut(line)": "vrcnotifier.server.serialization",
+    "rpc:maskSettings(row)": "vrcnotifier.server.serialization",
+    "rpc:maskUser(row)": "vrcnotifier.server.serialization",
     "rpc:MAX_ROWS": "vrcnotifier.web.logview",
     "rpc:maybeNotifyFailure(userId, conn)": "vrcnotifier.vrc.pipeline.connection",
     "rpc:maybeSendLifecycle(user)": "vrcnotifier.monitor.fault",
@@ -12719,6 +12794,7 @@
     "rpc:messageSeries(nowMs)": "vrcnotifier.vrc.pipeline.stats",
     "rpc:moveTabIndicator()": "vrcnotifier.web.app.shell.tabs",
     "rpc:new Client(opts)": "vrcnotifier.web.sdk",
+    "rpc:nextVersion(tagNames, baseVersion)": "vrcnotifier.infra.util.version",
     "rpc:noteMessage(atMs)": "vrcnotifier.vrc.pipeline.stats",
     "rpc:notifySessionExpired(savedRow, reason)": "vrcnotifier.server.auth.auto-login",
     "rpc:onFriendConfigChange(e)": "vrcnotifier.web.app.friend-config",
@@ -12761,15 +12837,6 @@
     "rpc:restoreLastView()": "vrcnotifier.web.app.bootstrap",
     "rpc:rollStateText(row, newHtml, newTxt, oldHtml, oldTxt)": "vrcnotifier.web.app.presence-motion",
     "rpc:rollSwap(el, text, force)": "vrcnotifier.web.app.boot.entrance",
-    "rpc:rpc:avatarFields(u)": "vrcnotifier.infra.util.avatar-fields",
-    "rpc:rpc:configOf(f)": "vrcnotifier.server.serialization",
-    "rpc:rpc:friendRow(f)": "vrcnotifier.server.serialization",
-    "rpc:rpc:kickWorldNames(rows)": "vrcnotifier.server.serialization",
-    "rpc:rpc:maskOut(line)": "vrcnotifier.server.serialization",
-    "rpc:rpc:maskSettings(row)": "vrcnotifier.server.serialization",
-    "rpc:rpc:maskUser(row)": "vrcnotifier.server.serialization",
-    "rpc:rpc:selfUserForClient(row)": "vrcnotifier.server.serialization",
-    "rpc:rpc:worldNameOf(row)": "vrcnotifier.server.serialization",
     "rpc:runRelogin(userId, reason, savedJar, opts)": "vrcnotifier.server.auth.relogin.loop",
     "rpc:runSnapshot(userId, opts)": "vrcnotifier.monitor.snapshot.run",
     "rpc:runtimeConfig(opts)": "vrcnotifier.app.config.parameters",
@@ -12787,6 +12854,7 @@
     "rpc:schedulePendingCheck(user, friendVrcId)": "vrcnotifier.monitor.state.pending-verification",
     "rpc:scheduleReconnect(userId, conn)": "vrcnotifier.vrc.pipeline.connection",
     "rpc:scheduleReloginRetry(userId, st, reason, savedJar)": "vrcnotifier.server.auth.relogin.loop",
+    "rpc:selfUserForClient(row)": "vrcnotifier.server.serialization",
     "rpc:sendAll(user, change)": "vrcnotifier.qq.notifier",
     "rpc:sendIdentify(bot)": "vrcnotifier.qq.bot.socket",
     "rpc:sendPassive(bot, openid, msgId, reply)": "vrcnotifier.qq.bot.sender",
@@ -12864,6 +12932,7 @@
     "rpc:withDeadline(promise, timeoutMs, onTimeout)": "vrcnotifier.infra.util.deadline",
     "rpc:world(worldId, opts)": "vrcnotifier.vrc.api.social",
     "rpc:worldInfoFromNotification(n)": "vrcnotifier.monitor.notify.vrc-notification",
+    "rpc:worldNameOf(row)": "vrcnotifier.server.serialization",
     "rpc:worldUrl(id)": "vrcnotifier.web.vrclinks",
     "rpc:wrapHtml(kind, id, innerHtml)": "vrcnotifier.web.vrclinks",
     "rpc:wsChartBarAt(mx)": "vrcnotifier.web.app.ws-chart.hover-tip",
@@ -14797,6 +14866,18 @@
       }
     },
     {
+      "from": "vrcnotifier.server.access",
+      "from_api": "GET /api/config",
+      "to": "vrcnotifier.infra.util.version",
+      "to_api": "rpc:currentVersion(env)",
+      "kind": "call",
+      "cross_tree": false,
+      "label": {
+        "zh": "取版本号",
+        "en": "Read the build version"
+      }
+    },
+    {
       "from": "vrcnotifier.server.auth",
       "to": "vrcnotifier.server.auth.auto-login",
       "kind": "call",
@@ -16113,12 +16194,12 @@
     "vrcnotifier.app": {
       "schema_version": 1,
       "id": "vrcnotifier.app",
-      "updated_at": "2026-09-16T15:20:03.637Z",
+      "updated_at": "2026-09-17T13:59:22.075Z",
       "mode": "layers",
       "max_api_rows": 1,
       "reading": {
-        "zh": "先读配置，再看怎么把各部件拼起来，然后是开机和关机。最右边那个只在你把网页单独部署时才用到。",
-        "en": "Settings first, then how the parts are put together, then start-up and shut-down. The box on the right only matters if you host the page separately."
+        "zh": "先读配置，再看版本号怎么定，然后是各部件怎么拼、开机与关机。最右边那个只在你把网页单独部署时才用到。",
+        "en": "Settings first, then how the version number is decided, then how the parts are put together, then start-up and shut-down. The box on the right only matters if you host the page separately."
       },
       "order": [
         "vrcnotifier.app.config",
@@ -16294,16 +16375,17 @@
     "vrcnotifier.infra.util": {
       "schema_version": 1,
       "id": "vrcnotifier.infra.util",
-      "updated_at": "2026-09-17T12:23:26.391Z",
+      "updated_at": "2026-09-17T13:59:35.552Z",
       "mode": "grid",
       "reading": {
-        "zh": "三个互不依赖的小工具：等待超时兜底、展示值适配（令牌打码、信任等级）、头像取值规则。",
-        "en": "Three independent helpers with no edges between them: the timeout fallback, the display-value adapters (token masking, trust level), and the avatar source rule."
+        "zh": "四个互不依赖的小工具：等待超时兜底、展示值适配（令牌打码、信任等级）、头像取值规则、版本号规则。",
+        "en": "Four independent helpers with no edges between them: the timeout fallback, the display-value adapters (token masking, trust level), the avatar source rule, and the version-number rule."
       },
       "order": [
         "vrcnotifier.infra.util.deadline",
         "vrcnotifier.infra.util.identity",
-        "vrcnotifier.infra.util.avatar-fields"
+        "vrcnotifier.infra.util.avatar-fields",
+        "vrcnotifier.infra.util.version"
       ]
     },
     "vrcnotifier.monitor": {
@@ -16898,6 +16980,15 @@
         "zh": "结构数据收尾与可读性优化"
       },
       "updated_at": "2026-09-16T15:14:10.050Z"
+    },
+    {
+      "id": "2026-09-17-auto-release-versioning",
+      "status": "verified",
+      "title": {
+        "en": "Auto-tag and publish a versioned image on every push",
+        "zh": "每次 push 自动打 tag 并发版本化镜像"
+      },
+      "updated_at": "2026-09-17T13:59:43.718Z"
     },
     {
       "id": "2026-09-17-avatar-single-source",

@@ -10,8 +10,8 @@ description:
   en: >
       Two small helpers: showing a token with most of it hidden, and falling back to an old value instead of waiting forever.
       
-revision: 64a1a8c837de5d7fc9738124f5779478a2a90026
-updated_at: "2026-09-17T12:24:09.512Z"
+revision: 1e6d2c26d295da7875c40ecbd1ba3f855df96a4c
+updated_at: "2026-09-17T13:59:42.577Z"
 fingerprint: dad346d151126757bfecb58b1aa65eee4ff6241bcf1640ee751c8b7a54d6d9ca
 source:
   - path: "src/util.js"
