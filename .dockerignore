@@ -12,6 +12,7 @@ gk
 .vscode
 Dockerfile
 docker-compose.yml
+docker-compose.test.yml
 .dockerignore
 README.md
 secrets
