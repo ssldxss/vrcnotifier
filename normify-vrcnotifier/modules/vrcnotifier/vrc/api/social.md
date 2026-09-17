@@ -5,13 +5,11 @@ parent: vrcnotifier.vrc.api
 name: {zh: "好友/世界/群组接口", en: "Friend, World & Group Calls"}
 description:
   zh: >
-      社交读取接口。好友列表比较特殊：VRChat 把在线与离线好友分在两个查询里，因此该方法按需分页拉取名册，并用 onPage 回调上报累计条数，使等待页能显示如实进度。世界、群组与用户群组读取则是世界名与群组公告背后的查询。
-      
+      拉好友列表、查世界和群组。
   en: >
-      The social read calls. The friend listing is special: VRChat splits online and offline friends across separate queries, so the method pages through whichever roster is requested and invokes an onPage callback with the running total so the boot overlay can show honest progress. World, group and user-groups reads are the lookups behind world names and group announcements.
-      
+      Reads the friend list and looks up worlds and groups.
 revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T14:36:10.935Z"
+updated_at: "2026-09-16T15:18:57.819Z"
 fingerprint: 41550317630bd0c2e6ca7b19edbe553bad6fd8b8e48ed4f731379e1a8333b2ec
 source:
   - path: "src/vrcapi.js"
@@ -57,7 +55,5 @@ apis:
 deps:
   - kind: call
     to: vrcnotifier.vrc.api.transport
-    from_api: "rpc:friends({offline, pageSize, onPage})"
-    to_api: "rpc:request(path, opts)"
     label: {zh: "发出请求", en: "Send the request"}
 ---

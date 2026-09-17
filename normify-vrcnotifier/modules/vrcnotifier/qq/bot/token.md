@@ -5,13 +5,11 @@ parent: vrcnotifier.qq.bot
 name: {zh: "访问令牌与凭据处理", en: "Access Token & Credential Handling"}
 description:
   zh: >
-      获取并缓存机器人访问令牌，在过期前留出安全余量刷新，并把并发刷新合并到同一个 promise 上。被服务端明确判定为无效的凭据按终止处理：清空 QQ 设置并停止机器人，让面板显示配置问题而不是无止境的循环重试。
-      
+      领取并缓存机器人的访问凭据；凭据失效就提示你重新配置。
   en: >
-      Obtains and caches the bot access token, refreshing it with a safety margin before expiry and de-duplicating concurrent refreshes behind a single promise. Credentials that the server rejects outright are treated as terminal: the QQ settings are cleared and the bot stops, so the panel shows a configuration problem rather than an endless retry loop.
-      
+      Gets and caches the bot's access credential; if it is rejected, tells you to set it up again.
 revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T14:34:23.743Z"
+updated_at: "2026-09-16T15:18:57.819Z"
 fingerprint: 7094142f722e044697a2766956a9f4f48c08f4bd9cb1e41a940418989de21016
 source:
   - path: "src/qq.js"

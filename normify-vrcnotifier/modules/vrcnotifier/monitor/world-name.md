@@ -5,13 +5,11 @@ parent: vrcnotifier.monitor
 name: {zh: "世界名取用", en: "World Name Access"}
 description:
   zh: >
-      监控层对世界名服务的薄适配。缓存、查询与失败兜底都在 world 模块，这里只决定“等多久”与哨兵值处理：同步 peek 从不发请求；异步查询套一层时限，超时先用缓存的旧名兜底，后台查询继续跑完。
-      
+      要世界名字的时候去查，但不会把等它的人拖住。
   en: >
-      The monitor's thin adapter over the world-name service. Caching, querying and failure fallback all live in the world module; this unit only decides how long to wait and how to treat sentinels: a synchronous peek never issues a request, and the asynchronous lookup wraps the query in a deadline that falls back to the previous cached name while the background query keeps running.
-      
+      Looks up world names when asked, without making the caller wait longer than it should.
 revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T14:36:10.935Z"
+updated_at: "2026-09-16T15:18:39.661Z"
 fingerprint: ea088ca1010672a4d206d3d26e240acd50471b2ea31bd088667c9fdb6d00d8f0
 source:
   - path: "src/monitor.js"
@@ -39,12 +37,8 @@ apis:
 deps:
   - kind: call
     to: vrcnotifier.vrc.world.cache
-    from_api: "rpc:lookupWorldName(worldId)"
-    to_api: "rpc:get(worldId)"
     label: {zh: "查询与同步取名", en: "Query and peek world names"}
   - kind: call
     to: vrcnotifier.infra.util.deadline
-    from_api: "rpc:lookupWorldName(worldId)"
-    to_api: "rpc:withDeadline(promise, timeoutMs, onTimeout)"
     label: {zh: "限制等待时长", en: "Bound the wait"}
 ---

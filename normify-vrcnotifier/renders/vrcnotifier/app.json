@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
   "id": "vrcnotifier.app",
-  "updated_at": "2026-09-16T14:34:51.937Z",
-  "mode": "groups",
+  "updated_at": "2026-09-16T15:20:03.637Z",
+  "mode": "layers",
   "reading": {
-    "zh": "组合根：配置先于一切；wiring 分三段把基础设施与领域服务接起来；lifecycle 负责启动自检与优雅退出；frontend-server 是可选的前端独立进程。",
-    "en": "Composition root: configuration comes first; wiring assembles foundation and domain services in three phases; lifecycle owns boot self-checks and graceful shutdown; frontend-server is the optional standalone UI process."
+    "zh": "先读配置，再看怎么把各部件拼起来，然后是开机和关机。最右边那个只在你把网页单独部署时才用到。",
+    "en": "Settings first, then how the parts are put together, then start-up and shut-down. The box on the right only matters if you host the page separately."
   },
   "order": [
     "vrcnotifier.app.config",
@@ -13,37 +13,5 @@
     "vrcnotifier.app.lifecycle",
     "vrcnotifier.app.frontend-server"
   ],
-  "groups": [
-    {
-      "id": "input",
-      "title": {
-        "zh": "配置输入",
-        "en": "Configuration"
-      },
-      "children": [
-        "vrcnotifier.app.config"
-      ]
-    },
-    {
-      "id": "assembly",
-      "title": {
-        "zh": "装配与运行",
-        "en": "Assembly & Lifecycle"
-      },
-      "children": [
-        "vrcnotifier.app.wiring",
-        "vrcnotifier.app.lifecycle"
-      ]
-    },
-    {
-      "id": "standalone",
-      "title": {
-        "zh": "独立进程",
-        "en": "Standalone Process"
-      },
-      "children": [
-        "vrcnotifier.app.frontend-server"
-      ]
-    }
-  ]
+  "max_api_rows": 1
 }

@@ -5,13 +5,13 @@ parent: vrcnotifier.web.app
 name: {zh: "状态徽章", en: "Status Badges"}
 description:
   zh: >
-      常驻概览条及其中的徽章。状态经事件流到达而非轮询，因此后端一看到变化，面板就跟着变。服务状态渲染为徽章，悬停可看到受影响组件列表；延迟按阈值着色，使 API 在恶化为故障之前就能被看出来。
+      面板顶部那排状态徽章。
       
   en: >
-      The always-visible overview strip and the badges inside it. Status arrives over the event stream rather than by polling, so the panel reflects a change as soon as the backend sees it. Service status is rendered as a badge with the affected component list available on hover, and latency is coloured by threshold so a degrading API is visible before it becomes an outage.
+      The status badges along the top of the panel.
       
-revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T14:34:23.743Z"
+revision: 6515ec0b18c3caed3cb0014a183ac3d34d011dd8
+updated_at: "2026-09-16T15:22:26.688Z"
 fingerprint: 06609d43725c1483a940506f664ec39835212c390e7767362f17ac852efcc15d
 source:
   - path: "public/app.js"
@@ -49,7 +49,7 @@ apis:
     path: "latencyClass(ms)"
     description:
       zh: >
-          按阈值给延迟值着色。
+          按快慢给延迟值着色。
           
       en: >
           Colour a latency value by threshold.

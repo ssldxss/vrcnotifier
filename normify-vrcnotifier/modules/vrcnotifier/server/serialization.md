@@ -5,13 +5,13 @@ parent: vrcnotifier.server
 name: {zh: "响应序列化与脱敏", en: "Response Serialization & Scrubbing"}
 description:
   zh: >
-      把数据库行转成前端零解析的响应，并在出站时脱敏：补世界名（同步 peek 缓存）、头像缓存 key 与嵌套好友配置，从用户行剔除 cookie_data/密码，对 QQ AppSecret 打码，并在所有出站日志行中替换访问令牌。
+      把数据库里的原始数据整理成面板直接能用的样子，顺手去掉密码和令牌。
       
   en: >
-      Turns database rows into frontend-ready payloads and scrubs secrets on the way out: adds world name (sync cache peek), avatar cache key and nested friend config, strips cookie_data/password from user rows, masks the QQ app secret, and replaces the access token in every outbound log line.
+      Turns raw database rows into shapes the panel can use directly, and strips out passwords and tokens.
       
-revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T14:33:44.403Z"
+revision: 6515ec0b18c3caed3cb0014a183ac3d34d011dd8
+updated_at: "2026-09-16T15:22:26.679Z"
 fingerprint: 8a87152c03841290a81ad1338ccae903301779179e5b623509869b3328eec77d
 source:
   - path: "src/server.js"
@@ -52,7 +52,7 @@ apis:
     path: "maskSettings(row)"
     description:
       zh: >
-          对设置中的密钥字段打码。
+          把设置里的密钥字段加星号。
           
       en: >
           Mask secret settings fields.
@@ -61,7 +61,7 @@ apis:
     path: "maskOut(line)"
     description:
       zh: >
-          对出站文本替换访问令牌为打码形式。
+          把要发出去的文本里的访问令牌换成星号。
           
       en: >
           Replace the configured access token on outbound text.

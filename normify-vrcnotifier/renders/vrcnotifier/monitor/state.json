@@ -1,16 +1,17 @@
 {
   "schema_version": 1,
   "id": "vrcnotifier.monitor.state",
-  "updated_at": "2026-09-16T14:35:10.825Z",
+  "updated_at": "2026-09-16T15:20:17.759Z",
   "mode": "layers",
   "max_columns": 3,
+  "max_api_rows": 1,
   "reading": {
-    "zh": "两类写入入口（自己/好友）平行；好友的下线先挂 pending，由右侧的批量校验回头确认，确认结果再回灌左侧的状态机。",
-    "en": "Two parallel write funnels (self, friends). A suspected friend offline arms a pending state, confirmed by the batched check on the right, whose verdict re-enters the state machine on the left."
+    "zh": "一件是复核「他是不是真下线了」，一件是好友信息写进数据库的唯一入口，还有一件管你自己的状态。",
+    "en": "One re-checks whether a friend really went offline, one is the only way friend data reaches the database, and one handles your own presence."
   },
   "order": [
-    "vrcnotifier.monitor.state.self-presence",
+    "vrcnotifier.monitor.state.pending-verification",
     "vrcnotifier.monitor.state.friend-apply",
-    "vrcnotifier.monitor.state.pending-verification"
+    "vrcnotifier.monitor.state.self-presence"
   ]
 }

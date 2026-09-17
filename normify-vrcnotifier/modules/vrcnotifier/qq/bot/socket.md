@@ -5,13 +5,11 @@ parent: vrcnotifier.qq.bot
 name: {zh: "网关连接与心跳", en: "Gateway Socket & Heartbeat"}
 description:
   zh: >
-      网关状态机。Hello 携带心跳间隔并触发 identify；op 0 分发 READY 与两个 C2C 消息事件；op 11 确认心跳，若连续三个间隔无确认则看门狗终止连接；op 7 要求重连，op 9 要求重建会话。两个关闭码表示机器人被永久停用，此时停止重连；其余情况按指数退避加抖动重连。
-      
+      和 QQ 服务器保持长连接，并定期报个到，让 QQ 知道它还活着。
   en: >
-      The gateway state machine. Hello carries the heartbeat interval and triggers identify; op 0 dispatches READY and the two C2C message events; op 11 acknowledges heartbeats and a watchdog terminates the socket after three idle intervals; op 7 asks for a reconnect and op 9 for a fresh session. Two close codes mean the bot is permanently disabled and reconnection stops, while everything else backs off exponentially with jitter.
-      
+      Keeps a long-lived connection to QQ and reports in periodically so QQ knows it is still there.
 revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T14:34:23.743Z"
+updated_at: "2026-09-16T15:18:57.819Z"
 fingerprint: 7094142f722e044697a2766956a9f4f48c08f4bd9cb1e41a940418989de21016
 source:
   - path: "src/qq.js"

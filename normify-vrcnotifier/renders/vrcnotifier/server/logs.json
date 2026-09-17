@@ -1,12 +1,13 @@
 {
   "schema_version": 1,
   "id": "vrcnotifier.server.logs",
-  "updated_at": "2026-09-16T14:35:01.323Z",
+  "updated_at": "2026-09-16T15:20:17.428Z",
   "mode": "layers",
   "max_columns": 2,
+  "max_api_rows": 1,
   "reading": {
-    "zh": "谓词先行：先定义什么算匹配，再由查询端点按三种取数形态读出来。",
-    "en": "Predicates first: define what matches, then let the query endpoint fetch it in three shapes."
+    "zh": "左边决定「哪些日志算数」，右边负责把它们取出来。",
+    "en": "The left decides which log lines count; the right fetches them."
   },
   "order": [
     "vrcnotifier.server.logs.filter",

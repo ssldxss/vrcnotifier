@@ -5,13 +5,11 @@ parent: vrcnotifier.web.app
 name: {zh: "启动引导与地址发现", en: "Bootstrap & Address Discovery"}
 description:
   zh: >
-      启动与地址发现。加载时先从 sessionStorage 同步恢复上次视图与页签，使首帧就是正确的屏幕；随后探测后端：一体化部署时同源优先，其次是已存地址，最后是本地默认值。此步失败并不致命——会显示连接门禁让用户手填地址。
-      
+      打开页面时先恢复上次的画面，并找到后端地址。
   en: >
-      Startup and address discovery. On load it synchronously restores the last view and tab from session storage so the first frame is already the right screen, then probes for a backend: same origin wins for the single-process deployment, otherwise the stored address, otherwise the local default. A failure here is not fatal — the connection gate is shown so the user can type an address instead.
-      
+      On opening the page it restores the screen you were on last, and finds the backend address.
 revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T14:34:23.743Z"
+updated_at: "2026-09-16T15:19:37.674Z"
 fingerprint: 06609d43725c1483a940506f664ec39835212c390e7767362f17ac852efcc15d
 source:
   - path: "public/app.js"

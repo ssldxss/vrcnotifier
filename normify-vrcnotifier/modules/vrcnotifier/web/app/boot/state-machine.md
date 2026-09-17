@@ -2,16 +2,16 @@
 uid: 2d707324
 id: vrcnotifier.web.app.boot.state-machine
 parent: vrcnotifier.web.app.boot
-name: {zh: "启动状态机", en: "Boot State Machine"}
+name: {zh: "等待页节奏", en: "Waiting Screen Timing"}
 description:
   zh: >
-      浮层由服务端的语义阶段驱动，而不是客户端自己的请求序列，因为密码直登与 2FA 的请求序列不同，绑请求会让显示错位。它刻意不着急：一行只有在完成标记已置、已停留满最短时间、且（对好友拉取行）百分比已追平后才转绿。任何错误都会立即收起浮层。
+      等待页的节奏：哪一行什么时候亮，什么时候收起来。
       
   en: >
-      The overlay is driven by semantic stages from the server rather than the client's own request sequence, because the password and 2FA paths issue different requests and binding to them would misalign the display. It is deliberately unhurried: a row turns green only when its mark is set, it has been visible for a minimum dwell time, and for the friend-fetch row the percentage has caught up. Any error dismisses the overlay immediately.
+      The waiting screen's timing: when each line lights up, and when the screen goes away.
       
-revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T14:36:27.989Z"
+revision: 6515ec0b18c3caed3cb0014a183ac3d34d011dd8
+updated_at: "2026-09-16T15:22:26.687Z"
 fingerprint: 06609d43725c1483a940506f664ec39835212c390e7767362f17ac852efcc15d
 source:
   - path: "public/app.js"
@@ -49,7 +49,7 @@ apis:
     path: "bootProgress(d)"
     description:
       zh: >
-          消费来自 SSE 的语义进度阶段。
+          接收 SSE 传来的进度阶段。
           
       en: >
           Consume a semantic progress stage from the SSE stream.
@@ -63,23 +63,23 @@ apis:
       en: >
           Wait for data plus first-screen avatars, then finish and replay the entrance.
           
+  - protocol: rpc
+    path: "bootHide(immediate)"
+    description:
+      zh: >
+          立即收起等待页，任何接口或登录错误都会调它。
+          
+      en: >
+          Dismiss the overlay immediately, used on any API or login error.
+          
 deps:
   - kind: call
     to: vrcnotifier.web.app.boot.percent-odometer
-    from_api: "rpc:bootProgress(d)"
-    to_api: "rpc:bootPercent(fetched, total)"
     label: {zh: "驱动百分比", en: "Drive the percentage"}
   - kind: call
     to: vrcnotifier.web.app.boot.halo
-    from_api: "rpc:bootDone()"
-    to_api: "rpc:bootHalo(i, mode)"
     label: {zh: "收尾光环", en: "Settle the halo"}
   - kind: call
     to: vrcnotifier.web.app.boot.entrance
-    from_api: "rpc:bootDone()"
-    to_api: "rpc:waitImages(imgs, ms, onTick)"
     label: {zh: "等待并重放入场", en: "Wait and replay entrance"}
-  - kind: call
-    to: vrcnotifier.web.app.api-client
-    label: {zh: "响应接口失败", en: "React to API failures"}
 ---

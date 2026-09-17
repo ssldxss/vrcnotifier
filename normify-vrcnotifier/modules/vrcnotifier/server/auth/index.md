@@ -5,13 +5,13 @@ parent: vrcnotifier.server
 name: {zh: "登录认证与会话", en: "Authentication & Session"}
 description:
   zh: >
-      VRChat 认证：密码登录与 2FA 挑战移交、2FA 完成、会话落地、登出、自动登录恢复，以及自动重登状态机。
+      登录相关的全部环节：密码登录、两步验证、自动重登、退出。
       
   en: >
-      VRChat authentication: password login with a 2FA challenge hand-off, 2FA completion, session finalization, logout, automatic login recovery and the auto-relogin state machine.
+      Everything about signing in: password login, two-factor codes, automatic re-login, and logout.
       
-revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T14:33:44.403Z"
+revision: 6515ec0b18c3caed3cb0014a183ac3d34d011dd8
+updated_at: "2026-09-17T00:14:58.619Z"
 fingerprint: 8a87152c03841290a81ad1338ccae903301779179e5b623509869b3328eec77d
 source:
   - path: "src/server.js"

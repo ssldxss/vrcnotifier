@@ -2,16 +2,16 @@
 uid: c7b3d735
 id: vrcnotifier.web.app.ws-chart.canvas
 parent: vrcnotifier.web.app.ws-chart
-name: {zh: "图表画布与数据流", en: "Chart Canvas & Feed"}
+name: {zh: "图表绘制", en: "Chart Drawing"}
 description:
   zh: >
-      图表锚定到墙上时间而非到达顺序，因此繁忙的事件循环漏掉一次 tick 也不会悄悄把整条序列错位：ticker 会重发最近几秒，客户端按秒幂等合并。渐变取自解析后的主题色而非硬编码，因此会跟随主题切换；面板不可见时绘制循环完全暂停。
+      画图，并让它持续滚动。
       
   en: >
-      The chart is anchored to wall-clock time rather than to arrival order, so a busy event loop that misses a tick cannot silently shift the whole series: the ticker re-sends the last few seconds and the client merges them idempotently by second. Gradients are read from resolved theme colours instead of hard-coded, so the chart follows theme switches, and the drawing loop pauses entirely when the panel is off-screen.
+      Draws the chart and keeps it scrolling.
       
-revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T14:34:23.743Z"
+revision: 6515ec0b18c3caed3cb0014a183ac3d34d011dd8
+updated_at: "2026-09-16T15:22:26.689Z"
 fingerprint: 06609d43725c1483a940506f664ec39835212c390e7767362f17ac852efcc15d
 source:
   - path: "public/app.js"
@@ -34,10 +34,10 @@ apis:
     path: "wsChartPush(sec, n)"
     description:
       zh: >
-          写入某一秒的计数，按秒幂等。
+          写入某一秒的计数，同一秒重复写入不会算两次。
           
       en: >
-          Push one second's count, keyed idempotently by second.
+          Push one second's count; the same second never counts twice.
           
   - protocol: rpc
     path: "renderWsChart(series)"

@@ -2,16 +2,16 @@
 uid: 022af837
 id: vrcnotifier.monitor.pipeline-router.friend-events
 parent: vrcnotifier.monitor.pipeline-router
-name: {zh: "好友事件映射", en: "Friend Event Mapping"}
+name: {zh: "好友消息处理", en: "Friend Messages"}
 description:
   zh: >
-      把七种好友事件翻译为在线状态输入：online 与 location 解析位置标签（真实实例、private 哨兵、traveling 沿用旧世界）并解析世界名；active 代表网页在线且无世界；offline 清空世界/实例/平台但保留社交与自定义状态；update 继承状态，除非负载显式给出否则保留旧实例号；add 按当前位置初始化新好友；delete 删行并取消 pending 校验，不发通知。
+      好友的七种消息分别怎么处理：上线、下线、换世界、改资料等。
       
   en: >
-      Translates the seven friend event types into presence input: online and location parse the tag (real instance, private sentinel, traveling keeps the previous world) and resolve a world name; active is web presence with no world; offline clears world, instance and platform but keeps social status; update inherits state; add seeds a new friend; delete removes the row and cancels any pending check without notifying.
+      How each of the seven friend messages is handled: coming online, going offline, changing world, editing a profile and so on.
       
-revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T14:33:58.166Z"
+revision: 6515ec0b18c3caed3cb0014a183ac3d34d011dd8
+updated_at: "2026-09-16T15:22:26.682Z"
 fingerprint: ea088ca1010672a4d206d3d26e240acd50471b2ea31bd088667c9fdb6d00d8f0
 source:
   - path: "src/monitor.js"
@@ -33,7 +33,7 @@ apis:
 deps:
   - kind: call
     to: vrcnotifier.monitor.state.friend-apply
-    label: {zh: "落地好友输入", en: "Persist the friend input"}
+    label: {zh: "保存好友数据", en: "Persist the friend input"}
   - kind: call
     to: vrcnotifier.data.location
     label: {zh: "解析位置标签", en: "Parse the location tag"}

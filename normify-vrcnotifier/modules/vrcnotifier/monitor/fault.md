@@ -2,16 +2,14 @@
 uid: f6a54423
 id: vrcnotifier.monitor.fault
 parent: vrcnotifier.monitor
-name: {zh: "故障窗口与启停通知", en: "Fault Window & Lifecycle Notices"}
+name: {zh: "断线与恢复提醒", en: "Outage & Recovery Notices"}
 description:
   zh: >
-      断线与 401 的统一故障语义（首次连接不算故障）：故障开始时打时间戳并挂定时器，只有持续超过阈值才推送一次故障通知，之后若恢复则补发一条恢复说明。订阅 ws-open/ws-close/relogin-needed/unauthorized-2fa/snapshot/session-expired 来驱动启动说明、恢复文案与会话失效通知。
-      
+      网络断了或登录失效时先安静等一会儿；拖得太久才提醒你一次，恢复了再补一句。
   en: >
-      Unified fault semantics for disconnects and 401s (the first connection never counts as a fault): a fault stamps the start time and arms a timer; only if it lasts past the threshold is one failure notice sent, and a recovery afterwards sends a matching recovery notice. It subscribes to ws-open/ws-close/relogin-needed/unauthorized-2fa/snapshot/session-expired to drive startup notices, recovery texts and the session-invalidated notice.
-      
+      When the connection drops or a login expires it stays quiet at first; only a longer outage is worth a message, and recovery gets a short follow-up.
 revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T14:33:58.166Z"
+updated_at: "2026-09-16T15:18:39.661Z"
 fingerprint: ea088ca1010672a4d206d3d26e240acd50471b2ea31bd088667c9fdb6d00d8f0
 source:
   - path: "src/monitor.js"

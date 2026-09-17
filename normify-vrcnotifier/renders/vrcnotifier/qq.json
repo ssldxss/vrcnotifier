@@ -1,40 +1,17 @@
 {
   "schema_version": 1,
   "id": "vrcnotifier.qq",
-  "updated_at": "2026-09-16T14:35:21.018Z",
-  "mode": "groups",
+  "updated_at": "2026-09-16T15:20:29.641Z",
+  "mode": "layers",
+  "max_api_rows": 1,
   "reading": {
-    "zh": "左侧是把变更渲染成消息并推出去；右侧是维持连接的机器人本身与它回应用户时的聊天指令。",
-    "en": "Left: render a change into a message and push it. Right: the bot connection itself and the chat commands it uses to answer the user."
+    "zh": "左边把消息渲染好再发出去，右边是机器人的连接和你发给它的指令。",
+    "en": "On the left, rendering a message and sending it; on the right, the bot's connection and the commands you send it."
   },
   "order": [
     "vrcnotifier.qq.templates",
     "vrcnotifier.qq.notifier",
     "vrcnotifier.qq.bot",
     "vrcnotifier.qq.commands"
-  ],
-  "groups": [
-    {
-      "id": "outbound",
-      "title": {
-        "zh": "主动推送",
-        "en": "Outbound Push"
-      },
-      "children": [
-        "vrcnotifier.qq.templates",
-        "vrcnotifier.qq.notifier"
-      ]
-    },
-    {
-      "id": "inbound",
-      "title": {
-        "zh": "连接与回应",
-        "en": "Connection & Replies"
-      },
-      "children": [
-        "vrcnotifier.qq.bot",
-        "vrcnotifier.qq.commands"
-      ]
-    }
   ]
 }

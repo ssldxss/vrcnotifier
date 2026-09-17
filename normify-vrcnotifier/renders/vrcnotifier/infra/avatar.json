@@ -1,16 +1,17 @@
 {
   "schema_version": 1,
   "id": "vrcnotifier.infra.avatar",
-  "updated_at": "2026-09-16T14:35:31.522Z",
+  "updated_at": "2026-09-16T15:20:44.071Z",
   "mode": "layers",
   "max_columns": 3,
+  "max_api_rows": 1,
   "reading": {
-    "zh": "命名规则是基础；下载与落盘按规则取地址；清理与淘汰在后头维护缓存。",
-    "en": "Naming rules first; download and store derive the address from them; sweeping and eviction maintain the cache behind."
+    "zh": "从左到右：先看缓存干不干净，再下载和存盘，最右边是前两者共用的一套文件命名规则。",
+    "en": "Left to right: keep the cache tidy, download and store the files, and on the far right the naming rules both rely on."
   },
   "order": [
-    "vrcnotifier.infra.avatar.naming",
+    "vrcnotifier.infra.avatar.maintenance",
     "vrcnotifier.infra.avatar.store",
-    "vrcnotifier.infra.avatar.maintenance"
+    "vrcnotifier.infra.avatar.naming"
   ]
 }

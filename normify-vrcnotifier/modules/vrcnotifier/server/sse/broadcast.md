@@ -5,13 +5,11 @@ parent: vrcnotifier.server.sse
 name: {zh: "SSE 广播与日志转发", en: "SSE Broadcast & Log Forwarding"}
 description:
   zh: >
-      维护 SSE 客户端集合，按 event/data 两行封装事件；广播时写失败即从集合摘除。订阅后端日志流，把每行实时转发为 log（令牌行被替换时用 log-update 让前端按 seq 同步）。
-      
+      把一条消息同时发给所有打开的面板；发给谁失败就把他去掉。
   en: >
-      Maintains the SSE client set and frames events as event/data lines; broadcast removes clients whose write throws. It subscribes to the backend log stream and re-emits every line as log (or log-update when a line was rewritten for token masking) so the panel shows backend logs in real time.
-      
+      Sends one message to every open page, and drops any page that fails to receive it.
 revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T14:33:44.403Z"
+updated_at: "2026-09-16T15:18:19.393Z"
 fingerprint: 8a87152c03841290a81ad1338ccae903301779179e5b623509869b3328eec77d
 source:
   - path: "src/server.js"

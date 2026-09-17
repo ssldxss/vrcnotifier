@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "id": "2026-09-16-plain-language-4",
+  "title": {
+    "en": "Plain-English wording sweep",
+    "zh": "英文文案也换成大白话"
+  },
+  "status": "verified",
+  "intent": {
+    "en": "The Chinese copy is plain now but the English side still used reconciliation / orchestration / wiring. Replace with check / assembly.",
+    "zh": "中文已经大白话，英文还留着 reconciliation / wiring 这类词，换成 check / assembly。"
+  },
+  "modules": {
+    "modify": [
+      "vrcnotifier.server.monitor-control",
+      "vrcnotifier.monitor.session",
+      "vrcnotifier.monitor.snapshot.progress",
+      "vrcnotifier.monitor.snapshot",
+      "vrcnotifier.monitor.snapshot.run",
+      "vrcnotifier.monitor.pipeline-router.reconnect",
+      "vrcnotifier.monitor.timers",
+      "vrcnotifier.web.app.monitor-toolbar",
+      "vrcnotifier.app.wiring.services",
+      "vrcnotifier.app.wiring",
+      "vrcnotifier.app.wiring.foundation",
+      "vrcnotifier.app.wiring.http"
+    ]
+  },
+  "acceptance": [
+    "英文文案不再出现 reconciliation / orchestration / wiring",
+    "validate 0 error 且模块数边数不变",
+    "HTML 重新渲染新鲜"
+  ],
+  "note": "英文文案 16 处：reconciliation→check/full check、orchestration→control、wiring→assembly/setup、sliding-window→recent。",
+  "revision": {
+    "before": null,
+    "after": "6515ec0b18c3caed3cb0014a183ac3d34d011dd8"
+  },
+  "created_at": "2026-09-16T15:22:59.917Z",
+  "updated_at": "2026-09-16T15:23:03.237Z",
+  "closed_at": "2026-09-16T15:23:03.237Z"
+}

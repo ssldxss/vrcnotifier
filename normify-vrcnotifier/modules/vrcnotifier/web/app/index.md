@@ -5,13 +5,13 @@ parent: vrcnotifier.web
 name: {zh: "面板应用", en: "Panel Application"}
 description:
   zh: >
-      面板应用本体：后端连接与心跳、登录与 2FA、启动等待页、实时日志、带动效的好友列表、设置、状态图表、SSE 事件总线与外壳交互。
+      面板本体：连后端、登录、看好友、看日志、改设置。
       
   en: >
-      The panel application itself: backend connection and heartbeat, login and 2FA, the boot overlay, live logs, the friend roster with its motion effects, settings, status charts, the SSE event bus and the shell interactions.
+      The panel itself: connect to the backend, sign in, watch friends, read logs, change settings.
       
-revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T14:34:23.743Z"
+revision: 6515ec0b18c3caed3cb0014a183ac3d34d011dd8
+updated_at: "2026-09-17T00:14:58.619Z"
 fingerprint: 06609d43725c1483a940506f664ec39835212c390e7767362f17ac852efcc15d
 source:
   - path: "public/app.js"
@@ -31,4 +31,16 @@ deps:
   - kind: call
     to: vrcnotifier.web.app.roster
     label: {zh: "好友列表", en: "Friend roster"}
+  - kind: call
+    to: vrcnotifier.web.sdk
+    label: {zh: "建实时连接", en: "Opens the live link"}
+  - kind: call
+    to: vrcnotifier.web.vrclinks
+    label: {zh: "把链接变成可点", en: "Turns links into clicks"}
+  - kind: call
+    to: vrcnotifier.web.logview
+    label: {zh: "显示日志", en: "Shows the logs"}
+  - kind: call
+    to: vrcnotifier.web.shell
+    label: {zh: "摆放页面", en: "Lays out the page"}
 ---

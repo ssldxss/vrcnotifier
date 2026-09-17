@@ -5,13 +5,13 @@ parent: vrcnotifier.web.app
 name: {zh: "启动等待页", en: "Boot Overlay"}
 description:
   zh: >
-      账号上线期间展示的四行等待浮层：语义状态机、让百分比滚动的数字条、逐行光环动画，以及主界面入场重放。
+      登录时那四行等待动画。
       
   en: >
-      The four-line waiting overlay shown while the account is being brought online: a semantic state machine, the odometer that animates the percentage, the halo animations on each row and the page entrance replay.
+      The four-line waiting animation shown while signing in.
       
-revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T14:34:23.743Z"
+revision: 6515ec0b18c3caed3cb0014a183ac3d34d011dd8
+updated_at: "2026-09-16T15:21:00.012Z"
 fingerprint: 06609d43725c1483a940506f664ec39835212c390e7767362f17ac852efcc15d
 source:
   - path: "public/app.js"

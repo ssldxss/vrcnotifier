@@ -2,16 +2,16 @@
 uid: 9ad3f66b
 id: vrcnotifier.app
 parent: vrcnotifier
-name: {zh: "应用装配与启动", en: "Application Wiring & Boot"}
+name: {zh: "应用组装与启动", en: "Application Assembly & Boot"}
 description:
   zh: >
-      组合根：读取环境变量与运行参数、解析访问令牌与主密钥、按依赖顺序装配数据库/日志/头像/VRChat/QQ/监控/HTTP 各组服务，并提供进程启动自检与优雅退出。
+      把整个程序拼起来，并负责开机和关机：读配置、连数据库、拉起监控和 QQ 机器人、开网页服务。
       
   en: >
-      Composition root: reads environment and runtime parameters, resolves the access token and master key, wires database/logging/avatar/VRChat/QQ/monitor/HTTP services in dependency order, and provides boot self-checks plus graceful shutdown.
+      Puts the whole program together and handles start-up and shut-down: reads settings, opens the database, starts monitoring, the QQ bot and the web server.
       
-revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T14:33:19.896Z"
+revision: 6515ec0b18c3caed3cb0014a183ac3d34d011dd8
+updated_at: "2026-09-17T00:14:27.111Z"
 fingerprint: 137ccc5696e85476106021a03ff213d4fb00a4d6225ab41d4a12f6aec8ba4c1d
 source:
   - path: "src/index.js"
@@ -22,8 +22,17 @@ deps:
     label: {zh: "读取配置与令牌", en: "Read config and token"}
   - kind: call
     to: vrcnotifier.app.wiring
-    label: {zh: "装配服务", en: "Wire services"}
+    label: {zh: "组装服务", en: "Wire services"}
   - kind: call
     to: vrcnotifier.app.lifecycle
     label: {zh: "启停生命周期", en: "Boot and shutdown"}
+  - kind: call
+    to: vrcnotifier.vrc
+    label: {zh: "建 VRChat 客户端", en: "Builds the VRChat client"}
+  - kind: call
+    to: vrcnotifier.qq
+    label: {zh: "建 QQ 机器人", en: "Builds the QQ bot"}
+  - kind: call
+    to: vrcnotifier.server
+    label: {zh: "启动网页服务", en: "Starts the web server"}
 ---

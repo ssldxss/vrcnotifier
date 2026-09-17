@@ -5,13 +5,13 @@ parent: vrcnotifier
 name: {zh: "QQ 机器人推送", en: "QQ Bot Delivery"}
 description:
   zh: >
-      QQ 官方机器人投递：网关连接、凭据处理、限速发送、以在线列表作答的聊天指令，以及通知分发与 Markdown 消息模板。
+      把所有消息送到你的 QQ：机器人连接、它回你的话，以及消息模板。
       
   en: >
-      QQ official-bot delivery: the gateway connection, credential handling, rate-limited sending, chat commands that answer with the online list, plus the notification fan-out and the Markdown message templates.
+      Gets every message to your QQ: the bot connection, the replies it sends, and the message templates.
       
-revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T14:34:23.743Z"
+revision: 6515ec0b18c3caed3cb0014a183ac3d34d011dd8
+updated_at: "2026-09-17T00:14:27.113Z"
 fingerprint: a7062d3ab86b06e87dece803a89437f40798c540c10c93596d055ef636885920
 source:
   - path: "src/qq.js"
@@ -31,4 +31,7 @@ deps:
   - kind: call
     to: vrcnotifier.qq.templates
     label: {zh: "消息模板", en: "Message templates"}
+  - kind: call
+    to: vrcnotifier.data
+    label: {zh: "读绑定与设置", en: "Reads bindings and settings"}
 ---

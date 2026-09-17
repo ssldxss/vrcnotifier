@@ -5,13 +5,13 @@ parent: vrcnotifier.web.app
 name: {zh: "连接门禁与心跳", en: "Connection Gate & Heartbeat"}
 description:
   zh: >
-      应用之前的门，以及门后的看门狗。门禁收集协议、主机、端口与令牌，向后端校验通过后才展示登录页。进入之后由 4 秒心跳持续看守：后端不应答时弹出重连弹窗，但带冷却，使短暂重启不会引发弹窗风暴；后端恢复后弹窗自动关闭。
+      进面板前先让你填后端地址和令牌；进去后持续确认后端还在不在。
       
   en: >
-      The wall in front of the app, and the watchdog behind it. The gate collects scheme, host, port and token, verifies them against the backend and only then reveals the login view. Once inside, a four-second heartbeat keeps watching: when the backend stops answering the reconnect modal appears, but with a cooldown so a brief restart does not produce a modal storm, and it closes itself automatically when the backend comes back.
+      Asks for the backend address and token before entering, and then keeps checking the backend is still there.
       
-revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T14:34:23.743Z"
+revision: 6515ec0b18c3caed3cb0014a183ac3d34d011dd8
+updated_at: "2026-09-16T15:22:26.686Z"
 fingerprint: 06609d43725c1483a940506f664ec39835212c390e7767362f17ac852efcc15d
 source:
   - path: "public/app.js"
@@ -22,7 +22,7 @@ apis:
     path: "loadConfig()"
     description:
       zh: >
-          加载引导配置并校验输入的令牌。
+          加载引导配置并验证输入的令牌。
           
       en: >
           Load bootstrap config and validate the entered token.

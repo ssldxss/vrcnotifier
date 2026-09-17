@@ -5,13 +5,11 @@ parent: vrcnotifier.web.app
 name: {zh: "好友数据与渲染", en: "Friend Data & Rendering"}
 description:
   zh: >
-      好友数据加载与逐人渲染片段。世界名比名册晚到，因为它是按需解析的，因此本模块还负责定点更新：世界名事件到达时，把名字补进正在展示该世界的那几行——列表从不为了等名字而阻塞，也不会为了显示一个名字而整表重绘。
-      
+      好友列表的数据，以及每一行显示什么。
   en: >
-      Friend data loading and the per-person rendering pieces. World names arrive later than the roster because they are resolved on demand, so this module also owns the targeted update that patches a name into the rows showing that world when the world-name event arrives — the list is never blocked waiting for names, and never redrawn wholesale to show one.
-      
+      The friend list's data, and what each row shows.
 revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T14:34:23.743Z"
+updated_at: "2026-09-16T15:19:37.674Z"
 fingerprint: 06609d43725c1483a940506f664ec39835212c390e7767362f17ac852efcc15d
 source:
   - path: "public/app.js"

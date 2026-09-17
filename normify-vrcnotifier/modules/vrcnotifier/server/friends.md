@@ -5,13 +5,11 @@ parent: vrcnotifier.server
 name: {zh: "好友路由", en: "Friend Routes"}
 description:
   zh: >
-      好友读取与配置路由：GET /api/friends 返回全部好友的前端就绪序列化结果（世界名从缓存补，缺失则后台触发查询，不阻塞响应）；PUT /api/friends/:friendId/config 整组写入五个通知开关（未传字段默认 true）并回显落库后的配置。
-      
+      让面板读取好友列表，并勾选每个好友要收哪些通知。
   en: >
-      Friend read and configuration routes: GET /api/friends returns every row serialized for the panel (world name filled from cache, world-name lookups kicked in the background so the response never blocks), and PUT /api/friends/:friendId/config writes the five notification flags as a whole group (unspecified flags default to true) and echoes the stored config.
-      
+      Lets the panel read the friend list, and tick which notifications you want for each friend.
 revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T14:36:27.989Z"
+updated_at: "2026-09-16T15:18:19.394Z"
 fingerprint: 8a87152c03841290a81ad1338ccae903301779179e5b623509869b3328eec77d
 source:
   - path: "src/server.js"
@@ -44,17 +42,11 @@ apis:
 deps:
   - kind: call
     to: vrcnotifier.data.friends
-    from_api: "GET /api/friends"
-    to_api: "rpc:listFriends()"
     label: {zh: "读写好友行", en: "Read and write friend rows"}
   - kind: call
     to: vrcnotifier.server.serialization
-    from_api: "GET /api/friends"
-    to_api: "rpc:friendRow(f)"
     label: {zh: "序列化响应", en: "Serialize responses"}
   - kind: call
     to: vrcnotifier.vrc.world.cache
-    from_api: "GET /api/friends"
-    to_api: "rpc:get(worldId)"
     label: {zh: "触发世界名查询", en: "Kick world name lookups"}
 ---

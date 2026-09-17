@@ -7,11 +7,11 @@ tags: [nodejs, vrchat, monitor, qq-bot]
 name: {zh: "VRChat 好友监控通知器", en: "VRChat Friend Monitor & Notifier"}
 description:
   zh: >
-      VRChat 好友监控与通知服务：WebSocket 实时事件 + REST 定时对账，QQ 机器人推送 2FA/邀请/公告/好友动态，Web 面板管理监控与设置，敏感数据 AES-256-GCM 加密落库。
+      盯着你的 VRChat 好友：谁上线、谁下线、谁换了世界，都会第一时间发到你的 QQ。自带网页面板，账号密码等敏感信息加密保存。
   en: >
-      VRChat friend monitor and notifier: WebSocket realtime events plus REST reconciliation, QQ bot push for 2FA/invites/announcements/friend activity, a web dashboard for monitoring and settings, with sensitive data encrypted at rest via AES-256-GCM.
+      Watches your VRChat friends and tells you the moment one comes online, goes offline or changes world — pushed straight to QQ. Comes with a web panel, and keeps passwords and cookies encrypted.
 revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T14:35:00Z"
+updated_at: "2026-09-16T15:18:02.087Z"
 fingerprint: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
 source: []
 ---

@@ -1,11 +1,12 @@
 {
   "schema_version": 1,
   "id": "vrcnotifier.server",
-  "updated_at": "2026-09-16T14:34:52.350Z",
-  "mode": "groups",
+  "updated_at": "2026-09-16T15:20:04.074Z",
+  "mode": "grid",
+  "max_api_rows": 1,
   "reading": {
-    "zh": "一张请求先过中间件与令牌门，被路由处理时经序列化层脱敏，实时事件走 SSE；业务接口按资源分组排列。",
-    "en": "A request passes the middleware pipeline and token gate, is scrubbed by the serialization layer, and realtime events leave through SSE; business routes are grouped by resource."
+    "zh": "按依赖顺序排：每个请求进门都要过的检查 → 登录和实时推送 → 各种数据接口 → 顺带把网页文件发出去。",
+    "en": "Ordered by dependency: the check every request passes, then login and live push, then the data routes, then serving the web files."
   },
   "order": [
     "vrcnotifier.server.runtime",
@@ -22,55 +23,5 @@
     "vrcnotifier.server.logs",
     "vrcnotifier.server.static"
   ],
-  "groups": [
-    {
-      "id": "infra",
-      "title": {
-        "zh": "管线与序列化",
-        "en": "Pipeline & Serialization"
-      },
-      "children": [
-        "vrcnotifier.server.runtime",
-        "vrcnotifier.server.middleware",
-        "vrcnotifier.server.serialization"
-      ]
-    },
-    {
-      "id": "realtime",
-      "title": {
-        "zh": "认证与事件流",
-        "en": "Auth & Events"
-      },
-      "children": [
-        "vrcnotifier.server.auth",
-        "vrcnotifier.server.sse"
-      ]
-    },
-    {
-      "id": "business",
-      "title": {
-        "zh": "业务接口",
-        "en": "Business Routes"
-      },
-      "children": [
-        "vrcnotifier.server.access",
-        "vrcnotifier.server.friends",
-        "vrcnotifier.server.settings",
-        "vrcnotifier.server.status",
-        "vrcnotifier.server.avatar",
-        "vrcnotifier.server.monitor-control",
-        "vrcnotifier.server.logs"
-      ]
-    },
-    {
-      "id": "static",
-      "title": {
-        "zh": "静态托管",
-        "en": "Static Hosting"
-      },
-      "children": [
-        "vrcnotifier.server.static"
-      ]
-    }
-  ]
+  "max_columns": 4
 }

@@ -5,13 +5,13 @@ parent: vrcnotifier.server.middleware
 name: {zh: "访问令牌鉴权门", en: "Access Token Gate"}
 description:
   zh: >
-      Bearer 访问令牌门。未配置令牌时整体跳过；仅作用于 /api；白名单为 /api/config 与 /api/access/verify。路径先小写并去尾斜杠，避免大小写变体绕过令牌门却又命中路由；比较使用恒时算法。
+      检查请求有没有带对的访问令牌。
       
   en: >
-      Bearer access-token gate. Skipped entirely when no token is configured; applies to /api only; /api/config and /api/access/verify are whitelisted. The path is lowercased and stripped of trailing slashes so that case variants cannot bypass the gate while still matching Express routes; comparison is timing-safe.
+      Checks that a request carries the right access token.
       
-revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T14:31:48.744Z"
+revision: 6515ec0b18c3caed3cb0014a183ac3d34d011dd8
+updated_at: "2026-09-16T15:22:26.675Z"
 fingerprint: 8a87152c03841290a81ad1338ccae903301779179e5b623509869b3328eec77d
 source:
   - path: "src/server.js"
@@ -25,14 +25,18 @@ apis:
     path: "requireAccessToken(req, res, next)"
     description:
       zh: >
-          除白名单外全部 /api 请求校验 Bearer 或查询串令牌。
+          除白名单外全部 /api 请求都要检查 Bearer 或查询串里的令牌。
+          
       en: >
           Gate every /api request except the whitelist on a Bearer or query token.
+          
   - protocol: rpc
     path: "tokenEquals(a, b)"
     description:
       zh: >
-          先校长度再用恒时比较校验令牌。
+          先比长度，再用恒定耗时的方式比较令牌。
+          
       en: >
           Length-checked, timing-safe token comparison.
+          
 ---

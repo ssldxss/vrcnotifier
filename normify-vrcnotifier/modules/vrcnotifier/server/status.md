@@ -5,13 +5,13 @@ parent: vrcnotifier.server
 name: {zh: "状态与遥测路由", en: "Status & Telemetry Routes"}
 description:
   zh: >
-      状态与遥测路由：statusPayload 汇总登录态、打码后的当前用户、活跃账号、WS 连接与最后消息时间、QQ 状态、上次快照时间、待验证 2FA 数与延迟配置，并复用为 SSE status 事件；/api/health、/api/ws-stats、/api/vrc-status 暴露三个探针，未启用时回 503。
+      面板顶上那排状态：在线情况、连接好不好、延迟多少，以及 VRChat 官方是否正常。
       
   en: >
-      Status and telemetry routes: statusPayload aggregates login state, masked current user, active accounts, WS connection and last message time, QQ status, last snapshot time, pending-2FA count and the timing configuration, and is reused as the SSE status event; /api/health, /api/ws-stats and /api/vrc-status expose the three probes and answer 503 when the probe is not wired.
+      The status strip at the top of the panel: who is online, connection health, latency, and whether VRChat itself is up.
       
-revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T14:36:27.989Z"
+revision: 6515ec0b18c3caed3cb0014a183ac3d34d011dd8
+updated_at: "2026-09-16T15:22:26.678Z"
 fingerprint: 8a87152c03841290a81ad1338ccae903301779179e5b623509869b3328eec77d
 source:
   - path: "src/server.js"
@@ -35,7 +35,7 @@ apis:
     path: "/api/status"
     description:
       zh: >
-          统一状态负载，不校验登录。
+          统一的状态数据，不检查登录。
           
       en: >
           Unified status payload; no login check.
@@ -73,27 +73,17 @@ apis:
 deps:
   - kind: call
     to: vrcnotifier.monitor.session
-    from_api: "rpc:statusPayload()"
-    to_api: "rpc:activeUsers()"
     label: {zh: "列出活跃账号", en: "List active accounts"}
   - kind: call
     to: vrcnotifier.vrc.pipeline.control
-    from_api: "rpc:statusPayload()"
-    to_api: "rpc:status(userId)"
     label: {zh: "读取 WS 状态", en: "Read WS status"}
   - kind: call
     to: vrcnotifier.qq.bot.registry
-    from_api: "rpc:statusPayload()"
-    to_api: "rpc:status(dbId)"
     label: {zh: "读取 QQ 状态", en: "Read QQ status"}
   - kind: call
     to: vrcnotifier.vrc.health
-    from_api: "GET /api/health"
-    to_api: "rpc:sample()"
     label: {zh: "读取健康采样", en: "Read health sample"}
   - kind: call
     to: vrcnotifier.vrc.status
-    from_api: "GET /api/vrc-status"
-    to_api: "rpc:status()"
     label: {zh: "读取服务状态", en: "Read service status"}
 ---

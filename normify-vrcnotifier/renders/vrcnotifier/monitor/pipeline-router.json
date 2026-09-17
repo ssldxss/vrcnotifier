@@ -1,40 +1,17 @@
 {
   "schema_version": 1,
   "id": "vrcnotifier.monitor.pipeline-router",
-  "updated_at": "2026-09-16T14:35:10.937Z",
-  "mode": "groups",
+  "updated_at": "2026-09-16T15:20:28.958Z",
+  "mode": "layers",
+  "max_api_rows": 1,
   "reading": {
-    "zh": "每一帧先过门禁（重连后的对账期直接丢弃），再按事件类型分派给好友或自身两条映射链。",
-    "en": "Every frame passes admission (dropped entirely while a post-reconnect reconciliation runs), then dispatches by type into the friend or self mapping chain."
+    "zh": "先看这条消息收不收（左边两个框），再按类型分给好友或你自己（右边两个框）。",
+    "en": "First decide whether to accept the message (left two boxes), then route it by type to friends or to you (right two boxes)."
   },
   "order": [
     "vrcnotifier.monitor.pipeline-router.reconnect",
     "vrcnotifier.monitor.pipeline-router.dispatch",
     "vrcnotifier.monitor.pipeline-router.friend-events",
     "vrcnotifier.monitor.pipeline-router.self-events"
-  ],
-  "groups": [
-    {
-      "id": "gate",
-      "title": {
-        "zh": "门禁",
-        "en": "Admission"
-      },
-      "children": [
-        "vrcnotifier.monitor.pipeline-router.reconnect",
-        "vrcnotifier.monitor.pipeline-router.dispatch"
-      ]
-    },
-    {
-      "id": "mapping",
-      "title": {
-        "zh": "事件映射",
-        "en": "Event Mapping"
-      },
-      "children": [
-        "vrcnotifier.monitor.pipeline-router.friend-events",
-        "vrcnotifier.monitor.pipeline-router.self-events"
-      ]
-    }
   ]
 }

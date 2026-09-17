@@ -2,16 +2,16 @@
 uid: 3bb7a8d5
 id: vrcnotifier.monitor.core
 parent: vrcnotifier.monitor
-name: {zh: "监控装配与共享状态", en: "Monitor Assembly & Runtime State"}
+name: {zh: "监控的组装与状态", en: "Assembly & State"}
 description:
   zh: >
-      工厂装配与共享运行态：依赖注入、日志器与事件总线选择、会话表及 running/awaitingSnapshot/pendingStatus/pendingBuckets/connState 等集合、全部阈值默认值（确认延迟、去重窗口、快照间隔、watchdog、状态合并、故障通知、世界名等待、群组重试），以及惰性连接态与对外暴露的方法面。
+      把监控需要的部件装到一起，并记住当前在监控哪个账号。
       
   en: >
-      Factory assembly and shared runtime state: dependency injection, logger and event-bus selection, the session table plus the running/awaitingSnapshot/pendingStatus/pendingBuckets/connState collections, all threshold defaults (confirm delay, dedupe window, snapshot interval, watchdog, status coalesce, fault notify, world wait, group retry), the lazily built connection state and the exposed public surface.
+      Assembles the parts monitoring needs and remembers which accounts are currently being watched.
       
-revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T14:33:58.166Z"
+revision: 6515ec0b18c3caed3cb0014a183ac3d34d011dd8
+updated_at: "2026-09-16T15:22:26.680Z"
 fingerprint: ea088ca1010672a4d206d3d26e240acd50471b2ea31bd088667c9fdb6d00d8f0
 source:
   - path: "src/monitor.js"
@@ -25,7 +25,7 @@ apis:
     path: "createMonitor(opts)"
     description:
       zh: >
-          注入依赖与阈值，创建监控编排实例。
+          注入依赖与上限值，创建监控总控实例。
           
       en: >
           Create the monitor with all collaborators and thresholds.

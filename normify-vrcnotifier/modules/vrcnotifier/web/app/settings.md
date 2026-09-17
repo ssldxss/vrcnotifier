@@ -5,13 +5,11 @@ parent: vrcnotifier.web.app
 name: {zh: "设置面板", en: "Settings Panel"}
 description:
   zh: >
-      设置页。由于服务端从不返回 QQ AppSecret，密码框填充的是掩码哨兵；原样提交会被服务端解释为保持原值，因此保存无关设置永远不会删掉凭据。机器人总开关关闭时会隐藏自己的字段，且切换立即保存而不等保存按钮。
-      
+      设置页：QQ 机器人、通知开关、测试推送。
   en: >
-      The settings page. Because the server never returns the QQ app secret, the password field is populated with a mask sentinel; submitting it unchanged is interpreted server-side as keep the stored value, so saving unrelated settings never wipes credentials. The bot switch hides its own fields when off, and toggling it saves immediately rather than waiting for the save button.
-      
+      The settings page: the QQ bot, notification switches and a test push.
 revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T14:34:23.743Z"
+updated_at: "2026-09-16T15:19:37.674Z"
 fingerprint: 06609d43725c1483a940506f664ec39835212c390e7767362f17ac852efcc15d
 source:
   - path: "public/app.js"

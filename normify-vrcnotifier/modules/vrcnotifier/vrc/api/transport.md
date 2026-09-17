@@ -2,16 +2,14 @@
 uid: b2e7cee1
 id: vrcnotifier.vrc.api.transport
 parent: vrcnotifier.vrc.api
-name: {zh: "请求传输与限流退避", en: "Request Transport & Throttling"}
+name: {zh: "发请求与重试", en: "Sending & Retrying"}
 description:
   zh: >
-      所有 VRChat 调用底下的传输层。请求带上目标 URL 的 cookie 头，并按一分钟滑动窗口限流；429、网络错误与 5xx 按指数退避加抖动重试，次数有界；401 永不重试，因为那是需要调用方解决的会话问题。登录、2FA 与 authToken 主动关闭重试，让用户立即看到失败。
-      
+      真正发请求的地方：控制请求频率，遇到临时故障会重试。
   en: >
-      The transport beneath every VRChat call. Requests carry the cookie header for the target URL and are throttled by a sliding one-minute window; 429, network errors and 5xx retry with exponential backoff plus jitter up to a bounded attempt count, while 401 is never retried because it is a session problem for the caller to resolve. Login, 2FA and authToken opt out of retries so the user sees failures immediately.
-      
+      Where requests are actually sent: keeps the request rate in check, and retries temporary failures.
 revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T14:33:19.896Z"
+updated_at: "2026-09-16T15:18:57.819Z"
 fingerprint: 41550317630bd0c2e6ca7b19edbe553bad6fd8b8e48ed4f731379e1a8333b2ec
 source:
   - path: "src/vrcapi.js"

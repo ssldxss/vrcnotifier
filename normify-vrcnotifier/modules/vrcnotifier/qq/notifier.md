@@ -5,13 +5,11 @@ parent: vrcnotifier.qq
 name: {zh: "通知渠道分发", en: "Notification Fan-out"}
 description:
   zh: >
-      通知渠道层，目前只有 QQ，但按扇出结构编写，增加第二个渠道只需多一个 key 而不必重写。它从全局设置读取开关与凭据，经模板模块渲染变更，以 Markdown 发送，并把失败归一为 ok/reason 结果而不是抛异常。另有一条原始文本通道承载不应套模板的系统消息。
-      
+      把一条变化渲染成消息并发出。
   en: >
-      The notification channel layer, currently QQ only but shaped as a fan-out so a second channel would be a new key rather than a rewrite. It reads the global settings for the switch and credentials, renders the change through the template module, sends markdown, and normalizes failures into an ok/reason result instead of throwing. A separate raw-text path carries system messages that should not be templated.
-      
+      Renders a change into a message and sends it out.
 revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T14:36:10.935Z"
+updated_at: "2026-09-16T15:18:57.820Z"
 fingerprint: 0ed32c13ab7327b4479d8267b8a441440778a3908f41b102927015c69bb3b051
 source:
   - path: "src/notify.js"
@@ -48,17 +46,17 @@ apis:
 deps:
   - kind: call
     to: vrcnotifier.qq.templates.message
-    from_api: "rpc:sendAll(user, change)"
-    to_api: "rpc:buildQq(change, opts)"
     label: {zh: "渲染消息", en: "Render the message"}
   - kind: call
     to: vrcnotifier.qq.bot.sender
-    from_api: "rpc:sendAll(user, change)"
-    to_api: "rpc:sendText(dbId, text, opts)"
     label: {zh: "经 QQ 投递", en: "Deliver over QQ"}
   - kind: call
     to: vrcnotifier.data.settings
-    from_api: "rpc:sendAll(user, change)"
-    to_api: "rpc:getGlobalSettings()"
     label: {zh: "读取渠道开关", en: "Read the channel switch"}
+  - kind: call
+    to: vrcnotifier.qq.bot
+    label: {zh: "通过机器人发送", en: "Sends via the bot"}
+  - kind: call
+    to: vrcnotifier.qq.templates
+    label: {zh: "套用文案", en: "Uses the templates"}
 ---

@@ -5,13 +5,11 @@ parent: vrcnotifier.infra.logging
 name: {zh: "本地时间格式化", en: "Local Time Formatting"}
 description:
   zh: >
-      一个极小但影响面很广的函数：从日志行到停止通知，产品中所有面向人的时间戳都按服务器本地时间渲染而非 UTC，因为阅读它们的人处在一个时区，并习惯与自己的表对照。
-      
+      把时间显示成本地时间，方便跟自己的钟对照。
   en: >
-      One tiny function with a wide blast radius: every human-facing timestamp in the product, from log lines to shutdown notices, is rendered in the server's local time rather than UTC, because the people reading them are in one timezone and mentally comparing against their own clock.
-      
+      Shows times in your local timezone so they are easy to compare with your own clock.
 revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T14:32:30.745Z"
+updated_at: "2026-09-16T15:19:17.770Z"
 fingerprint: d45be10322348d08689f4370017a56b85227e1051cb460ef6fd221c61535d6eb
 source:
   - path: "src/util.js"
@@ -23,6 +21,8 @@ apis:
     description:
       zh: >
           把时间戳格式化为本地 YYYY-MM-DD HH:mm:ss。
+          
       en: >
           Format a timestamp as local YYYY-MM-DD HH:mm:ss.
+          
 ---

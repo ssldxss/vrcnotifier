@@ -5,13 +5,11 @@ parent: vrcnotifier.vrc.pipeline
 name: {zh: "连接控制接口", en: "Connection Control API"}
 description:
   zh: >
-      管理器的对外方法面。forceReconnect 刻意只负责关闭套接字，把通知与重连安排全部交给 close 处理函数，使强制重连与自然断线走同一条路径——否则监控层的连接标志会停在陈旧值，真正的故障反而不会报警。
-      
+      连接的开关：连上、断开、强制重连、看状态。
   en: >
-      The manager's public surface. forceReconnect deliberately only closes the socket and leaves notification plus rescheduling to the close handler, so a forced reconnect travels the same path as a spontaneous disconnect — otherwise the monitor's connection flag would stay stale and a real outage would go unreported.
-      
+      The switch for the connection: open it, close it, force a reconnect, or read its state.
 revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T14:36:10.935Z"
+updated_at: "2026-09-16T15:18:57.819Z"
 fingerprint: fcec1a31e9954f30b8b2af8101c21e657a5bb6faf7760f9cd5cc6094782be79e
 source:
   - path: "src/pipeline.js"
@@ -69,12 +67,8 @@ apis:
 deps:
   - kind: call
     to: vrcnotifier.vrc.pipeline.connection
-    from_api: "rpc:connect(userId, displayName)"
-    to_api: "rpc:connectPipeline(userId, displayName)"
     label: {zh: "驱动连接", en: "Drive the connection"}
   - kind: call
     to: vrcnotifier.vrc.pipeline.stats
-    from_api: "rpc:messageRateSeries(nowMs)"
-    to_api: "rpc:messageSeries(nowMs)"
     label: {zh: "暴露消息速率", en: "Expose message rate"}
 ---

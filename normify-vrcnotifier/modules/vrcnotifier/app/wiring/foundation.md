@@ -2,16 +2,16 @@
 uid: 8f94e7e4
 id: vrcnotifier.app.wiring.foundation
 parent: vrcnotifier.app.wiring
-name: {zh: "基础服务装配", en: "Foundation Service Wiring"}
+name: {zh: "基础服务组装", en: "Foundation Service Assembly"}
 description:
   zh: >
-      创建存储与横切基础设施并注入给后续模块：SQLite 仓储（带可选加密）、内存日志流并接管全局、多段文件日志（可选）、头像缓存目录与定时清理、事件总线 EventEmitter、会话表与运行参数对象。
+      准备底层设施：打开数据库、接管日志、建立头像缓存。
       
   en: >
-      Creates storage and cross-cutting infrastructure for later modules: the SQLite repository (with optional encryption), the in-memory log stream installed globally, the optional segmented file log, the avatar cache directory with its sweep timer, the event bus, the session map and the runtime parameter object.
+      Sets up the basics: opens the database, takes over logging, and creates the avatar cache.
       
-revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T14:36:27.989Z"
+revision: 6515ec0b18c3caed3cb0014a183ac3d34d011dd8
+updated_at: "2026-09-16T15:23:01.491Z"
 fingerprint: f25564c89baf4114b3baf36c945152cf491a94287d92e6f2350aba5bd057df88
 source:
   - path: "src/index.js"
@@ -48,22 +48,14 @@ apis:
 deps:
   - kind: call
     to: vrcnotifier.data.schema
-    from_api: "rpc:createDb(dbPath, {crypto})"
-    to_api: "rpc:createDb(location, opts)"
     label: {zh: "打开仓储", en: "Open the repository"}
   - kind: call
     to: vrcnotifier.infra.logging.memory-stream
-    from_api: "rpc:openLogStream({capacity})"
-    to_api: "rpc:createLogStream({capacity})"
     label: {zh: "接管日志流", en: "Install the log stream"}
   - kind: call
-    to: vrcnotifier.infra.logging.file-segments
-    from_api: "rpc:openLogStream({capacity})"
-    to_api: "rpc:createFileLog(opts)"
+    to: vrcnotifier.infra.logging.file-segments.opening
     label: {zh: "开启文件日志", en: "Open file logging"}
   - kind: call
     to: vrcnotifier.infra.avatar.store
-    from_api: "rpc:createAvatarCache({dir})"
-    to_api: "rpc:createAvatarCache(opts)"
     label: {zh: "建立头像缓存", en: "Create the avatar cache"}
 ---

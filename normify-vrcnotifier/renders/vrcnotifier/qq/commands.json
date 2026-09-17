@@ -1,12 +1,13 @@
 {
   "schema_version": 1,
   "id": "vrcnotifier.qq.commands",
-  "updated_at": "2026-09-16T14:35:21.227Z",
+  "updated_at": "2026-09-16T15:20:43.274Z",
   "mode": "layers",
   "max_columns": 2,
+  "max_api_rows": 1,
   "reading": {
-    "zh": "渲染函数在下、指令入口在上：入口先消费验证码，再把好友表交给渲染器输出。",
-    "en": "Rendering sits below, the command entry above: the entry consumes 2FA codes first, then hands the friend table to the renderer."
+    "zh": "左边负责把列表排版，右边是收到你消息时的处理。",
+    "en": "The left formats the list; the right handles the message you sent."
   },
   "order": [
     "vrcnotifier.qq.commands.online-list",

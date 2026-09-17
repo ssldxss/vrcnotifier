@@ -5,13 +5,11 @@ parent: vrcnotifier.app.config
 name: {zh: "访问令牌解析与迁移", en: "Access Token Resolution & Migration"}
 description:
   zh: >
-      按优先级解析 Web 面板访问令牌：环境变量 ACCESS_TOKEN → 数据库 settings.access_token → 旧版 data/token.txt（读入后写库并删除旧文件）→ 随机生成并持久化。令牌是面板与后端之间的唯一凭据。
-      
+      决定网页访问令牌：优先用环境变量或已保存的，都没有就新生成一个并记住。
   en: >
-      Resolves the web access token by priority: ACCESS_TOKEN env var, database settings.access_token, legacy data/token.txt (imported then deleted), finally a freshly generated value persisted to the database. This token is the only credential between panel and backend.
-      
+      Decides the web access token: reuse the one from the environment or from storage, otherwise generate a new one and remember it.
 revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T14:33:19.896Z"
+updated_at: "2026-09-16T15:18:02.087Z"
 fingerprint: f25564c89baf4114b3baf36c945152cf491a94287d92e6f2350aba5bd057df88
 source:
   - path: "src/index.js"
@@ -30,5 +28,5 @@ apis:
 deps:
   - kind: call
     to: vrcnotifier.data.settings
-    label: {zh: "读写令牌设置", en: "Read/write the token setting"}
+    label: {zh: "读写令牌设置", en: "Read/write token setting"}
 ---

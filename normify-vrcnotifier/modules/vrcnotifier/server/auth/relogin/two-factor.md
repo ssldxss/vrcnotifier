@@ -5,13 +5,13 @@ parent: vrcnotifier.server.auth.relogin
 name: {zh: "重登验证码与 QQ 指令", en: "Re-login 2FA & QQ Command"}
 description:
   zh: >
-      重登的验证侧：运行中会话被挂起时建立待验证会话（从响应体或 401 错误体中取可用验证方式），提供网页弹窗与 QQ 指令钩子共用的验证码校验，并可在保留密码的前提下清除 cookie 以重新触发验证码邮件（不消耗频控额度）。
+      接收重新登录需要的验证码——在网页弹窗里填，或在 QQ 里直接发。
       
   en: >
-      The verification half of re-login: builds a pending session when a running session is suspended (reading the accepted factors from either the payload or the 401 body), verifies codes with a path shared by the web modal and the QQ command hook, and can resend the mail code by clearing cookies while keeping the saved password (without consuming the rate limit).
+      Takes the code needed to finish a re-login, either typed into the panel or sent over QQ.
       
-revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T14:33:44.403Z"
+revision: 6515ec0b18c3caed3cb0014a183ac3d34d011dd8
+updated_at: "2026-09-16T15:22:26.676Z"
 fingerprint: 8a87152c03841290a81ad1338ccae903301779179e5b623509869b3328eec77d
 source:
   - path: "src/server.js"
@@ -34,7 +34,7 @@ apis:
     path: "verifyPendingCode(userId, code)"
     description:
       zh: >
-          校验待验证验证码并落地会话。
+          验证待验证的验证码，成功后建立会话。
           
       en: >
           Verify a pending code and finalize the session.
@@ -70,10 +70,10 @@ apis:
 deps:
   - kind: call
     to: vrcnotifier.vrc.api.auth
-    label: {zh: "校验待验证码", en: "Verify the pending code"}
+    label: {zh: "验证待验证码", en: "Verify the pending code"}
   - kind: call
     to: vrcnotifier.server.auth.session
-    label: {zh: "成功则落地", en: "Finalize on success"}
+    label: {zh: "成功后建会话", en: "Finalize on success"}
   - kind: call
     to: vrcnotifier.qq.notifier
     label: {zh: "经 QQ 回复", en: "Reply over QQ"}

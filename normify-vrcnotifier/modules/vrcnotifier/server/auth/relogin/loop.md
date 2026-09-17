@@ -5,13 +5,13 @@ parent: vrcnotifier.server.auth.relogin
 name: {zh: "重登循环与退避", en: "Re-login Loop & Backoff"}
 description:
   zh: >
-      按 VRCX 同款方式重登：先复用旧 cookie jar 带上上下文，再用保存的密码登录。遇到 2FA 挑战则挂起并同时经 QQ 与 SSE 2fa-needed 通知；成功后落地会话并广播 relogin-ok；401 立即失败，网络/429/5xx 走退避。滚动 1 小时上限防止持续冲击登录接口。
+      一次次尝试重新登录：成功就继续，一直失败就放弃并告诉你。
       
   en: >
-      Executes re-login the VRCX way: reuse the old cookie jar so the request carries context, then log in with the saved password. A 2FA challenge parks the attempt and notifies over QQ plus an SSE 2fa-needed event; success finalizes the session and broadcasts relogin-ok; a 401 fails fast while network, 429 and 5xx errors back off. A rolling hourly cap prevents hammering the login endpoint.
+      Keeps attempting the re-login, carries on when it succeeds, and gives up with a notice if it keeps failing.
       
-revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T14:33:44.403Z"
+revision: 6515ec0b18c3caed3cb0014a183ac3d34d011dd8
+updated_at: "2026-09-16T15:22:26.677Z"
 fingerprint: 8a87152c03841290a81ad1338ccae903301779179e5b623509869b3328eec77d
 source:
   - path: "src/server.js"
@@ -66,7 +66,7 @@ deps:
     label: {zh: "用保存密码重登", en: "Log in with saved password"}
   - kind: call
     to: vrcnotifier.server.auth.session
-    label: {zh: "成功则落地", en: "Finalize on success"}
+    label: {zh: "成功后建会话", en: "Finalize on success"}
   - kind: call
     to: vrcnotifier.qq.notifier
     label: {zh: "推送重登进展", en: "Notify about the attempt"}

@@ -5,13 +5,13 @@ parent: vrcnotifier.monitor
 name: {zh: "会话注册与用户启停", en: "Session Registry & Activation"}
 description:
   zh: >
-      持有 vrchat_user_id 到会话的映射。激活时注册会话、按显示名连接 WS 管线，并立即执行一次只建基线、不发通知的首次对账；停用时断开连接并清理该用户的定时器，但不动已入库的好友行。退出时并发向全部活跃用户推送停止通知。
+      开启或停止监控某个账号；启动时先安静地读一遗现状，免得一开机就发一堆通知。
       
   en: >
-      Owns the vrchat_user_id to session map. Activation registers the session, connects the WS pipeline with the display name and immediately runs a silent initial reconciliation that only establishes a baseline; deactivation disconnects and clears per-user timers without touching stored friend rows. Shutdown pushes a stop notice to every active user in parallel.
+      Starts and stops watching an account; on start it reads the current state quietly, so you do not get a burst of notifications.
       
-revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T14:36:10.935Z"
+revision: 6515ec0b18c3caed3cb0014a183ac3d34d011dd8
+updated_at: "2026-09-16T15:23:01.487Z"
 fingerprint: ea088ca1010672a4d206d3d26e240acd50471b2ea31bd088667c9fdb6d00d8f0
 source:
   - path: "src/monitor.js"
@@ -22,10 +22,10 @@ apis:
     path: "activateUser(user, vrcapi)"
     description:
       zh: >
-          注册用户、连接管线并做一次静默首次对账。
+          注册用户、连接管线并安静地做一次首次核对。
           
       en: >
-          Register a user, connect the pipeline and run the first silent reconciliation.
+          Register a user, connect the pipeline and run the first quiet check.
           
   - protocol: rpc
     path: "deactivateUser(vrcId)"
@@ -57,22 +57,20 @@ apis:
 deps:
   - kind: call
     to: vrcnotifier.vrc.pipeline.control
-    from_api: "rpc:activateUser(user, vrcapi)"
-    to_api: "rpc:connect(userId, displayName)"
     label: {zh: "连接与断开", en: "Connect and disconnect"}
   - kind: call
     to: vrcnotifier.monitor.snapshot.run
-    from_api: "rpc:activateUser(user, vrcapi)"
-    to_api: "rpc:runSnapshot(userId, opts)"
-    label: {zh: "首次对账", en: "Run the first reconciliation"}
+    label: {zh: "首次核对", en: "Run the first check"}
   - kind: call
     to: vrcnotifier.qq.notifier
-    from_api: "rpc:sendShutdownNotice()"
-    to_api: "rpc:sendQqText(dbId, text, opts)"
     label: {zh: "推送停止通知", en: "Send the shutdown notice"}
   - kind: call
     to: vrcnotifier.monitor.state.pending-verification
-    from_api: "rpc:deactivateUser(vrcId)"
-    to_api: "rpc:clearPendingCheck(user, friendVrcId)"
-    label: {zh: "取消 pending 校验", en: "Cancel pending checks"}
+    label: {zh: "取消待确认检查", en: "Cancel pending checks"}
+  - kind: call
+    to: vrcnotifier.monitor.snapshot
+    label: {zh: "首次核对", en: "Runs the first check"}
+  - kind: call
+    to: vrcnotifier.monitor.state
+    label: {zh: "初始化状态", en: "Initialises state"}
 ---

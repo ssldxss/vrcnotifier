@@ -5,13 +5,11 @@ parent: vrcnotifier.server.sse
 name: {zh: "事件总线桥接与 WS 统计", en: "Bus to SSE Bridge & WS Stats"}
 description:
   zh: >
-      订阅监控事件总线并把领域事件转发到浏览器：snapshot、notification、world-name、session-expired、ws-failure、sync-progress（改名 login-progress）、ws-open/ws-close、self-state、qq-status 与 health，其中若干同时重发聚合状态。另有每秒 ticker 补推最近 3 秒的 WS 消息数，无客户端时直接跳过。
-      
+      把程序内部发生的事情，转成浏览器能收到的事件。
   en: >
-      Subscribes to the monitor event bus and re-emits each domain event to the browser: snapshot, notification, world-name, session-expired, ws-failure, sync-progress (as login-progress), ws-open/ws-close, self-state, qq-status and health, several of which also re-broadcast the aggregate status payload. A one-second ticker additionally pushes the last three seconds of WS message counts with no clients skipped.
-      
+      Turns things happening inside the program into events the browser can receive.
 revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T14:33:44.403Z"
+updated_at: "2026-09-16T15:18:19.393Z"
 fingerprint: 8a87152c03841290a81ad1338ccae903301779179e5b623509869b3328eec77d
 source:
   - path: "src/server.js"

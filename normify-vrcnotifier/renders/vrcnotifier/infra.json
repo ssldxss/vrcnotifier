@@ -1,11 +1,12 @@
 {
   "schema_version": 1,
   "id": "vrcnotifier.infra",
-  "updated_at": "2026-09-16T14:35:21.638Z",
-  "mode": "groups",
+  "updated_at": "2026-09-16T15:20:43.732Z",
+  "mode": "grid",
+  "max_api_rows": 1,
   "reading": {
-    "zh": "四组互不依赖的横切能力；几乎所有其它模块都用得到日志与共享工具。",
-    "en": "Four mutually independent cross-cutting capabilities; nearly every other module uses logging and the shared helpers."
+    "zh": "四组互不相干的底层能力；日志和加密几乎每个模块都要用。",
+    "en": "Four independent low-level capabilities. Nearly every module needs logging and encryption."
   },
   "order": [
     "vrcnotifier.infra.logging",
@@ -13,37 +14,5 @@
     "vrcnotifier.infra.avatar",
     "vrcnotifier.infra.util"
   ],
-  "groups": [
-    {
-      "id": "obs",
-      "title": {
-        "zh": "可观测性",
-        "en": "Observability"
-      },
-      "children": [
-        "vrcnotifier.infra.logging"
-      ]
-    },
-    {
-      "id": "data",
-      "title": {
-        "zh": "数据与文件",
-        "en": "Data & Files"
-      },
-      "children": [
-        "vrcnotifier.infra.crypto",
-        "vrcnotifier.infra.avatar"
-      ]
-    },
-    {
-      "id": "misc",
-      "title": {
-        "zh": "共享工具",
-        "en": "Shared Helpers"
-      },
-      "children": [
-        "vrcnotifier.infra.util"
-      ]
-    }
-  ]
+  "max_columns": 2
 }

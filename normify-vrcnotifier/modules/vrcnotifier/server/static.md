@@ -5,13 +5,11 @@ parent: vrcnotifier.server
 name: {zh: "前端静态托管", en: "Static UI Hosting"}
 description:
   zh: >
-      可选的一体化部署模式：提供 publicDir 时后端同时托管面板静态资源。它注册在未知 API 404 之后，因此永远不会遮蔽 API 路由。
-      
+      顺带把网页文件也发出去，这样前后端可以只跑在一台机器上。
   en: >
-      Optional single-process deployment mode: when publicDir is provided the backend also serves the panel's static assets. It is registered after the unknown-API 404 so it can never shadow an API route.
-      
+      Also serves the web page files, so front end and back end can share one machine.
 revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T14:33:44.403Z"
+updated_at: "2026-09-16T15:18:19.394Z"
 fingerprint: 8a87152c03841290a81ad1338ccae903301779179e5b623509869b3328eec77d
 source:
   - path: "src/server.js"

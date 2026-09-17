@@ -5,13 +5,13 @@ parent: vrcnotifier.infra
 name: {zh: "日志栈", en: "Logging Stack"}
 description:
   zh: >
-      “日志”背后的三层协作：负责格式化与分发的日志器、供面板实时流使用的有界内存环，以及用稳定序号保存完整历史的分段文件。
+      日志的三层：写日志的那只手、内存里最近的一段、硬盘上的完整历史。
       
   en: >
-      Three cooperating layers behind 'the log': the logger that formats and fans out lines, the bounded in-memory ring used for the live panel stream, and the segmented files that hold the full history with stable sequence numbers.
+      Logging in three layers: the writer, the recent lines kept in memory, and the full history on disk.
       
-revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T14:34:23.743Z"
+revision: 6515ec0b18c3caed3cb0014a183ac3d34d011dd8
+updated_at: "2026-09-16T15:21:00.006Z"
 fingerprint: d72c5fec27ac01aefe5f06b32d6e20dc373c9191ce502588e97d3c991f72ddda
 source:
   - path: "src/util.js"

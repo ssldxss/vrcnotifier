@@ -1,12 +1,13 @@
 {
   "schema_version": 1,
   "id": "vrcnotifier.monitor.snapshot",
-  "updated_at": "2026-09-16T14:35:11.042Z",
+  "updated_at": "2026-09-16T15:20:29.073Z",
   "mode": "layers",
   "max_columns": 3,
+  "max_api_rows": 1,
   "reading": {
-    "zh": "对账主流程在中间；401 从左侧分支出去（重登/2FA/会话失效），进度从右侧上报给等待页。",
-    "en": "The reconciliation run is the core; 401s branch out on the left (re-login, 2FA, dead session) and progress is reported on the right to light the boot overlay."
+    "zh": "核心是完整核对本身；一个是核对被拒绝时的判断，另一个是给等待页报进度。",
+    "en": "The full check is the core; one box judges a refused check, another reports progress to the waiting page."
   },
   "order": [
     "vrcnotifier.monitor.snapshot.run",

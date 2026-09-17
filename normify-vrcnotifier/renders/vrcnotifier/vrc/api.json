@@ -1,16 +1,17 @@
 {
   "schema_version": 1,
   "id": "vrcnotifier.vrc.api",
-  "updated_at": "2026-09-16T14:35:11.244Z",
+  "updated_at": "2026-09-16T15:20:29.297Z",
   "mode": "layers",
   "max_columns": 3,
+  "max_api_rows": 1,
   "reading": {
-    "zh": "传输层在底层（限流与退避），身份接口与社交接口都是它上面的薄封装。",
-    "en": "The transport layer sits underneath (throttling and backoff); the identity and social calls are thin wrappers above it."
+    "zh": "两件是「你想干什么」（登录、取数据），一件是所有请求真正发出去的地方。",
+    "en": "Two boxes are what you want to do (log in, read data); one is where every request is actually sent."
   },
   "order": [
-    "vrcnotifier.vrc.api.transport",
     "vrcnotifier.vrc.api.auth",
-    "vrcnotifier.vrc.api.social"
+    "vrcnotifier.vrc.api.social",
+    "vrcnotifier.vrc.api.transport"
   ]
 }

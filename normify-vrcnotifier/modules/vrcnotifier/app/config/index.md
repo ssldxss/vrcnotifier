@@ -5,11 +5,13 @@ parent: vrcnotifier.app
 name: {zh: "配置与凭据解析", en: "Configuration & Credential Resolution"}
 description:
   zh: >
-      把进程环境与命令行开关归一成应用可用的配置：环境变量读取、访问令牌解析（环境变量 → 数据库 → 旧 token.txt 迁移 → 随机生成）与运行参数默认值。
+      收集程序需要的各种设置：环境变量、网页访问令牌，以及监控用到的时间参数。
+      
   en: >
-      Normalizes process environment and CLI switches into application configuration: environment reading, access-token resolution (env var, database, legacy token.txt migration, random generation) and runtime parameter defaults.
-revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T14:35:00Z"
+      Collects the settings the program needs: environment variables, the web access token, and the timing values monitoring relies on.
+      
+revision: 6515ec0b18c3caed3cb0014a183ac3d34d011dd8
+updated_at: "2026-09-16T15:20:59.987Z"
 fingerprint: f25564c89baf4114b3baf36c945152cf491a94287d92e6f2350aba5bd057df88
 source:
   - path: "src/index.js"

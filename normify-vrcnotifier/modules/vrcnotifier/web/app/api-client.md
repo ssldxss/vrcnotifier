@@ -5,13 +5,11 @@ parent: vrcnotifier.web.app
 name: {zh: "请求封装与视图切换", en: "Request Helper & View Switching"}
 description:
   zh: >
-      所有功能共用的唯一请求入口。它带上 Bearer 令牌，并按报文把 401 分成两种：未登录类会让用户回到登录页但不打断事件流；其余 401 会停止事件流并弹出连接门禁，因为令牌本身不对。视图切换同时决定何时停止日志轮询，确保没有定时器活得比它的屏幕更久。
-      
+      所有请求都从这里出去，并区分「没登录」和「后端连不上」两种情况。
   en: >
-      The single request helper every feature goes through. It attaches the Bearer token, and treats 401 as two different things depending on the message: a not-logged-in response drops the user to the login view without disturbing the event stream, while any other 401 stops the stream and shows the connection gate because the token itself is wrong. Switching views also decides when the log view should stop polling, so no timer outlives its screen.
-      
+      Every request goes out through here, and it tells apart 'not signed in' from 'backend unreachable'.
 revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T14:34:23.743Z"
+updated_at: "2026-09-16T15:19:37.674Z"
 fingerprint: 06609d43725c1483a940506f664ec39835212c390e7767362f17ac852efcc15d
 source:
   - path: "public/app.js"
@@ -49,6 +47,9 @@ apis:
           Escape text for safe HTML interpolation.
           
 deps:
+  - kind: call
+    to: vrcnotifier.web.app.boot.state-machine
+    label: {zh: "出错时收起等待页", en: "Dismiss the overlay on error"}
   - kind: call
     to: vrcnotifier.web.sdk
     label: {zh: "复用 SDK 客户端", en: "Reuse the SDK client"}

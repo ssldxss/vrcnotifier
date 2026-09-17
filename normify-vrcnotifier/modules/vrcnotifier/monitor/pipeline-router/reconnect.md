@@ -5,13 +5,13 @@ parent: vrcnotifier.monitor.pipeline-router
 name: {zh: "重连再同步", en: "Reconnect Resynchronisation"}
 description:
   zh: >
-      重连意味着本地画面可能已经过时，因此把该用户放入等待对账集合并立即触发全量对账；在对账完成之前丢弃所有 WebSocket 消息并记一条日志。用少量消息丢失换取一个保证：不会基于前端未曾见过的状态缺口推导状态。
+      断线重连后先整体核对一遍，看看这段时间漏了什么。
       
   en: >
-      A reconnect means the local picture may be stale, so the user is put into the awaiting-snapshot set and a full reconciliation is triggered; until it finishes every WebSocket message is dropped with a log line. This trades a little message loss for the guarantee that no state is derived from a gap the panel never saw.
+      After a reconnect, re-checks everything first to catch whatever was missed while disconnected.
       
-revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T14:33:58.166Z"
+revision: 6515ec0b18c3caed3cb0014a183ac3d34d011dd8
+updated_at: "2026-09-16T15:23:01.489Z"
 fingerprint: ea088ca1010672a4d206d3d26e240acd50471b2ea31bd088667c9fdb6d00d8f0
 source:
   - path: "src/monitor.js"
@@ -22,13 +22,13 @@ apis:
     path: "handleWsReconnect(userId)"
     description:
       zh: >
-          重连后先拦截 WS 消息并跑一次全量对账。
+          重连后先挡住 WS 消息并跑一次完整核对。
           
       en: >
-          Block WS messages and run a full reconciliation after reconnecting.
+          Block WS messages and run a full check after reconnecting.
           
 deps:
   - kind: call
     to: vrcnotifier.monitor.snapshot.run
-    label: {zh: "重连后对账", en: "Reconcile after reconnect"}
+    label: {zh: "重连后核对", en: "Reconcile after reconnect"}
 ---

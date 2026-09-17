@@ -5,13 +5,13 @@ parent: vrcnotifier.qq
 name: {zh: "聊天指令", en: "Chat Commands"}
 description:
   zh: >
-      聊天侧行为：把好友表渲染成可读的在线列表，以及同时充当 2FA 验证码入口的指令处理。
+      你在 QQ 里发给机器人的消息，由这里回应。
       
   en: >
-      Chat-side behaviour: turning the friend table into a readable online list, and the command entry that also doubles as the 2FA code intake.
+      Replies to the messages you send the bot.
       
-revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T14:34:23.743Z"
+revision: 6515ec0b18c3caed3cb0014a183ac3d34d011dd8
+updated_at: "2026-09-16T15:21:00.000Z"
 fingerprint: 652d724595a7f9952f451e353502dd7ab8b39d064c1b32db4ce6ed02cec64d20
 source:
   - path: "src/qq-commands.js"

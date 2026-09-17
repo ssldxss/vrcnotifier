@@ -5,13 +5,13 @@ parent: vrcnotifier.server.auth
 name: {zh: "自动重登", en: "Automatic Re-login"}
 description:
   zh: >
-      cookie 失效（换 IP/会话挂起）时用已保存密码自动重登：每用户状态表、每小时滚动频控、指数退避，以及网页弹窗与 QQ 共用的验证码校验通道。
+      登录过期时用保存的密码自动重新登录；需要验证码时会到 QQ 上问你。
       
   en: >
-      Re-login with the saved password when cookies go stale (IP change or suspended session): a per-user state map, rolling hourly rate limit, exponential backoff and the shared OTP verification path used by both the web modal and QQ.
+      Re-logs in with the saved password when a session expires, and asks you for a code over QQ when needed.
       
-revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T14:33:44.403Z"
+revision: 6515ec0b18c3caed3cb0014a183ac3d34d011dd8
+updated_at: "2026-09-16T15:20:59.990Z"
 fingerprint: 8a87152c03841290a81ad1338ccae903301779179e5b623509869b3328eec77d
 source:
   - path: "src/server.js"

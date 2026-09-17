@@ -5,13 +5,11 @@ parent: vrcnotifier.app
 name: {zh: "前端静态服务器", en: "Frontend Static Server"}
 description:
   zh: >
-      独立前端进程（node serve.js）：用原生 http 托管 public/ 目录，内含 MIME 表、目录穿越防护（normalize 后必须落在根目录内）与 no-cache 策略，便于把前端与后端分开部署。
-      
+      一个只负责发网页文件的小服务，用来把面板单独部署到别的地方。
   en: >
-      Standalone frontend process (node serve.js): serves public/ over plain http with a MIME table, directory-traversal protection (the normalized path must stay inside the root) and no-cache headers, so the UI can be deployed separately from the backend.
-      
+      A tiny server that only serves the web page files, so the panel can be hosted somewhere else.
 revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T14:33:19.896Z"
+updated_at: "2026-09-16T15:18:02.088Z"
 fingerprint: 97c5daf044998b542d836057ca5ee6bc159147b7285f2cc3adeb78ade24ea129
 source:
   - path: "serve.js"

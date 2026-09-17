@@ -2,16 +2,16 @@
 uid: de71d171
 id: vrcnotifier.monitor.state.pending-verification
 parent: vrcnotifier.monitor.state
-name: {zh: "下线待定批量确认", en: "Offline Pending Verification"}
+name: {zh: "下线确认", en: "Confirming Offline"}
 description:
   zh: >
-      针对疑似下线的防闪烁确认。同一账号的全部 pending 好友共享一个定时器与一次 me() 调用；到期点取“最后到达加确认延迟”与“最早 pending 加两倍延迟”的较小值，既能把突发合并成一次请求，又保证持续下线流不会把验证饿死。到期后重读三个在线状态数组判定是否真离线；名册中查无此人则视为已删好友并删行。
+      刚看到好友下线时先不急着通知，过一会儿再确认一次，避免网络波动误报。
       
   en: >
-      Anti-flicker confirmation for suspected disconnects: all pending friends of one account share one timer and one me() call, so a burst collapses into a single request while a continuous offline stream never starves verification. On expiry the three presence arrays decide whether the friend is really offline, and an absent roster entry means a removed friend whose row is deleted.
+      Does not announce a friend going offline right away; confirms again a moment later so a network hiccup is not reported as real.
       
-revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T14:33:58.166Z"
+revision: 6515ec0b18c3caed3cb0014a183ac3d34d011dd8
+updated_at: "2026-09-16T15:22:26.684Z"
 fingerprint: ea088ca1010672a4d206d3d26e240acd50471b2ea31bd088667c9fdb6d00d8f0
 source:
   - path: "src/monitor.js"
@@ -40,7 +40,7 @@ apis:
     path: "clearPendingCheck(user, friendVrcId)"
     description:
       zh: >
-          取消某个好友的 pending 校验。
+          取消某个好友的待确认检查。
           
       en: >
           Cancel the pending check for a friend.

@@ -1,106 +1,33 @@
 {
   "schema_version": 1,
   "id": "vrcnotifier.web.app",
-  "updated_at": "2026-09-16T14:35:31.839Z",
-  "mode": "groups",
+  "updated_at": "2026-09-16T15:20:55.782Z",
+  "mode": "layers",
+  "max_api_rows": 1,
   "reading": {
-    "zh": "阅读路径：入口（发现后端→令牌门→登录）→ 等待页 → 好友监控主界面；设置/日志与实时状态是右侧两个侧翼，外壳交互在最后。",
-    "en": "Reading path: entry (discover backend, token gate, login), boot overlay, then the friend-monitoring main screen; settings/logs and realtime status flank it, with shell interactions last."
+    "zh": "按使用顺序看：进入 → 等待 → 看好友 → 设置和日志 → 实时状态 → 外壳小事；最后那个框是所有请求的公共出口。",
+    "en": "Read it in order of use: enter → wait → see friends → settings and logs → live status → page shell. The last box is the single way out for every request."
   },
   "order": [
     "vrcnotifier.web.app.bootstrap",
-    "vrcnotifier.web.app.api-client",
     "vrcnotifier.web.app.connection-gate",
     "vrcnotifier.web.app.login",
     "vrcnotifier.web.app.boot",
-    "vrcnotifier.web.app.sse-events",
-    "vrcnotifier.web.app.roster",
-    "vrcnotifier.web.app.groups",
-    "vrcnotifier.web.app.favorite-flip",
-    "vrcnotifier.web.app.presence-motion",
-    "vrcnotifier.web.app.friend-config",
     "vrcnotifier.web.app.monitor-toolbar",
-    "vrcnotifier.web.app.log-viewer",
+    "vrcnotifier.web.app.presence-motion",
+    "vrcnotifier.web.app.favorite-flip",
+    "vrcnotifier.web.app.groups",
+    "vrcnotifier.web.app.friend-config",
+    "vrcnotifier.web.app.roster",
     "vrcnotifier.web.app.settings",
+    "vrcnotifier.web.app.log-viewer",
     "vrcnotifier.web.app.dropdown",
+    "vrcnotifier.web.app.sse-events",
     "vrcnotifier.web.app.status",
     "vrcnotifier.web.app.ws-chart",
     "vrcnotifier.web.app.shell",
-    "vrcnotifier.web.app.smooth-scroll"
+    "vrcnotifier.web.app.smooth-scroll",
+    "vrcnotifier.web.app.api-client"
   ],
-  "groups": [
-    {
-      "id": "entry",
-      "title": {
-        "zh": "入口与连接",
-        "en": "Entry & Connection"
-      },
-      "children": [
-        "vrcnotifier.web.app.bootstrap",
-        "vrcnotifier.web.app.api-client",
-        "vrcnotifier.web.app.connection-gate",
-        "vrcnotifier.web.app.login"
-      ]
-    },
-    {
-      "id": "boot",
-      "title": {
-        "zh": "等待页",
-        "en": "Boot Overlay"
-      },
-      "children": [
-        "vrcnotifier.web.app.boot"
-      ]
-    },
-    {
-      "id": "roster",
-      "title": {
-        "zh": "好友监控",
-        "en": "Friend Monitoring"
-      },
-      "children": [
-        "vrcnotifier.web.app.roster",
-        "vrcnotifier.web.app.groups",
-        "vrcnotifier.web.app.favorite-flip",
-        "vrcnotifier.web.app.presence-motion",
-        "vrcnotifier.web.app.friend-config",
-        "vrcnotifier.web.app.monitor-toolbar"
-      ]
-    },
-    {
-      "id": "panels",
-      "title": {
-        "zh": "设置与日志",
-        "en": "Settings & Logs"
-      },
-      "children": [
-        "vrcnotifier.web.app.settings",
-        "vrcnotifier.web.app.log-viewer",
-        "vrcnotifier.web.app.dropdown"
-      ]
-    },
-    {
-      "id": "realtime",
-      "title": {
-        "zh": "实时与状态",
-        "en": "Realtime & Status"
-      },
-      "children": [
-        "vrcnotifier.web.app.sse-events",
-        "vrcnotifier.web.app.status",
-        "vrcnotifier.web.app.ws-chart"
-      ]
-    },
-    {
-      "id": "shell",
-      "title": {
-        "zh": "外壳",
-        "en": "Shell"
-      },
-      "children": [
-        "vrcnotifier.web.app.shell",
-        "vrcnotifier.web.app.smooth-scroll"
-      ]
-    }
-  ]
+  "max_columns": 5
 }

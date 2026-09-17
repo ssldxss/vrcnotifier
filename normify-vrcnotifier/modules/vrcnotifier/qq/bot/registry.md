@@ -5,13 +5,11 @@ parent: vrcnotifier.qq.bot
 name: {zh: "机器人注册与生命周期", en: "Bot Registry & Lifecycle"}
 description:
   zh: >
-      持有机器人注册表并负责与已存设置调和。启动时为每个已存账号启动机器人；sync 对比目标配置与运行现状，相应连接、重连或停止，并返回变更计数使设置页能如实反馈。status 暴露是否已配置、已连接、令牌与绑定状态，每次状态变化都回调给调用方用于广播。
-      
+      按你的设置启动和停止机器人，并告诉你它当前是什么状态。
   en: >
-      Owns the bot registry and its reconciliation with stored settings. On startup it starts a bot for every saved account; sync compares the desired configuration against what is running and connects, reconnects or stops accordingly, reporting the change counts so the settings page can say what actually happened. Status exposes configured, connected, token and binding state, and each transition is reported to the caller for broadcast.
-      
+      Starts and stops the bot according to your settings, and reports what state it is in.
 revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T14:34:23.743Z"
+updated_at: "2026-09-16T15:18:57.820Z"
 fingerprint: 7094142f722e044697a2766956a9f4f48c08f4bd9cb1e41a940418989de21016
 source:
   - path: "src/qq.js"
