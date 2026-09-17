@@ -10,9 +10,9 @@ description:
   en: >
       How the web panel reaches the backend: login, friends, settings, status, logs and avatars.
       
-revision: 6515ec0b18c3caed3cb0014a183ac3d34d011dd8
-updated_at: "2026-09-17T00:14:58.614Z"
-fingerprint: 8a87152c03841290a81ad1338ccae903301779179e5b623509869b3328eec77d
+revision: 930418f49d1a47dbbb3be7908060037f3d8dfdac
+updated_at: "2026-09-17T06:14:56.792Z"
+fingerprint: c6db8c1bef3c17e3fc24d177824020b0d73f7c641dbcc2e7a715555db2840ffb
 source:
   - path: "src/server.js"
 deps:

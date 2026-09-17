@@ -112,7 +112,7 @@
       - vrcnotifier.server.middleware.json-cors — 请求体解析与 CORS / Body Parsing & CORS — 解析请求内容，并允许面板从别的网址调用后端。 — [模块 1 · API 2]
     - vrcnotifier.server.monitor-control — 核对与测试通知路由 / Snapshot & Test Notification Routes — 两个手动按钮：立即刷新一次好友状态、发一条测试通知。 — [模块 1 · API 2]
     - vrcnotifier.server.runtime — 应用组装与共享数据 / App Composition & Runtime State — 组装网页服务本身，并记住当前是谁登录着。 — [模块 1 · API 2]
-    - vrcnotifier.server.serialization — 响应序列化与脱敏 / Response Serialization & Scrubbing — 把数据库里的原始数据整理成面板直接能用的样子，顺手去掉密码和令牌。 — [模块 1 · API 8]
+    - vrcnotifier.server.serialization — 响应序列化与脱敏 / Response Serialization & Scrubbing — 把数据库行转成前端零解析的响应，并在出站时脱敏：补世界名（同步 peek 缓存）、头像缓存 key（未存缩略图时用原图 URL 兜底转换，与自己同口径）与嵌套好… — [模块 1 · API 8]
     - vrcnotifier.server.settings — 设置路由 / Settings Routes — 读取和修改设置，比如 QQ 机器人的开关和密钥。密钥读出来是加星号的。 — [模块 1 · API 2]
     - vrcnotifier.server.sse — 服务端事件推送（SSE） / Server-Sent Events — 后端主动往浏览器推消息的通道：状态变化、新通知、日志。 — [模块 4 · API 6]
       - vrcnotifier.server.sse.broadcast — SSE 广播与日志转发 / SSE Broadcast & Log Forwarding — 把一条消息同时发给所有打开的面板；发给谁失败就把他去掉。 — [模块 1 · API 3]

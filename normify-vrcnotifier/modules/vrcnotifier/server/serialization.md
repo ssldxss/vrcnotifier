@@ -5,14 +5,12 @@ parent: vrcnotifier.server
 name: {zh: "响应序列化与脱敏", en: "Response Serialization & Scrubbing"}
 description:
   zh: >
-      把数据库里的原始数据整理成面板直接能用的样子，顺手去掉密码和令牌。
-      
+      把数据库行转成前端零解析的响应，并在出站时脱敏：补世界名（同步 peek 缓存）、头像缓存 key（未存缩略图时用原图 URL 兜底转换，与自己同口径）与嵌套好友配置，从用户行剔除 cookie_data/密码，对 QQ AppSecret 打码，并在所有出站日志行中替换访问令牌。
   en: >
-      Turns raw database rows into shapes the panel can use directly, and strips out passwords and tokens.
-      
-revision: 6515ec0b18c3caed3cb0014a183ac3d34d011dd8
-updated_at: "2026-09-16T15:22:26.679Z"
-fingerprint: 8a87152c03841290a81ad1338ccae903301779179e5b623509869b3328eec77d
+      Turns database rows into frontend-ready payloads and scrubs secrets on the way out: adds world name (sync cache peek), the avatar cache key (falling back to the full-size URL when no thumbnail is stored, matching the self-user path) and nested friend config, strips cookie_data/password from user rows, masks the QQ app secret, and replaces the access token in every outbound log line.
+revision: 930418f49d1a47dbbb3be7908060037f3d8dfdac
+updated_at: "2026-09-17T06:15:05.309Z"
+fingerprint: c6db8c1bef3c17e3fc24d177824020b0d73f7c641dbcc2e7a715555db2840ffb
 source:
   - path: "src/server.js"
     line: 49

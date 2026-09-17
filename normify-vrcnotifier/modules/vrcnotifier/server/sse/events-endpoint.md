@@ -6,11 +6,13 @@ name: {zh: "SSE 事件端点", en: "SSE Events Endpoint"}
 description:
   zh: >
       浏览器订阅实时事件的地址；空闲时也会定时打个招呼，避免连接被断开。
+      
   en: >
       The address the browser subscribes to; it sends a small ping so the connection is not dropped while idle.
-revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T15:18:19.393Z"
-fingerprint: 8a87152c03841290a81ad1338ccae903301779179e5b623509869b3328eec77d
+      
+revision: 930418f49d1a47dbbb3be7908060037f3d8dfdac
+updated_at: "2026-09-17T06:14:56.796Z"
+fingerprint: c6db8c1bef3c17e3fc24d177824020b0d73f7c641dbcc2e7a715555db2840ffb
 source:
   - path: "src/server.js"
     line: 1044

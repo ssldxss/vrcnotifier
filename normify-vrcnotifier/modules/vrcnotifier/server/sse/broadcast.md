@@ -6,11 +6,13 @@ name: {zh: "SSE 广播与日志转发", en: "SSE Broadcast & Log Forwarding"}
 description:
   zh: >
       把一条消息同时发给所有打开的面板；发给谁失败就把他去掉。
+      
   en: >
       Sends one message to every open page, and drops any page that fails to receive it.
-revision: 2c5024302d3ef7a2eed227ff1c099afb401d6bcd
-updated_at: "2026-09-16T15:18:19.393Z"
-fingerprint: 8a87152c03841290a81ad1338ccae903301779179e5b623509869b3328eec77d
+      
+revision: 930418f49d1a47dbbb3be7908060037f3d8dfdac
+updated_at: "2026-09-17T06:14:56.795Z"
+fingerprint: c6db8c1bef3c17e3fc24d177824020b0d73f7c641dbcc2e7a715555db2840ffb
 source:
   - path: "src/server.js"
     line: 65
