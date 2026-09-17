@@ -1193,18 +1193,24 @@ test('avatar 下载失败返回 502 且不缓存', async (t) => {
   assert.equal(r.status, 502);
 });
 
-test('好友只有原图 URL 时不产生 avatarKey', async (t) => {
+test('好友只有原图 URL 时兜底转出缩略图 key, 完全没 URL 才为空', async (t) => {
   const ctx = setup({
-    onlineFriends: [{
-      id: 'usr_f1', displayName: 'F1', location: 'wrld_a:1', status: 'active', platform: 'x',
-      currentAvatarImageUrl: 'https://api.vrchat.cloud/api/1/file/file_ccc-333/5/file'
-    }]
+    onlineFriends: [
+      {
+        id: 'usr_f1', displayName: 'F1', location: 'wrld_a:1', status: 'active', platform: 'x',
+        currentAvatarImageUrl: 'https://api.vrchat.cloud/api/1/file/file_ccc-333/5/file'
+      },
+      // 对照组: 一个头像字段都没有的好友, 兜底不应凭空造出 key
+      { id: 'usr_f2', displayName: 'F2', location: 'wrld_a:1', status: 'active', platform: 'x' }
+    ]
   });
   t.after(() => close(ctx));
   await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: false });
   const fl = await get(ctx, '/api/friends');
   const f1 = fl.data.friends.find((f) => f.friend_vrchat_id === 'usr_f1');
-  assert.equal(f1.avatarKey, null, '只有原图 URL 就不给 key, 前端因此不渲染头像');
+  assert.equal(f1.avatarKey, 'file_ccc-333_5_128', '只有原图 URL 也要兜底成缩略图, 与自己的头像同口径');
+  const f2 = fl.data.friends.find((f) => f.friend_vrchat_id === 'usr_f2');
+  assert.equal(f2.avatarKey, null, '两个 URL 都没有时仍为 null');
 });
 
 test('qq settings stored and masked; status includes qq info', async (t) => {

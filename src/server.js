@@ -109,7 +109,11 @@ function createApp({
   function friendRow(f) {
     const out = { ...f };
     out.world_name = worldNameOf(f);
-    out.avatarKey = f.avatar_thumb_url && avatarCache ? avatarCache.thumbKeyFromUrl(f.avatar_thumb_url) : null;
+    // 与 selfUserForClient 同口径: 优先已存的缩略图, 兜底把原图 URL 转成缩略图。
+    // 只认 avatar_thumb_url 时, 任何没写上缩略图的行都会永久丢头像 —— 写库用 COALESCE
+    // (excluded 为空就保留旧值), 空值永远修不好已有的 NULL, 所以兜底必须放在读侧。
+    const thumbUrl = f.avatar_thumb_url || toThumbUrl(f.avatar_url);
+    out.avatarKey = thumbUrl && avatarCache ? avatarCache.thumbKeyFromUrl(thumbUrl) : null;
     out.config = configOf(f);
     return out;
   }
