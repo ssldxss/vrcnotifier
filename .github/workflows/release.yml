@@ -1,5 +1,5 @@
 # ============================================================
-#  vrcnotifier 发版流水线: 每次 push 到 main → 打 tag → 发版本化镜像
+#  vrcnotifier 发版流水线: push 到 main(非纯文档改动)→ 打 tag → 发版本化镜像
 #
 #  流程:
 #    test    复用 test.yml(workflow_call), 测试不过就不发版
@@ -17,6 +17,11 @@
 #    的版本为起点 +1。想发 0.2.0 就自己打个 v0.2.0, 之后继续自动 +1。版本经
 #    build-arg APP_VERSION 注入镜像, 于是 镜像报的版本 == git tag == Docker tag。
 #
+#  发布说明: 模板(镜像名 + pull 命令)之外自动附上自上一个 v* tag 以来的提交列表(git log --oneline)。
+#    手工推 v* tag 的发版走 docker-publish.yml, 那边建 Release 的逻辑与本文件同源, 改动请两处同步。
+#
+#  防发版通胀: 纯文档/架构文档/CI 配置的改动不进镜像, paths-ignore 掉, 不烧版本号。
+#
 #  幂等: 当前 commit 已有 v* tag(例如重跑失败的任务)时复用该 tag, 不会打出第二个号。
 #
 #  需要仓库 Secrets:
@@ -27,6 +32,12 @@ name: Release
 on:
   push:
     branches: [main]
+    # 不进镜像的改动不发版: 纯文档/架构文档/CI 配置的提交不烧版本号
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'normify-vrcnotifier/**'
+      - '.github/**'
   workflow_dispatch:
 
 # 打 tag 与建 Release 需要写权限
@@ -92,8 +103,12 @@ jobs:
       IMAGE: sihenglu/vrcnotifier-backend
       VERSION: ${{ needs.tag.outputs.version }}
     steps:
+      # fetch-depth: 0 + fetch-tags: 发布说明要 git log 出自上一个 v* tag 以来的提交
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -154,4 +169,19 @@ jobs:
             echo 'docker compose pull && docker compose up -d'
             echo '```'
           } > /tmp/release-notes.md
+          # 附上自上一个 v* tag 以来的提交列表。提交信息放代码块里, 防止 #/~~ 等字符被当 markdown 渲染。
+          PREV="$(git tag -l 'v*' --sort=-v:refname | grep -vxF "$TAG" | head -1 || true)"
+          if [ -n "$PREV" ]; then
+            LOG="$(git log --oneline "${PREV}..${TAG}")"
+            if [ -n "$LOG" ]; then
+              {
+                echo
+                echo "## 自 ${PREV} 以来的提交"
+                echo
+                echo '```'
+                echo "$LOG"
+                echo '```'
+              } >> /tmp/release-notes.md
+            fi
+          fi
           gh release create "$TAG" --title "$TAG" --notes-file /tmp/release-notes.md

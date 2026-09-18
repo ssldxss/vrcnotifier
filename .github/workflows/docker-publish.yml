@@ -2,6 +2,9 @@
 #  vrcnotifier CI: 自动构建并推送 Docker 镜像到 Docker Hub
 #
 #  触发: 打 tag(v*) / 手动(Actions 页面)
+#  打 v* tag 时构建推送镜像后还会创建同号 GitHub Release(与 release.yml 的 Create GitHub
+#  Release 同源, 改动请两处同步): 手工发 major/minor(如 v0.2.0)也有发布说明页。
+#  手动 dispatch 不建 Release。
 #  产物(推送):
 #    sihenglu/vrcnotifier-backend:latest | <版本> | sha-<前12位>
 #      单镜像: 面板(public/) + REST/SSE API 同源同端口。
@@ -19,8 +22,9 @@ on:
     tags: ["v*"]
   workflow_dispatch:
 
+# 建 Release 需要 contents: write
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   # 打 tag 前先跑测试: 测试不过就不发镜像(跨 workflow 的 needs 用不了, 所以 gate 写在本文件)
@@ -51,8 +55,12 @@ jobs:
       REGISTRY: docker.io
       DOCKERHUB_USER: sihenglu
     steps:
+      # fetch-depth: 0 + fetch-tags: 发布说明要 git log 出自上一个 v* tag 以来的提交
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -106,3 +114,40 @@ jobs:
             sihenglu/vrcnotifier-backend:sha-${{ steps.meta.outputs.sha }}
           cache-from: type=gha,scope=backend
           cache-to: type=gha,mode=max,scope=backend
+
+      # 仅 v* tag 触发时建 Release; 与 release.yml 的 Create GitHub Release 同源, 改动请两处同步
+      - name: Create GitHub Release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ steps.meta.outputs.ver }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG 已存在, 跳过"
+            exit 0
+          fi
+          {
+            echo "镜像：\`sihenglu/vrcnotifier-backend:${VERSION}\` / \`sihenglu/vrcnotifier-backend:latest\`"
+            echo
+            echo '```'
+            echo 'docker compose pull && docker compose up -d'
+            echo '```'
+          } > /tmp/release-notes.md
+          # 附上自上一个 v* tag 以来的提交列表(首个版本没有上一版, 跳过)
+          PREV="$(git tag -l 'v*' --sort=-v:refname | grep -vxF "$TAG" | head -1 || true)"
+          if [ -n "$PREV" ]; then
+            LOG="$(git log --oneline "${PREV}..${TAG}")"
+            if [ -n "$LOG" ]; then
+              {
+                echo
+                echo "## 自 ${PREV} 以来的提交"
+                echo
+                echo '```'
+                echo "$LOG"
+                echo '```'
+              } >> /tmp/release-notes.md
+            fi
+          fi
+          gh release create "$TAG" --title "$TAG" --notes-file /tmp/release-notes.md
