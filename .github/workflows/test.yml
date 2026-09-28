@@ -1,5 +1,5 @@
 # ============================================================
-#  vrcnotifier CI: 测试(push / PR / 手动)
+#  vrcnotifier CI: 测试(PR / 手动 / 被 release.yml 复用)
 #
 #  矩阵两档:
 #    22.13.0  package.json engines 声明的最低版本(生产镜像 node:22-alpine 恒 >= 它,
@@ -14,8 +14,13 @@
 name: Test
 
 on:
-  push:
-    branches: [main]
+  # 注意: 这里**故意不挂 push: branches [main]**。
+  # push 到 main 时 release.yml 已用 workflow_call 复用本文件 —— 若这里也挂 push, 同一次 push 会产生
+  # 两条 run, 它们落进同一个并发组(见下面 concurrency 的 group), 而 cancel-in-progress 会把先到的那条
+  # 直接取消: Actions 里表现为 Test 工作流一个红叉, 注解原文
+  #   "Canceling since a higher priority waiting request for test-refs/heads/main exists"
+  # 让人误以为测试挂了, 其实测试根本没跑(真正跑的是 release.yml 里那次复用调用)。
+  # 所以 push 到 main 的测试入口只有 release.yml 一处, 不重复触发、不浪费 runner。
   pull_request:
   workflow_dispatch:
   # 被 release.yml 复用(workflow_call): 测试定义只此一份, 发版那条流水线不复制粘贴
