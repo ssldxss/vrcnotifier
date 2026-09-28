@@ -22,6 +22,10 @@ function createPipelineManager(opts) {
   const reconnectMaxMs = config.reconnectMaxMs ?? 3600000;
   const jitterMs = config.jitterMs ?? 1000;
   const failNotifyMs = config.failNotifyMs ?? 5 * 60 * 1000;
+  // 握手超时: ws 库默认永不超时(handshakeTimeout=0)。卡在 CONNECTING 的挂死连接既没有 close 事件、
+  // 也还没开始 ping/pong、也没有重连定时器 —— 三层兜底会全部漏过。30s 到点由 ws 主动 abort,
+  // 触发 error+close, 从而回到正常的退避重连路径。
+  const handshakeTimeoutMs = config.handshakeTimeoutMs ?? 30000;
 
   const conns = new Map();   // userId -> conn
   const chains = new Map();  // userId -> promise chain
@@ -150,8 +154,12 @@ function createPipelineManager(opts) {
     if (conn.ws && (conn.ws.readyState === WebSocket.OPEN || conn.ws.readyState === WebSocket.CONNECTING)) return;
 
     const result = await getToken(userId);
-    // 取 token 期间可能已被 disconnect / forceReconnect: 放弃本次连接
-    if (conn.stopped || conns.get(userId) !== conn) return;
+    // 取 token 期间可能已被 disconnect / forceReconnect: 放弃本次连接。
+    // 保留一行 debug: 这条路径一旦出问题会完全静默, 而静默正是上次生产事故难以定位的原因。
+    if (conn.stopped || conns.get(userId) !== conn) {
+      log.debug(`[ws] 放弃本次连接 userId=${userId} (${conn.stopped ? '连接已停用' : '连接已被替换'})`);
+      return;
+    }
     if (result.status !== 'ok') {
       if (conn.stopped) return;
       scheduleReconnect(userId, conn);
@@ -162,7 +170,10 @@ function createPipelineManager(opts) {
       try { conn.ws.removeAllListeners(); conn.ws.close(); } catch (e) { /* ignore */ }
     }
 
-    const ws = new WsClient(wsUrl(result.token), { headers: { 'User-Agent': userAgent } });
+    const ws = new WsClient(wsUrl(result.token), {
+      headers: { 'User-Agent': userAgent },
+      handshakeTimeout: handshakeTimeoutMs
+    });
     conn.ws = ws;
 
     ws.on('open', () => {
@@ -219,7 +230,10 @@ function createPipelineManager(opts) {
     ws.on('close', () => {
       clearTimers(conn);
       if (conn.stopped) {
-        conns.delete(userId);
+        // 只删自己这一份。主动断开后立刻重连(重登路径 deactivate -> activate)时, 表里已经是新 conn,
+        // 无条件按 userId 删会把新 conn 抹掉: 新连接随后因 `conns.get(userId) !== conn` 静默放弃建立,
+        // 而旧连接已 stopped 不会再排重连 —— 该用户此后再也不会连上(生产事故: 实时监控静默死亡)。
+        if (conns.get(userId) === conn) conns.delete(userId);
         return;
       }
       if (onClose) {
@@ -277,6 +291,11 @@ function createPipelineManager(opts) {
     if (!conn) return null;
     return {
       connected: isConnected(userId),
+      // connecting: 正在握手(尚未 open)。握手上限由 handshakeTimeoutMs 保证, 不会永久停留在此态。
+      connecting: !!(conn.ws && conn.ws.readyState === WebSocket.CONNECTING),
+      // reconnectPending: 是否已有退避重连定时器在排。watchdog 靠它区分"退避重连中(别打扰)"
+      // 与"没人管(接管)", 避免打断退避节奏。
+      reconnectPending: !!conn.reconnectTimer,
       attempt: conn.attempt,
       failedSince: conn.failedSince,
       notified: conn.notified,

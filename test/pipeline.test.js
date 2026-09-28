@@ -394,3 +394,81 @@ test('reconnect does not dedupe first frame against pre-disconnect frame', async
     await close();
   }
 });
+
+// 回归(生产事故): 重登路径是「主动断开 → 立刻重连」—— finalizeLogin 里 deactivateUser() 之后
+// 紧接 activateUser(), 两者落在同一 tick。旧实现在旧连接的 close 回调里无条件 conns.delete(userId),
+// 会把刚登记进来的新 conn 一起删掉; 新连接随后因 `conns.get(userId) !== conn` 静默放弃建立,
+// 而旧连接已 stopped 不会再排重连 → 该用户此后再也不会连上, 且全程无日志。
+test('relogin: 主动断开后立刻重连, 旧连接的 close 不得误删新连接', async () => {
+  const { state, url, close } = await startMockPipeline();
+  let pm = null;
+  try {
+    pm = createPipelineManager({
+      // 真实环境这里是 HTTP GET /auth, 必然让出事件循环; 用 30ms 延迟模拟,
+      // 让旧连接的 close 事件正好落在这一段 await 窗口里。
+      getToken: async () => { await sleep(30); return { status: 'ok', token: 't' }; },
+      onMessage: () => {},
+      userAgent: 't/1',
+      wsUrl: (token) => `${url}/?authToken=${token}`,
+      config: cfg,
+      logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} }
+    });
+    pm.connect('u1', '我');
+    await sleep(120);
+    assert.equal(state.connections.length, 1);
+
+    // 复刻 finalizeLogin: 同一 tick 内 deactivateUser() + activateUser()
+    pm.disconnect('u1');
+    pm.connect('u1', '我');
+
+    await sleep(400);
+    assert.ok(state.connections.length >= 2, `重登后应重新建立连接, 实际 ${state.connections.length}`);
+    assert.equal(pm.isConnected('u1'), true, '重登后应处于已连接状态');
+    assert.ok(pm.status('u1'), '连接对象应仍在册(不被旧连接的 close 误删)');
+  } finally {
+    try { if (pm) pm.disconnect('u1'); } catch (e) { /* ignore */ }
+    await close();
+  }
+});
+
+// 回归: ws 库默认没有握手超时(handshakeTimeout=0)。服务端接受了 TCP 却不完成 WebSocket 握手时,
+// 连接会永久停在 CONNECTING —— 此时既没有 close 事件、ping/pong 还没启动、也没有重连定时器,
+// 三层兜底(close 重连 / watchdog 静默检测 / watchdog 在册性)会全部漏过。
+// 加上握手超时后: 到点由 ws 主动 abort → error+close → 退回正常的退避重连。
+test('握手挂死: handshakeTimeout 到点后放弃并重连, 不再无限停留', async () => {
+  const net = require('node:net');
+  const sockets = [];
+  const attempts = [];
+  // 裸 TCP 服务端: 接受连接但永不回复 101 握手响应
+  const server = net.createServer((sock) => {
+    sockets.push(sock);
+    attempts.push(Date.now());
+    sock.on('error', () => {});
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const port = server.address().port;
+
+  let pm = null;
+  try {
+    pm = createPipelineManager({
+      getToken: async () => ({ status: 'ok', token: 't' }),
+      onMessage: () => {},
+      userAgent: 't/1',
+      wsUrl: (token) => `ws://127.0.0.1:${port}/?authToken=${token}`,
+      config: { ...cfg, handshakeTimeoutMs: 60, reconnectBaseMs: 20, reconnectMaxMs: 40, jitterMs: 1 },
+      logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} }
+    });
+    pm.connect('u1', '我');
+    await sleep(20);
+    assert.equal(pm.status('u1').connecting, true, '应处于握手状态(服务端不回 101)');
+
+    await sleep(400);
+    // 关键: 握手超时 → abort → close → 退避重连, 因此会看到多次连接尝试, 而不是一次就永久挂住
+    assert.ok(attempts.length >= 2, `握手超时后应放弃并重试, 实际尝试 ${attempts.length} 次`);
+    assert.equal(pm.isConnected('u1'), false);
+  } finally {
+    try { if (pm) pm.disconnect('u1'); } catch (e) { /* ignore */ }
+    for (const s of sockets) { try { s.destroy(); } catch (e) { /* ignore */ } }
+    await new Promise((r) => server.close(r));
+  }
+});

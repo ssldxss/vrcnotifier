@@ -67,7 +67,7 @@ function setup(opts = {}) {
     forceReconnect: (uid) => { pipeline.reconnects++; },
     isConnected: () => opts.connected ?? true,
     lastMessageAt: () => (typeof opts.lastMessageAt === 'function' ? opts.lastMessageAt() : (opts.lastMessageAt ?? Date.now())),
-    status: () => ({ connected: true, notified: false })
+    status: () => (opts.noConn ? null : { connected: opts.connected ?? true, reconnectPending: opts.reconnectPending ?? false, notified: false })
   };
   const silentLogger = opts.logger || { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
   const nowFn = opts.now || (() => 1000000);
@@ -1670,4 +1670,92 @@ test('friend-add: 信封 location 是 private 时同样按在线记(修 loc 换�
   const f = t.db.getFriend('usr_priv');
   assert.equal(f.state, 'online', 'private 位置也是在线的');
   assert.equal(f.world_id, 'private');
+});
+
+// ---------- 实时通道「在册性」检查(生产事故回归) ----------
+// 背景: 重登竞态会把 conn 从表里删掉, 此后既没人排重连, watchdog 也因只看 isConnected 而失明,
+// 实时监控静默死亡 20 小时且零日志。现在 watchdog 与每次对账(前端"手动对账"按钮共用 runSnapshot)
+// 都会先确认连接还在册 —— 不在册就补发一次 connect。
+
+test('watchdog: 连接对象不在册时补发 connect, 而不是只认 isConnected', async () => {
+  const t = setup({ noConn: true, onlineFriends: [onlineFriend('usr_f1')] });
+  const user = addUser(t.db);
+  addConfig(t, 'usr_f1');
+  await t.monitor.activateUser(user, t.vrcapi);
+  const before = t.pipeline.connects.length;
+  await t.monitor.runWatchdog();
+  assert.equal(t.pipeline.connects.length, before + 1, '连接丢失时 watchdog 应补发 connect');
+  assert.equal(t.pipeline.reconnects, 0, '无连接对象时不该走 forceReconnect(它只会空转)');
+});
+
+test('watchdog: 连接仍在册时不打扰, 只按无消息时长判定', async () => {
+  const t = setup({ lastMessageAt: () => 0, now: () => 2000000, onlineFriends: [onlineFriend('usr_f1')] });
+  const user = addUser(t.db);
+  addConfig(t, 'usr_f1');
+  await t.monitor.activateUser(user, t.vrcapi);
+  const before = t.pipeline.connects.length;
+  t.pipeline.reconnects = 0;
+  await t.monitor.runWatchdog();
+  assert.equal(t.pipeline.connects.length, before, '在册时不应重复发起 connect');
+  assert.equal(t.pipeline.reconnects, 1, '在册且无消息才走强制重连');
+});
+
+test('对账(含前端手动刷新)会确认实时通道在册: 丢失则补发 connect', async () => {
+  const t = setup({ noConn: true, onlineFriends: [onlineFriend('usr_f1')] });
+  const user = addUser(t.db);
+  addConfig(t, 'usr_f1');
+  await t.monitor.activateUser(user, t.vrcapi);
+  const before = t.pipeline.connects.length;
+  // 前端 POST /api/monitor/snapshot(面板上的刷新)走的就是这个调用
+  const r = await t.monitor.runSnapshot(user.vrchat_user_id, { noRetry: true });
+  assert.equal(r.ok, true, '对账本身仍应成功');
+  assert.equal(t.pipeline.connects.length, before + 1, '对账时应补发 connect');
+});
+
+test('对账不会打断退避重连中的连接(在册即不动)', async () => {
+  const t = setup({ onlineFriends: [onlineFriend('usr_f1')] }); // status() 非 null = 在册
+  const user = addUser(t.db);
+  addConfig(t, 'usr_f1');
+  await t.monitor.activateUser(user, t.vrcapi);
+  const before = t.pipeline.connects.length;
+  await t.monitor.runSnapshot(user.vrchat_user_id);
+  assert.equal(t.pipeline.connects.length, before, '连接在册时对账不应重复 connect');
+});
+
+test('重登后连接始终没建起来时, 故障窗口仍会告警(不被陈旧 open 掩盖)', async () => {
+  const t = setup({ onlineFriends: [onlineFriend('usr_f1')], faultNotifyMs: 50 });
+  const user = addUser(t.db);
+  addConfig(t, 'usr_f1');
+  await t.monitor.activateUser(user, t.vrcapi);
+  const evt = t.monitor.events;
+  evt.emit('ws-open', { userId: user.vrchat_user_id }); // 旧连接还活着 → st.open = true
+  t.notifications.length = 0;
+  t.qqTexts.length = 0;
+  evt.emit('relogin-needed', { userId: user.vrchat_user_id }); // 401 → 故障窗口开始
+  // 复刻 finalizeLogin: 停用旧会话 → 激活新会话; 但新连接始终没能建起来(没有 ws-open)
+  t.monitor.deactivateUser(user.vrchat_user_id);
+  await t.monitor.activateUser(user, t.vrcapi); // 对账 200 → apiOk = true
+  await new Promise((r) => setTimeout(r, 120));
+  assert.equal(t.notifications.length, 1, '连接没建起来必须告警, 不能被陈旧的 open=true 掩盖');
+  assert.ok(t.notifications[0].change.notificationTitle.includes('连接故障'));
+});
+
+test('watchdog: 连接在册但未就绪且无人排重连时, 强制重连(握手挂死等未知路径)', async () => {
+  const t = setup({ connected: false, reconnectPending: false, onlineFriends: [onlineFriend('usr_f1')] });
+  const user = addUser(t.db);
+  addConfig(t, 'usr_f1');
+  await t.monitor.activateUser(user, t.vrcapi);
+  t.pipeline.reconnects = 0;
+  await t.monitor.runWatchdog();
+  assert.equal(t.pipeline.reconnects, 1, '没人排重连时 watchdog 应强制重连');
+});
+
+test('watchdog: 退避重连中(已有重连计划)不打断节奏', async () => {
+  const t = setup({ connected: false, reconnectPending: true, onlineFriends: [onlineFriend('usr_f1')] });
+  const user = addUser(t.db);
+  addConfig(t, 'usr_f1');
+  await t.monitor.activateUser(user, t.vrcapi);
+  t.pipeline.reconnects = 0;
+  await t.monitor.runWatchdog();
+  assert.equal(t.pipeline.reconnects, 0, '退避重连中不应被 watchdog 打断');
 });

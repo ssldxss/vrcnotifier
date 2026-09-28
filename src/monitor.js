@@ -209,7 +209,13 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
     sessions.delete(vrcId);
     pipeline.disconnect(vrcId);
     const st = connState.get(vrcId);
-    if (st && st.closeTimer) { clearTimeout(st.closeTimer); st.closeTimer = null; }
+    // 连接已被主动拆除: 状态跟着走。否则 st.open 会停在陈旧的 true, 让故障窗口的"已恢复"判定
+    // (open && apiOk) 误判成正常 —— 新连接永远建不起来也不会告警, 只剩静默。
+    // 注意保留 startupSent: 清掉它会改变启动/恢复说明的语义。
+    if (st) {
+      st.open = false;
+      if (st.closeTimer) { clearTimeout(st.closeTimer); st.closeTimer = null; }
+    }
     const bucket = pendingBuckets.get(vrcId);
     if (bucket) {
       if (bucket.timer) clearTimeout(bucket.timer);
@@ -846,11 +852,26 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
     return true;
   }
 
+  // ---------- 实时通道在册性检查 ----------
+  // 连接对象不在表里 = 没有任何人负责这个用户的重连(典型: 主动断开后立刻重连的竞态把新 conn 删了),
+  // 由调用点补发一次 connect。对象还在(含退避重连中)时不动, 免得打断退避节奏。
+  // 调用点: watchdog 每轮巡检 + 每次对账(自动对账/重连后对账/前端"手动对账"按钮共用 runSnapshot)。
+  function ensurePipelineAlive(user, where) {
+    if (!user) return false;
+    const uid = user.vrchat_user_id;
+    if (pipeline.status(uid)) return false;
+    log.warn(`[monitor] ${where}: userId=${uid} 无 WS 连接对象, 重新发起连接`);
+    pipeline.connect(uid, user.display_name);
+    return true;
+  }
+
   async function runSnapshot(userId, opts = {}) {
     // 任何触发都把自动对账顺延到最后一次触发之后
     scheduleAutoReconcile();
     const session = sessions.get(userId);
     if (!session) return { ok: false, error: '无活动会话' };
+    // 对账是"用户主动关心"的时刻(前端点刷新、整点自动对账都走这里), 顺手确认实时通道还在册。
+    ensurePipelineAlive(session.user, '对账');
     if (running.has(userId)) return { ok: false, error: '快照进行中' };
     running.add(userId);
     const user = db.getUserByVrcId(userId);
@@ -1050,7 +1071,18 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
   // ---------- watchdog ----------
   async function runWatchdog() {
     for (const { user } of activeUsers()) {
+      // 连接对象不在表里(没人负责重连)时由 watchdog 兜底补发一次 connect; 补上了本轮就不再往下走。
+      if (ensurePipelineAlive(user, 'watchdog')) continue;
       const uid = user.vrchat_user_id;
+      // 在册但没连上, 且没有任何人在排重连(退避定时器也没了): 典型是握手挂死或建链中途异常。
+      // 这种状态既不会收到 close 事件, 也没人会来救(退避链断了) —— 由 watchdog 踹一脚。
+      // forceReconnect 对 CONNECTING 的 ws 会走 abortHandshake, 触发 error+close → 回到正常退避重连。
+      const st = pipeline.status(uid);
+      if (st && !pipeline.isConnected(uid) && !st.reconnectPending) {
+        log.warn(`[monitor] watchdog: userId=${uid} 连接在册但未就绪且无人排重连${st.connecting ? '(握手挂死)' : ''}, 强制重连`);
+        pipeline.forceReconnect(uid);
+        continue;
+      }
       if (pipeline.isConnected(uid)) {
         const last = pipeline.lastMessageAt(uid);
         if (last === 0 || now() - last >= watchdogMs) {
