@@ -65,6 +65,19 @@ function envInt(name, fallback) {
 }
 
 /**
+ * 静态目录: **默认可前端同源**(面板由 API 进程一起托管, 与容器行为一致)。
+ * 需要纯 API(例如前端单独部署/被别的网关托管)时用 SERVE_STATIC=0 关掉;
+ * 容器与 compose 里一直显式写 SERVE_STATIC=1, 那套写法照旧有效。
+ * 单独抽成函数是为了能直接单测"默认开、显式关"这条规则, 不用真去启动整个应用。
+ */
+function resolvePublicDir(envObj = process.env) {
+  const raw = envObj && envObj.SERVE_STATIC;
+  const v = raw === undefined || raw === '' ? '1' : String(raw).toLowerCase();
+  const off = v === '0' || v === 'false' || v === 'no' || v === 'off';
+  return off ? null : path.join(__dirname, '..', 'public');
+}
+
+/**
  * 装配完整应用(可注入依赖, 便于测试)。
  * opts: dbPath, apiBaseUrl, wsBaseUrl, userAgent, accessKey,
  *       monitor 相关(confirmDelayMs/dedupeWindowMs/snapshotIntervalMs/...),
@@ -340,7 +353,7 @@ async function main() {
     qqWsUrl: env('QQ_WS_URL'),
     qqApiBase: env('QQ_API_BASE'),
     vrcStatusUrl: env('VRC_STATUS_URL'),
-    publicDir: env('SERVE_STATIC') ? path.join(__dirname, '..', 'public') : null
+    publicDir: resolvePublicDir()
   });
   const port = envInt('PORT', 3000);
   // 首次连接成功后: 前端日志流中的令牌行替换为打码版, 并输出一条说明; 终端与本地日志文件保留明文。
@@ -391,4 +404,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { buildApplication, resolveAccessToken };
+module.exports = { buildApplication, resolveAccessToken, resolvePublicDir };

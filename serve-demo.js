@@ -7,8 +7,10 @@
 //   node serve-demo.js            默认 3100 端口
 //   node serve-demo.js 3200       指定端口
 //   ?manual                       不自动登录, 自己手填(验证码随便填; 填 000000 走失败分支)
-//   ?friends=40                   假好友数量(默认 14), 用来把"获取好友信息"的百分比拉长看
-//   ?pages=? 不适用               页大小固定 5, 页数 = ceil(好友数/5)
+//   ?friends=40                   假好友数量(默认 150), 用来把"获取好友信息"的百分比拉长看
+//   ?friends=5000                 压测大列表(上限 20000); 量大时每页间隔自动压缩, 整段仍约 4 秒
+//   DEMO_FRIENDS=5000             同上, 但作为服务端默认值(URL 不带 ?friends= 时生效)
+//   ?pages=? 不适用               页大小固定 50, 页数 = ceil(好友数/50)
 //
 // 前端与假后端同源: public/app.js 的 discoverBase() 同源优先, 所以不用填地址也不用令牌。
 const http = require('node:http');
@@ -16,7 +18,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const PORT = Number(process.env.DEMO_PORT || process.argv[2] || 3100);
-const ROOT = path.join(__dirname, 'public');
+// DEMO_ROOT 可切到别的前端副本(如 .verify/frontend-baseline), 用来和新前端并排对照
+const ROOT = path.resolve(process.env.DEMO_ROOT || path.join(__dirname, 'public'));
 const PAGE_SIZE = 50;           // 进度按"每页 50 个"上报: 150 好友 = 3 次(33/66/100), 14 好友 = 1 次(0→100)
 const T = {                     // 各段假耗时(ms), 想调节奏改这里
   api: 700,                     // 普通接口(好友/设置/状态/健康/日志)统一延迟: 让"等待前端就绪"那一步真的在等
@@ -40,7 +43,9 @@ const WORLDS = [
 const NAMES = ['星野桑', '喵杂鱼', '夜行电车', '北极熊', '小满', '阿岚', '雾岛', '青栀', '长夏', '白鹭', '空山', '三日月', '橘子汽水', '半糖去冰', '拾光', '无声铃鹿'];
 const TRUST = ['Trusted User', 'Known User', 'User', 'New User', 'Visitor'];
 
-let friendCount = 150; // 默认 150 人 = 3 页: 打开就能看到 33/66/100 三段和中间的停顿(?friends=N 可改)
+// 默认 150 人 = 3 页: 打开就能看到 33/66/100 三段和中间的停顿(?friends=N 改单人访客, DEMO_FRIENDS 改服务端默认)
+const envFriends = Math.floor(Number(process.env.DEMO_FRIENDS));
+let friendCount = Number.isFinite(envFriends) && envFriends > 0 ? Math.min(20000, envFriends) : 150;
 function makeFriends(n) {
   const out = [];
   for (let i = 0; i < n; i++) {
@@ -138,7 +143,7 @@ async function handleApi(req, res, url) {
   if (p === '/api/session') { await sleep(T.api); return json(res, 200, { ok: true, loggedIn: false, user: null }); }
   if (p === '/api/demo/config') {
     const body = await readBody(req);
-    if (body && typeof body.friends === 'number') friendCount = Math.max(0, Math.min(200, body.friends));
+    if (body && typeof body.friends === 'number') friendCount = Math.max(0, Math.min(20000, body.friends));
     return json(res, 200, { ok: true, friends: friendCount });
   }
 
@@ -172,8 +177,13 @@ async function handleApi(req, res, url) {
     pushLog('[monitor] 自己状态 userId=usr_demo_me: state=online status=join me world=' + WORLDS[0][0]);
     sse('login-progress', { userId: 'usr_demo_me', stage: 'roster', total: friendCount, at: Date.now() });
 
+    // 每页间隔: 好友多时压缩等待, 让整段"获取好友信息"仍停在几秒量级
+    // (5000 人 = 100 页, 若照旧 1500ms/页 要 150 秒才加载完)
+    const pageDelayMs = friendCount > 500
+      ? Math.max(5, Math.round(4000 / Math.ceil(friendCount / PAGE_SIZE)))
+      : T.page;
     for (let got = 0; got < friendCount; got += PAGE_SIZE) {
-      await sleep(T.page);
+      await sleep(pageDelayMs);
       const fetched = Math.min(friendCount, got + PAGE_SIZE);
       pushLog('[vrcapi] 完成: GET /auth/user/friends (200)');
       sse('login-progress', { userId: 'usr_demo_me', stage: 'friends', fetched, total: friendCount, at: Date.now() });

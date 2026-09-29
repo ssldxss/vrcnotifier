@@ -4,9 +4,4 @@ data/
 .env
 .verify/
 .agents/
-
-
 secrets/
-
-docs/
-learn/

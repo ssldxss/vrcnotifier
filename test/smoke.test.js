@@ -175,7 +175,8 @@ test('end-to-end: login → configure → ws event → QQ notification', async (
   assert.ok(got.text.includes('世界B') || got.text.includes('wrld_b'));
   assert.deepEqual(got.opts, { markdown: true });
 
-  // 5. 后端不再托管静态页面(前端由独立进程 serve.js 提供)
+  // 5. 库层(buildApplication)不传 publicDir 时只提供 API;
+  //    启动层(src/index.js)现在默认同源托管面板, 见 test/servedefault.test.js
   const ui = await fetch(base + '/');
   assert.equal(ui.status, 404);
 });

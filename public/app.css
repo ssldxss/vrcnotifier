@@ -1328,3 +1328,16 @@ h3.chan { font-size: 13px; margin: 16px 0 6px; color: var(--text-2); font-weight
    注意: 部分组件依赖 animationend 事件做收尾, 若将来重新引入
    prefers-reduced-motion 归零规则, 需同步改为不依赖该事件的写法。 */
 
+
+/* ---------- 虚拟列表(好友列表): 组内未渲染的行用首尾空白撑高 ---------- */
+/* 目的: 只把视口附近的行放进 DOM, 但静止时页面总高必须与"全量渲染"完全一致 */
+.group-inner::before, .group-inner::after { content: ''; display: block; }
+.group-inner::before { height: var(--vtop, 0px); }
+.group-inner::after { height: var(--vbot, 0px); }
+/* 窗口末尾但后面还有未渲染的行: 把 :last-child 去掉的那条分隔线补回来 */
+.friend.v-more { border-bottom: 1px solid var(--line); }
+/* 位置变化(换组/特别关注)一律淡入淡出; 只有渲染出来的行才有机会播 */
+@keyframes vFadeIn { from { opacity: 0 } to { opacity: 1 } }
+@keyframes vFadeOut { from { opacity: 1 } to { opacity: 0 } }
+.friend.v-in { animation: vFadeIn .18s ease-out both; }
+.friend.v-out { animation: vFadeOut .15s ease-in both; }
