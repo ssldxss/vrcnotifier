@@ -7,10 +7,16 @@
 //   node serve-demo.js            默认 3100 端口
 //   node serve-demo.js 3200       指定端口
 //   ?manual                       不自动登录, 自己手填(验证码随便填; 填 000000 走失败分支)
-//   ?friends=40                   假好友数量(默认 150), 用来把"获取好友信息"的百分比拉长看
-//   ?friends=5000                 压测大列表(上限 20000); 量大时每页间隔自动压缩, 整段仍约 4 秒
+//   ?friends=40                   假好友数量(默认 5000), 用来把"获取好友信息"的百分比拉长看
+//   ?friends=20000                压测更大列表(上限 20000); 量大时每页间隔自动压缩, 整段仍约 4 秒
 //   DEMO_FRIENDS=5000             同上, 但作为服务端默认值(URL 不带 ?friends= 时生效)
 //   ?pages=? 不适用               页大小固定 50, 页数 = ceil(好友数/50)
+//   POST /api/demo/reset          重置演示数据(好友通知设置/特别关注回默认; 对照脚本每次采集前会调)
+//
+// 好友构成默认 5000 = 3000 离线 + 1500 网页在线 + 500 在线(比例 6:3:1, 按 i%10 交错分配, 数量精确)。
+// 好友通知设置与「特别关注」**真的能改**: PUT /api/friends/:id/config 写进本进程的内存表,
+// 之后 GET /api/friends 会带上改过的 config(响应/日志与真实后端 src/server.js 同口径), 刷新页面不丢。
+// (演示后端与真实后端一样是"进程内状态"; 重启 serve-demo.js 就回到默认值。)
 //
 // 前端与假后端同源: public/app.js 的 discoverBase() 同源优先, 所以不用填地址也不用令牌。
 const http = require('node:http');
@@ -43,15 +49,52 @@ const WORLDS = [
 const NAMES = ['星野桑', '喵杂鱼', '夜行电车', '北极熊', '小满', '阿岚', '雾岛', '青栀', '长夏', '白鹭', '空山', '三日月', '橘子汽水', '半糖去冰', '拾光', '无声铃鹿'];
 const TRUST = ['Trusted User', 'Known User', 'User', 'New User', 'Visitor'];
 
-// 默认 150 人 = 3 页: 打开就能看到 33/66/100 三段和中间的停顿(?friends=N 改单人访客, DEMO_FRIENDS 改服务端默认)
+// 默认 5000 人(60% 离线 / 30% 网页在线 / 10% 在线)。
+// ?friends=N 只影响**当前访客**(写 cookie), 不会改掉服务端默认值 —— 否则一次压测就会把演示的默认改掉。
 const envFriends = Math.floor(Number(process.env.DEMO_FRIENDS));
-let friendCount = Number.isFinite(envFriends) && envFriends > 0 ? Math.min(20000, envFriends) : 150;
+const defaultFriendCount = Number.isFinite(envFriends) && envFriends > 0 ? Math.min(20000, envFriends) : 5000;
+let friendCount = defaultFriendCount;
+const FRIENDS_COOKIE = 'demo_friends';
+function cookieValue(req, name) {
+  const m = new RegExp('(?:^|;\\s*)' + name + '=([^;]*)').exec((req && req.headers && req.headers.cookie) || '');
+  return m ? decodeURIComponent(m[1]) : null;
+}
+// 每个请求用哪个好友数: 访客 cookie 优先, 否则服务端默认
+function friendCountFor(req) {
+  const raw = cookieValue(req, FRIENDS_COOKIE);
+  const n = Math.floor(Number(raw));
+  if (raw !== null && Number.isFinite(n) && n > 0) return Math.max(0, Math.min(20000, n));
+  return friendCount;
+}
+// 好友通知设置的内存表(演示后端 = 真实后端那样"进程内状态"): friendId -> config
+const friendConfigs = new Map();
+// 默认配置: 特别关注按 i%7===3 撒一些, 上线/下线通知开, 状态/世界通知关(与前端默认一致)
+function defaultConfigAt(i) {
+  return {
+    favorite: i % 7 === 3 ? 1 : 0,
+    notify_online: 1,
+    notify_offline: 1,
+    notify_status_change: 0,
+    notify_world_change: 0
+  };
+}
+function configOf(id, i) {
+  const saved = friendConfigs.get(id);
+  return saved ? { ...saved } : defaultConfigAt(i);
+}
+// 好友构成: 每 10 个一组 = 1 在线 + 3 网页在线 + 6 离线。
+// 这样 5000 人正好是 500 / 1500 / 3000(用户要的分布), 而且是交错的、不是一段一段。
+function stateAt(i) {
+  const slot = i % 10;
+  if (slot === 0) return 'online';
+  if (slot <= 3) return 'active';
+  return 'offline';
+}
 function makeFriends(n) {
   const out = [];
   for (let i = 0; i < n; i++) {
-    const state = i % 5 === 0 ? 'online' : i % 5 === 1 ? 'active' : 'offline';
+    const state = stateAt(i);
     const [worldId, worldName] = WORLDS[i % WORLDS.length];
-    const favorite = i % 7 === 3;
     out.push({
       friend_vrchat_id: 'usr_demo_' + String(i).padStart(3, '0'),
       display_name: NAMES[i % NAMES.length] + (i >= NAMES.length ? ' ' + (Math.floor(i / NAMES.length) + 1) : ''),
@@ -62,13 +105,7 @@ function makeFriends(n) {
       world_name: state === 'offline' ? null : worldName,
       trust_level: TRUST[i % TRUST.length],
       avatarKey: 'file_demo_' + i + '_128_128',
-      config: {
-        favorite: favorite ? 1 : 0,
-        notify_online: 1,
-        notify_offline: 1,
-        notify_status_change: 0,
-        notify_world_change: 0
-      }
+      config: configOf('usr_demo_' + String(i).padStart(3, '0'), i)
     });
   }
   return out;
@@ -99,33 +136,34 @@ function stamp() {
   const p = (x) => String(x).padStart(2, '0');
   return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
 }
-// 日志行同时进"历史尾部"和 SSE 实时流, 与真实后端一样
+// 日志行同时进"历史尾部"和 SSE 实时流, 与真实后端一样(之前只推了 SSE: 刷新后 GET /api/logs 看不到新日志)
+const TAIL = [];
+const TAIL_MAX = 200;
 function pushLog(line, level) {
   logSeq++;
   const text = '[' + stamp() + '] [' + (level || 'info') + '] ' + line;
+  const rec = { seq: logSeq, line: text };
+  TAIL.push(rec);
+  if (TAIL.length > TAIL_MAX) TAIL.splice(0, TAIL.length - TAIL_MAX);
   sse('log', { seq: logSeq, line: text });
-  return { seq: logSeq, line: text };
+  return rec;
 }
-function seedLogs() {
-  const lines = [
-    '[startup] ======== vrcnotifier 运行开始(演示假后端) ========',
-    '[startup] 演示模式: 每次刷新都会重放一次登录动画',
-    '[server] 访问令牌验证成功',
-    '[vrcapi] 完成: GET /auth/user (200)',
-    '[server] 登录需要 2FA: username=demo, kinds=emailOtp'
-  ];
-  const out = lines.map((l) => pushLog(l));
-  return out;
-}
-const TAIL = seedLogs();
+[ '[startup] ======== vrcnotifier 运行开始(演示假后端) ========',
+  '[startup] 演示模式: 每次刷新都会重放一次登录动画',
+  '[server] 访问令牌验证成功',
+  '[vrcapi] 完成: GET /auth/user (200)',
+  '[server] 登录需要 2FA: username=demo, kinds=emailOtp'
+].forEach((l) => pushLog(l));
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const jitter = ([a, b]) => a + Math.floor(Math.random() * (b - a + 1));
 
 // ---------- 假后端 ----------
-function json(res, code, body) {
+function json(res, code, body, headers) {
   const data = JSON.stringify(body);
-  res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache', 'Content-Length': Buffer.byteLength(data) });
+  const h = { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache', 'Content-Length': Buffer.byteLength(data) };
+  if (headers) for (const k of Object.keys(headers)) h[k] = headers[k];
+  res.writeHead(code, h);
   res.end(data);
 }
 function readBody(req) {
@@ -141,10 +179,23 @@ async function handleApi(req, res, url) {
   if (p === '/api/config') return json(res, 200, { ok: true, tokenRequired: false, version: 'demo', encryptionEnabled: false, confirmDelayMs: 30000, snapshotIntervalMs: 3600000 });
   // 永远"未登录": 刷新后回到登录页, 驱动脚本再自动登录一次 —— 这就是重放动画的开关
   if (p === '/api/session') { await sleep(T.api); return json(res, 200, { ok: true, loggedIn: false, user: null }); }
+  // 重置演示数据(好友通知设置/特别关注回到默认): 对照脚本每次采集前会调它, 保证两边起点一致
+  if (p === '/api/demo/reset') {
+    friendConfigs.clear();
+    pushLog('[startup] 演示数据已重置: 好友通知设置/特别关注回到默认值');
+    return json(res, 200, { ok: true });
+  }
   if (p === '/api/demo/config') {
     const body = await readBody(req);
-    if (body && typeof body.friends === 'number') friendCount = Math.max(0, Math.min(20000, body.friends));
-    return json(res, 200, { ok: true, friends: friendCount });
+    // 只给当前访客写 cookie: 否则一次 ?friends=150 的压测会把演示的默认好友数永久改掉
+    if (body && typeof body.friends === 'number') {
+      const n = Math.max(0, Math.min(20000, Math.floor(body.friends)));
+      return json(res, 200, { ok: true, friends: n }, { 'Set-Cookie': FRIENDS_COOKIE + '=' + n + '; Path=/; SameSite=Lax; Max-Age=86400' });
+    }
+    if (body && body.friends === null) {
+      return json(res, 200, { ok: true, friends: friendCount }, { 'Set-Cookie': FRIENDS_COOKIE + '=; Path=/; SameSite=Lax; Max-Age=0' });
+    }
+    return json(res, 200, { ok: true, friends: friendCountFor(req) });
   }
 
   if (p === '/api/login') {
@@ -156,6 +207,7 @@ async function handleApi(req, res, url) {
 
   if (p === '/api/login/2fa') {
     const body = await readBody(req);
+    const nFriends = friendCountFor(req); // 本访客的好友数(进度按它上报)
     await sleep(T.verify);
     if (String(body.code || '') === '000000') { // 手填时可以用它试失败分支
       pushLog('[server] 2FA 验证失败: 验证码错误或已过期', 'warn');
@@ -175,21 +227,21 @@ async function handleApi(req, res, url) {
     pushLog('[monitor] 激活用户 演示账号(usr_demo_me)');
     pushLog('[vrcapi] 完成: GET /auth/user (200)');
     pushLog('[monitor] 自己状态 userId=usr_demo_me: state=online status=join me world=' + WORLDS[0][0]);
-    sse('login-progress', { userId: 'usr_demo_me', stage: 'roster', total: friendCount, at: Date.now() });
+    sse('login-progress', { userId: 'usr_demo_me', stage: 'roster', total: nFriends, at: Date.now() });
 
     // 每页间隔: 好友多时压缩等待, 让整段"获取好友信息"仍停在几秒量级
     // (5000 人 = 100 页, 若照旧 1500ms/页 要 150 秒才加载完)
-    const pageDelayMs = friendCount > 500
-      ? Math.max(5, Math.round(4000 / Math.ceil(friendCount / PAGE_SIZE)))
+    const pageDelayMs = nFriends > 500
+      ? Math.max(5, Math.round(4000 / Math.max(1, Math.ceil(nFriends / PAGE_SIZE))))
       : T.page;
-    for (let got = 0; got < friendCount; got += PAGE_SIZE) {
+    for (let got = 0; got < nFriends; got += PAGE_SIZE) {
       await sleep(pageDelayMs);
-      const fetched = Math.min(friendCount, got + PAGE_SIZE);
+      const fetched = Math.min(nFriends, got + PAGE_SIZE);
       pushLog('[vrcapi] 完成: GET /auth/user/friends (200)');
-      sse('login-progress', { userId: 'usr_demo_me', stage: 'friends', fetched, total: friendCount, at: Date.now() });
+      sse('login-progress', { userId: 'usr_demo_me', stage: 'friends', fetched, total: nFriends, at: Date.now() });
     }
-    pushLog('[monitor] 首次对账好友资料: 名册 ' + friendCount + ' 人, 拉回 ' + friendCount + ' 条');
-    pushLog('[monitor] 快照完成 userId=usr_demo_me, 好友 ' + friendCount + ' 人');
+    pushLog('[monitor] 首次对账好友资料: 名册 ' + nFriends + ' 人, 拉回 ' + nFriends + ' 条');
+    pushLog('[monitor] 快照完成 userId=usr_demo_me, 好友 ' + nFriends + ' 人');
     // 响应压在事件之后: 和真实后端一样, 前端要到这一刻才拿到结果
     return json(res, 200, { ok: true, user: SELF() });
   }
@@ -229,7 +281,35 @@ async function handleApi(req, res, url) {
     return;
   }
   await sleep(T.api); // 普通接口统一延迟: 主界面数据/日志/健康都不是秒回
-  if (p === '/api/friends') return json(res, 200, { ok: true, friends: makeFriends(friendCount) });
+  if (p === '/api/friends') return json(res, 200, { ok: true, friends: makeFriends(friendCountFor(req)) });
+  // 好友通知设置 / 特别关注: 与真实后端(src/server.js 的 PUT /api/friends/:friendId/config)同口径 ——
+  // 同样的请求体、同样的响应形状({ok, config})、同样记一条日志; 差别只是"库"是本进程的内存表。
+  const mCfg = /^\/api\/friends\/([^/]+)\/config$/.exec(p);
+  if (mCfg) {
+    const fid = decodeURIComponent(mCfg[1]);
+    const body = await readBody(req);
+    const idx = (() => { const m = /([0-9]+)$/.exec(fid); return m ? Number(m[1]) : 0; })();
+    const next = {
+      favorite: !!body.favorite,
+      notifyOnline: body.notifyOnline !== undefined ? !!body.notifyOnline : true,
+      notifyOffline: body.notifyOffline !== undefined ? !!body.notifyOffline : true,
+      notifyStatusChange: body.notifyStatusChange !== undefined ? !!body.notifyStatusChange : true,
+      notifyWorldChange: body.notifyWorldChange !== undefined ? !!body.notifyWorldChange : true
+    };
+    if (req.method !== 'PUT') return json(res, 405, { error: '只支持 PUT' });
+    friendConfigs.set(fid, {
+      favorite: next.favorite ? 1 : 0,
+      notify_online: next.notifyOnline ? 1 : 0,
+      notify_offline: next.notifyOffline ? 1 : 0,
+      notify_status_change: next.notifyStatusChange ? 1 : 0,
+      notify_world_change: next.notifyWorldChange ? 1 : 0
+    });
+    const name = NAMES[idx % NAMES.length] + (idx >= NAMES.length ? ' ' + (Math.floor(idx / NAMES.length) + 1) : '');
+    pushLog('[server] 更新监控配置: 好友=' + name + ', 特别关注=' + (next.favorite ? '开' : '关') +
+      ', 上线=' + (next.notifyOnline ? 1 : 0) + ', 下线=' + (next.notifyOffline ? 1 : 0) +
+      ', 状态=' + (next.notifyStatusChange ? 1 : 0) + ', 世界=' + (next.notifyWorldChange ? 1 : 0));
+    return json(res, 200, { ok: true, config: configOf(fid, idx) });
+  }
   if (p === '/api/me') return json(res, 200, { ok: true, user: SELF() });
   if (p === '/api/settings') return json(res, 200, { ok: true, settings: { qq_enabled: 0, qq_app_id: '', notify_group_announcement: 1, notify_boop: 1 } });
   if (p === '/api/status') {

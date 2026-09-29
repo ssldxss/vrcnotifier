@@ -79,5 +79,36 @@
     return { moved, entered, left };
   }
 
-  return { estimateHeight, buildOffsets, indexAt, visibleRange, spacersFor, groupChanges };
+  /**
+   * 渲染范围 = 可见范围上下各留 buffer 行, 夹紧到 [0, count-1]。
+   * 双层范围的意义: 可见范围每跨一行就算"变了", 但渲染范围只要还覆盖得住就不动 DOM ——
+   * 这样滚动过程中绝大多数帧一个节点都不动, 正在播的动画不会被重建打断。
+   */
+  function renderRange({ inView, from, to, count, buffer }) {
+    const r = inView === undefined ? (from === undefined ? null : { from, to }) : inView;
+    if (!r || r.to < r.from) return null;
+    if (!(count > 0)) return null;
+    const b = buffer || 0;
+    return { from: Math.max(0, r.from - b), to: Math.min(count - 1, r.to + b) };
+  }
+
+  /** 两个范围是否是同一个(用来判断"可见范围到底变没变") */
+  function sameRange(a, b) {
+    if (!a && !b) return true;
+    if (!a || !b) return false;
+    return a.from === b.from && a.to === b.to;
+  }
+
+  /** 新旧渲染窗口的节点增删计划: 交集复用(保住 DOM 节点 = 保住正在播的动画), 只增删差集 */
+  function reconcileIds(oldIds, newIds) {
+    const oldSet = new Set(oldIds);
+    const newSet = new Set(newIds);
+    return {
+      create: newIds.filter((id) => !oldSet.has(id)),
+      remove: oldIds.filter((id) => !newSet.has(id)),
+      keep: newIds.filter((id) => oldSet.has(id))
+    };
+  }
+
+  return { estimateHeight, buildOffsets, indexAt, visibleRange, spacersFor, groupChanges, renderRange, sameRange, reconcileIds };
 });

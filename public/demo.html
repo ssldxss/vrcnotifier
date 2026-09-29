@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>vrcnotifier 演示(假后端跑在浏览器里)</title>
+<style>
+  body { margin: 0; background: #0b0d13; color: #8b93a7;
+         font: 14px/1.7 system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; }
+  #prep { padding: 48px 40px; max-width: 560px; }
+  #prep b { color: #e6ebf5; }
+  #prep code { color: #9fb4ff; }
+</style>
+</head>
+<body>
+<!--
+  静态演示入口: 不需要 Node, 不需要任何后端 —— 假后端(public/demomock.js)跑在浏览器里,
+  由 demo-page.js 拦截 fetch / EventSource 接进真实前端。
+  打开方式: 把 public/ 用任意静态服务器托管后访问 /demo.html。
+  (必须走 http/https: file:// 下 fetch 读不到 index.html, 演示起不来)
+  参数: ?friends=5000 改好友数(默认 5000) · ?manual 不自动登录
+-->
+<div id="prep">
+  <b>正在准备演示…</b><br>
+  这个页面的"后端"跑在你的浏览器里(拦 <code>fetch</code> + 伪造 SSE), 不需要 Node 进程。
+  好友通知设置与「特别关注」会存在 <code>localStorage</code>, 刷新不丢。
+</div>
+<script src="demomock.js"></script>
+<script src="demo-page.js"></script>
+</body>
+</html>

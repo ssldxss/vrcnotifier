@@ -112,21 +112,27 @@ function replayGroupEntrance(body) {
 let friendsEntered = false; // 好友列表入场动画只在首次渲染播放(快照/搜索重渲染不重播)
 let lastRenderSig = null;   // renderFriends 的输入指纹: 输入没变就不重建 DOM
 
-// ---------- 虚拟列表: 只把视口附近的行放进 DOM ----------
-// 分组标题/组体常驻, 组内没渲染的部分由 .group-inner 的 ::before/::after 撑出等高空白(见 app.css),
-// 所以**静止时页面总高与"全量渲染"一致**。代价: 依赖绝对位置的飞行动画没有了 ——
-// 位置变化一律改成淡入淡出, 且只有渲染出来的行(即"显示的部分")才有动画。
-const V = window.VrcVList;   // 纯计算在 public/vlist.js(有单测)
-const V_OVERSCAN_PX = 600;   // 视口上下各多渲染这么多像素(快速滚动不露白)
-const V_EST_ROW_H = 61;      // 未测量行的兜底高(实测 60/61/63.58/62.58, 61 最常见)
-const V_FADE_IN_MS = 180;    // 行淡入时长(与 CSS 的 .v-in 一致)
-const V_FADE_OUT_MS = 150;   // 行淡出时长(与 CSS 的 .v-out 一致)
-const vRowHeights = new Map();   // friendId -> 实测行高(px)
+// ---------- 虚拟列表(virt-list 式: 双层范围 + 节点复用 + 滚动路径零布局读取) ----------
+// 分组标题/组体常驻, 组内没渲染的部分由 .group-inner 的 ::before/::after 撑出等高空白,
+// 所以**静止时页面总高与"全量渲染"逐像素一致**。
+// 三条关键点(照着 kolarorz/virt-list 的思路改的, 之前每次跨行都 innerHTML 重建整窗, 动画必被打断):
+//   1. 双层范围: inView(严格可见) 与 range(可见 ± buffer)。先比 inView, 再比 range ——
+//      两层都没变就一个节点都不动, 滚动过程中大部分帧 DOM 完全静止。
+//   2. 节点复用: 窗口平移时只增删两端差集, 中间节点原地保留(DOM 节点就是动画载体, 重建即丢动画)。
+//   3. 滚动路径零布局读取: 列表位置/标题高度缓存在 vLayout, 行高靠 ResizeObserver 回调更新,
+//      滚动时只读 window.scrollY。
+const V = window.VrcVList;    // 纯计算在 public/vlist.js(有单测)
+const V_BUFFER_ROWS = 12;     // 渲染范围在可见范围外各多留几行
+const V_EST_ROW_H = 61;       // 未测量行的兜底高(实测 60/61/63.58/62.58, 61 最常见)
+const V_FADE_IN_MS = 180;     // 行淡入时长(与 CSS 的 .v-in 一致)
+const V_FADE_OUT_MS = 150;    // 行淡出时长(与 CSS 的 .v-out 一致)
+const vRowHeights = new Map();     // friendId -> 实测行高(存"带下边框的内容高", 与渲染窗口无关)
 const vSum = { sum: 0, count: 0 }; // 已测量行的均值统计, 给未测量行当估计
-const vRendered = new Map();     // groupKey -> { from, to }
-let vModel = null;               // { groups: [{ key, ids, collapsed, titleEl, body, inner, offsets, total }] }
-let vByFriend = new Map();       // friendId -> 好友对象(渲染窗口时按 id 取)
+let vModel = null;                 // { groups: [{ key, ids, collapsed, titleEl, body, inner, offsets, total, nodes, rendered, inView, range }] }
+let vByFriend = new Map();         // friendId -> 好友对象(渲染窗口时按 id 取)
 let vUpdateRaf = 0;
+let vLayout = null;                // 缓存的几何: { listTopDoc, mt[], mb[], titleH[] } —— 滚动时不再读布局
+let vMeasuredWidth = 0;            // 量行高时用的列表宽度; 宽度变了(窗口缩放)所有行高都要重量
 
 function vRowHeight(id) {
   const h = vRowHeights.get(id);
@@ -170,92 +176,155 @@ function renderRow(f, moreAfter) {
     '</div></div>';
 }
 
-// 把 [from, to] 这些行放进 DOM, 其余高度交给首尾空白(一行都不渲染时整组高度挂顶部)
-function vPaintWindow(g, from, to) {
-  const off = vOffsets(g);
-  const sp = V.spacersFor({ offsets: off, from, to });
-  g.inner.style.setProperty('--vtop', sp.before + 'px');
-  g.inner.style.setProperty('--vbot', sp.after + 'px');
-  if (to < from) {
-    g.inner.innerHTML = '';
-    vRendered.set(g.key, { from: 0, to: -1 });
-    return;
-  }
-  const html = [];
-  for (let i = from; i <= to; i++) {
-    const f = vByFriend.get(g.ids[i]);
-    if (f) html.push(renderRow(f, i === to && to < g.ids.length - 1));
-  }
-  g.inner.innerHTML = html.join('');
-  vRendered.set(g.key, { from, to });
+// 把单行 HTML 变成节点(只给"新进窗口"的行用; 复用旧节点才是常态)
+const vRowTmp = document.createElement('div');
+function vRowNode(f, moreAfter) {
+  vRowTmp.innerHTML = renderRow(f, moreAfter);
+  const el = vRowTmp.firstElementChild;
+  vRowTmp.removeChild(el);
+  return el;
 }
 
-// 按当前滚动位置重算每个组的窗口。折叠组不动它 —— 它的高度是 0, 内容留着由容器过渡裁剪。
+// 缓存列表在文档里的位置 + 各分组标题的高度与上下外边距。
+// 这些只在重排时变, 滚动时不用再读 —— 这是"滚动不卡"的关键之一(getComputedStyle + rect 会强制重排)。
+function vCacheLayout() {
+  const list = $('#friendsList');
+  if (!vModel || !list) { vLayout = null; return; }
+  const st = window.scrollY || document.documentElement.scrollTop || 0;
+  const mt = []; const mb = []; const titleH = [];
+  for (const g of vModel.groups) {
+    const cs = getComputedStyle(g.titleEl);
+    mt.push(parseFloat(cs.marginTop) || 0);
+    mb.push(parseFloat(cs.marginBottom) || 0);
+    titleH.push(g.titleEl.getBoundingClientRect().height);
+  }
+  vLayout = { listTopDoc: list.getBoundingClientRect().top + st, mt, mb, titleH };
+}
+
+// 窗口 => DOM。核心是"只动差集": 复用窗口里仍然存在的节点(保住正在播的动画), 只删离开的、建进来的。
+function vPatchWindow(g, range) {
+  const from = range ? range.from : 0;
+  const to = range ? range.to : -1;
+  const off = vOffsets(g);
+  const sp = V.spacersFor({ offsets: off, from, to });
+  g.inner.style.setProperty('--vtop', sp.before + 'px'); // 未渲染部分的高度(撑住页面)
+  g.inner.style.setProperty('--vbot', sp.after + 'px');
+  const ids = [];
+  for (let i = from; i <= to; i++) ids.push(g.ids[i]);
+  const plan = V.reconcileIds(g.rendered || [], ids);
+  for (const id of plan.remove) {
+    const el = g.nodes.get(id);
+    if (el) {
+      if (vResizeObserver) vResizeObserver.unobserve(el);
+      el.remove();
+      g.nodes.delete(id);
+    }
+  }
+  let ref = g.inner.firstElementChild;
+  for (let i = 0; i < ids.length; i++) {
+    const id = ids[i];
+    const moreAfter = i === ids.length - 1 && to < g.ids.length - 1;
+    let el = g.nodes.get(id);
+    if (!el) {
+      const f = vByFriend.get(id);
+      if (!f) continue;
+      el = vRowNode(f, moreAfter);
+      g.nodes.set(id, el);
+      if (vResizeObserver) vResizeObserver.observe(el); // 行高变了会回调, 滚动路径上不用量
+      g.inner.insertBefore(el, ref);
+      continue;
+    }
+    el.classList.toggle('v-more', moreAfter);
+    if (el !== ref) g.inner.insertBefore(el, ref); // 复用 = 原节点搬家, 动画不中断
+    else ref = ref.nextElementSibling;
+  }
+  g.rendered = ids;
+  g.range = range;
+  if (!vResizeObserver && ids.length) vMeasureGroup(g); // 老浏览器兜底: 打完补丁再量一次
+}
+
+// 按当前滚动位置重算窗口。折叠组不动它 —— 它的高度是 0, 内容留着由容器过渡裁剪。
 function vUpdate(force) {
   if (!vModel) return;
   const list = $('#friendsList');
   if (!list) return;
+  if (force || !vLayout) vCacheLayout();
+  if (!vLayout) return;
   const vh = window.innerHeight || 800;
   const st = window.scrollY || document.documentElement.scrollTop || 0;
-  let y = list.getBoundingClientRect().top + st;
-  const painted = [];
-  for (const g of vModel.groups) {
-    const cs = getComputedStyle(g.titleEl);
-    y += (parseFloat(cs.marginTop) || 0) + g.titleEl.getBoundingClientRect().height + (parseFloat(cs.marginBottom) || 0);
+  let y = vLayout.listTopDoc;
+  for (let i = 0; i < vModel.groups.length; i++) {
+    const g = vModel.groups[i];
+    y += vLayout.mt[i] + vLayout.titleH[i] + vLayout.mb[i];
     if (g.collapsed) continue; // 折叠: 不渲染也不动它(留给容器过渡)
-    const off = vOffsets(g);
-    const range = V.visibleRange({ offsets: off, groupTop: y, scrollTop: st, viewportH: vh, overscan: V_OVERSCAN_PX });
+    const inView = V.visibleRange({ offsets: vOffsets(g), groupTop: y, scrollTop: st, viewportH: vh, overscan: 0 });
     y += g.total;
-    const want = range || { from: 0, to: -1 };
-    const cur = vRendered.get(g.key);
-    if (force || !cur || cur.from !== want.from || cur.to !== want.to) {
-      vPaintWindow(g, want.from, want.to);
-      painted.push(g);
-    }
+    // ★ 双层判断: 可见范围没变 → 一个节点都不动; 可见范围变了但渲染范围还罩得住 → 也不动
+    if (!force && V.sameRange(inView, g.inView)) continue;
+    g.inView = inView;
+    const want = V.renderRange({ inView, count: g.ids.length, buffer: V_BUFFER_ROWS });
+    if (!force && V.sameRange(want, g.range)) continue;
+    vPatchWindow(g, want);
   }
-  if (painted.length) vMeasure(painted);
 }
 
-// 量已渲染的行高: 首次实测入库, 有变化就重建前缀和并把首尾空白同步过来
-function vMeasure(groups) {
-  for (const g of groups) {
-    const cur = vRendered.get(g.key);
-    if (!cur || cur.to < cur.from) continue;
-    let changed = false;
-    for (const el of g.inner.querySelectorAll('.friend')) {
-      const id = el.dataset.id;
-      // 列表此刻不可见时(切到设置页/页面隐藏) getBoundingClientRect 全是 0。
-      // 必须在**补 1px 之前**判掉: 否则 0 + 1 = 1 会绕过守卫, 把 1px 当成行高缓存进去,
-      // 该组就凭空少一行高度(实测整整少 60px)。
-      const raw = el.getBoundingClientRect().height;
-      if (!(raw > 0)) continue;
-      // 渲染窗口的末行可能是 :last-child(没有下边框) —— 补回那 1px, 让缓存只表示"内容高"。
-      // 但带 .v-more 的行分隔线已经被补回来了, 不能再加。
-      const isLastChild = el === el.parentElement.lastElementChild && !el.classList.contains('v-more');
-      const h = raw + (isLastChild ? 1 : 0);
-      const prev = vRowHeights.get(id);
-      if (prev === undefined) { vRowHeights.set(id, h); vSum.sum += h; vSum.count++; changed = true; }
-      else if (Math.abs(prev - h) > 0.02) { vSum.sum += h - prev; vRowHeights.set(id, h); changed = true; }
-    }
-    if (!changed) continue;
-    g.offsets = null; // 本组失效
-    const sp = V.spacersFor({ offsets: vOffsets(g), from: cur.from, to: cur.to });
-    g.inner.style.setProperty('--vtop', sp.before + 'px');
-    g.inner.style.setProperty('--vbot', sp.after + 'px');
+// 量一个组里已渲染的行高(老浏览器兜底; 现代浏览器走 ResizeObserver)
+function vMeasureGroup(g) {
+  let changed = false;
+  for (const el of g.inner.children) {
+    const id = el.dataset.id;
+    if (!id) continue;
+    // 列表不可见时 rect 全是 0; 必须在补 1px **之前**判掉(0+1=1 会绕过守卫变成 1px 混进缓存)
+    const raw = el.getBoundingClientRect().height;
+    if (!(raw > 0)) continue;
+    const isLastChild = el === el.parentElement.lastElementChild && !el.classList.contains('v-more');
+    const h = raw + (isLastChild ? 1 : 0);
+    const prev = vRowHeights.get(id);
+    if (prev === undefined) { vRowHeights.set(id, h); vSum.sum += h; vSum.count++; changed = true; }
+    else if (Math.abs(prev - h) > 0.02) { vSum.sum += h - prev; vRowHeights.set(id, h); changed = true; }
   }
+  if (!changed) return;
+  vInvalidateOffsets();
+  g.offsets = null;
 }
+
+// 行高变化 → 前缀和与占位高度都要重算。走回调(不在滚动路径上), 所以可以放心读布局。
+const vResizeObserver = typeof ResizeObserver !== 'undefined' ? new ResizeObserver((entries) => {
+  let changed = false;
+  for (const e of entries) {
+    const el = e.target;
+    const id = el.dataset.id;
+    if (!id) continue;
+    let raw = el.getBoundingClientRect().height;
+    if (e.borderBoxSize && e.borderBoxSize[0]) raw = e.borderBoxSize[0].blockSize;
+    if (!(raw > 0)) continue;
+    const isLastChild = el === el.parentElement.lastElementChild && !el.classList.contains('v-more');
+    const h = raw + (isLastChild ? 1 : 0);
+    const prev = vRowHeights.get(id);
+    if (prev === undefined) { vRowHeights.set(id, h); vSum.sum += h; vSum.count++; changed = true; }
+    else if (Math.abs(prev - h) > 0.02) { vSum.sum += h - prev; vRowHeights.set(id, h); changed = true; }
+  }
+  if (changed) { vInvalidateOffsets(); vUpdate(true); }
+}) : null;
 
 // 首屏把**每一行**的真实高度量一遍(挂在屏幕外、visibility:hidden, 量完立刻丢弃)。
 // 为什么要付这个代价: 占位空白 = 未渲染行高之和, 用估计值累计的偏差会让可见行整体偏移
 // (实测: 只用均值估计时, 展开后的离线组可见行整体偏 ~22px)。量一遍后每行都是实测值,
 // 占位高度与真实布局逐像素一致, 静止时的位置/尺寸才与"全量渲染"完全相同。
-// 行高只跟内容有关, 量一次可长期复用; 内容变了(如世界名解析出来)由 vMeasure 单独修正。
+// 行高只跟内容有关, 量一次可长期复用; 内容变了(如世界名解析出来)由 ResizeObserver 单独修正。
 function vMeasureAll() {
   if (!vModel) return;
-  if (!vModel.groups.some((g) => g.ids.some((id) => !vRowHeights.has(id)))) return; // 都量过了
   const list = $('#friendsList');
   // 用真实的小数宽度: 取整会改变换行, 个别行会差 1px
-  const width = Math.max(1, list.getBoundingClientRect().width);
+  const width = Math.max(0, list.getBoundingClientRect().width);
+  if (!(width > 1)) return; // 列表不可见(切到设置页等): 量不到真值, 别污染缓存
+  if (Math.abs(width - vMeasuredWidth) > 0.5) { // 宽度变了 → 所有行高失效(换行会变)
+    vRowHeights.clear();
+    vSum.sum = 0; vSum.count = 0;
+    vMeasuredWidth = width;
+    vInvalidateOffsets();
+  }
+  if (!vModel.groups.some((g) => g.ids.some((id) => !vRowHeights.has(id)))) return; // 都量过了
   const host = document.createElement('div');
   host.setAttribute('aria-hidden', 'true');
   host.style.cssText = 'position:absolute;left:-99999px;top:0;visibility:hidden;pointer-events:none;width:' + width + 'px';
@@ -264,12 +333,11 @@ function vMeasureAll() {
     for (const g of vModel.groups) {
       const wrap = document.createElement('div');
       // 末尾塞一个占位元素: 让 .friend 都不是 :last-child —— 保证量到的是"带下边框"的高度
-      // 已经因为 CSS(.friend:last-child 无下边框) 少了 1px, 再统一扣一次就重复了
       wrap.innerHTML = g.ids.map((id) => { const f = vByFriend.get(id); return f ? renderRow(f, false) : ''; }).join('') + '<i></i>';
       host.appendChild(wrap);
       for (const el of wrap.querySelectorAll('.friend')) {
         const h = el.getBoundingClientRect().height;
-        if (h > 0) vRowHeights.set(el.dataset.id, h); // 量不到就别记(见 vMeasure 里的同款说明)
+        if (h > 0) vRowHeights.set(el.dataset.id, h); // 量不到就别记
       }
     }
   } finally {
@@ -278,12 +346,12 @@ function vMeasureAll() {
   vInvalidateOffsets(); // 量到的新高度要立刻生效
 }
 
-// 滚动/尺寸变化时重算窗口(每帧最多一次)
+// 滚动/尺寸变化时重算窗口(每帧最多一次; 这条路径上不读任何布局)
 window.addEventListener('scroll', () => {
   if (vUpdateRaf) return;
   vUpdateRaf = requestAnimationFrame(() => { vUpdateRaf = 0; vUpdate(false); });
 }, { passive: true });
-window.addEventListener('resize', () => vUpdate(true));
+window.addEventListener('resize', () => { vMeasureAll(); vUpdate(true); });
 
 function renderFriends() {
   const list = $('#friendsList');
@@ -296,13 +364,12 @@ function renderFriends() {
     list.innerHTML = '<p class=muted>' + (friendsCache.length ? '没有匹配的好友。' : '暂无好友数据, 点击上方「刷新」拉取。') + '</p>';
     $('#friendsCount').textContent = friendsCache.length ? '共 ' + friendsCache.length + ' 人' : '';
     vModel = null;
-    vRendered.clear();
+    vLayout = null;
     lastRenderSig = sig;
     return;
   }
   $('#friendsCount').textContent = '共 ' + friendsCache.length + ' 人';
   list.innerHTML = '';
-  vRendered.clear();
   vByFriend = new Map(friendsCache.map((f) => [f.friend_vrchat_id, f]));
   vModel = { groups: [] };
   const { fav: favList, online: onlineOthers, active: activeOthers, offline: offlineOthers } = FM.splitGroups(friendsCache, searchQuery);
@@ -331,7 +398,7 @@ function renderFriends() {
     body.appendChild(inner);
     list.appendChild(g);
     list.appendChild(body);
-    const model = { key, ids: list2.map((f) => f.friend_vrchat_id), collapsed, titleEl: g, body, inner, offsets: null, total: 0 };
+    const model = { key, ids: list2.map((f) => f.friend_vrchat_id), collapsed, titleEl: g, body, inner, offsets: null, total: 0, nodes: new Map(), rendered: [], inView: null, range: null };
     vModel.groups.push(model);
     btn.addEventListener('click', () => {
       const nowCollapsed = body.classList.toggle('collapsed');
@@ -342,6 +409,7 @@ function renderFriends() {
       try { localStorage.setItem(COLLAPSE_KEY, JSON.stringify(groupCollapsed)); } catch (e) {}
       model.collapsed = nowCollapsed;
       vUpdate(true); // 折叠/展开都要立刻重算窗口(展开时把视口内的行补上)
+      setTimeout(() => vUpdate(true), 340); // 容器过渡走完再算一次: 过渡期间后面各组的位置是变的
       if (!nowCollapsed) replayGroupEntrance(body); // 展开时补播行级入场(收起方向本来就看得见)
     });
   };
@@ -349,8 +417,9 @@ function renderFriends() {
   if (onlineOthers.length) addGroup('online', '在线 (' + onlineOthers.length + ')', onlineOthers);
   if (activeOthers.length) addGroup('active', '网页在线 (' + activeOthers.length + ')', activeOthers);
   if (offlineOthers.length) addGroup('offline', '离线 (' + offlineOthers.length + ')', offlineOthers);
-  vMeasureAll(); // 先把每行真实高量一遍(占位空白必须与真实布局逐像素一致)
-  vUpdate(true); // 再按视口渲染窗口, 最后给这些行打入场标记
+  vMeasureAll();  // 先把每行真实高量一遍(占位空白必须与真实布局逐像素一致)
+  vCacheLayout(); // 缓存列表/标题几何: 之后滚动时不再读布局
+  vUpdate(true);  // 按视口渲染窗口, 最后给这些行打入场标记
   // 首次渲染: 按 DOM 顺序(从上到下)给分组标题和每一行好友编号, 依次淡入(虚拟化后只有视口附近的行)
   if (!friendsEntered) { markFriendsEntrance(); friendsEntered = true; }
   lastRenderSig = sig; // 渲染成功才记账: 中途抛错时下次仍会重建
@@ -364,16 +433,33 @@ function vRowEls() {
   return m;
 }
 function vFade(ids, cls) {
+  const want = cls === 'v-in' ? 'vFadeIn' : 'vFadeOut';
   const els = vRowEls();
   for (const id of ids) {
     const el = els.get(id);
     if (!el || el.classList.contains(cls)) continue;
+    // 只认自己那条动画的结束事件: 行上可能还有入场级联(riseIn)等别的动画, 它们的 animationend
+    // 会把这个类提前摘掉 —— 结果就是"淡出根本没看见就没了"(实测踩到)
+    const onEnd = (ev) => {
+      if (ev.animationName !== want) return;
+      el.classList.remove(cls);
+      el.removeEventListener('animationend', onEnd);
+    };
+    el.addEventListener('animationend', onEnd);
     el.classList.add(cls);
-    el.addEventListener('animationend', () => el.classList.remove(cls), { once: true });
   }
 }
 function vFadeIn(ids) { vFade(ids, 'v-in'); }
 function vFadeOut(ids) { vFade(ids, 'v-out'); }
+
+// ---------- 位置变化动画: 原位淡出 → 换组 → 新位置淡入 ----------
+// (试过"幽灵飞行": 在旧位置放一个 fixed 的克隆行飞向新位置。放到长列表里太跳, 而且和虚拟列表的
+//  节点回收/滚动打架, 所以按需求改回淡入淡出 —— 不依赖绝对位置, 快速滚动时也不会乱。)
+function vSpot(el) {
+  if (!el) return;
+  el.classList.add('fav-spot');
+  setTimeout(() => el.classList.remove('fav-spot'), 700);
+}
 
 // 当前每个好友在哪个组(用于判断"换组")
 function currentGroupMap() {
@@ -418,6 +504,7 @@ function rollStateText(row, newHtml, newTxt, oldHtml, oldTxt) {
 function refreshFriendsWithMotion() {
   const before = currentGroupMap();
   const beforeText = new Map();
+  const nodes = new Map();
   $('#friendsList').querySelectorAll('.friend').forEach((r) => {
     const st = r.querySelector('.state');
     beforeText.set(r.dataset.id, { txt: st ? st.textContent : '', html: st ? st.innerHTML : '' });
@@ -425,12 +512,13 @@ function refreshFriendsWithMotion() {
   api('GET', '/api/friends').then(async (res) => {
     const data = res && res.data ? res.data.friends : null;
     if (!data) return;
-    const ch = V.groupChanges(before, groupsFromData(data));
+    const after = groupsFromData(data);
+    const ch = V.groupChanges(before, after);
     const leaving = ch.moved.concat(ch.left);
     if (leaving.length) { vFadeOut(leaving); await new Promise((r) => setTimeout(r, V_FADE_OUT_MS)); }
     friendsCache = data;
     renderFriends();
-    if (ch.moved.length) vFadeIn(ch.moved);      // 换组的: 在新位置淡入(不在窗口里的自然没有动画)
+    if (ch.moved.length) vFadeIn(ch.moved);      // 换组的: 在新位置淡入(在渲染窗口里才看得见)
     if (ch.entered.length) vFadeIn(ch.entered);  // 新出现的
     // 没换组的行: 世界/社交状态文案变化 → 上下翻动(与位置无关, 保留)
     const skipped = new Set([...ch.moved, ...ch.entered, ...ch.left]);
@@ -464,19 +552,15 @@ $('#friendsList').addEventListener('change', async (e) => {
   };
   const isFav = cb.classList.contains('favorite');
   if (isFav) {
-    // 乐观更新 + 位置变化淡入淡出(原来的 FLIP 飞行已按虚拟列表的要求换掉)
-    const fromKey = row.closest('.group-body') ? row.closest('.group-body').dataset.group : null;
+    // 乐观更新 + 位置变化: 先在这一行原位淡出, 淡完再重绘到新分组并淡入
     cur.config = { ...c, favorite: body.favorite ? 1 : 0 }; // 注意用 0/1: 渲染按 === 1 分组, 布尔值会导致不重排
     expandGroupFor(cur); // 目标分组折叠时先展开, 否则行落在被裁剪的隐藏区域, 看不到
-    const toKey = window.VrcFriendModel.groupOf(cur);
-    const apply = () => {
+    vFadeOut([id]);
+    setTimeout(() => {
       renderFriends();
-      vFadeIn([id]);
-      const el = $('#friendsList').querySelector('.friend[data-id="' + id + '"]');
-      if (el) { el.classList.add('fav-spot'); setTimeout(() => el.classList.remove('fav-spot'), 800); }
-    };
-    if (fromKey !== toKey) { vFadeOut([id]); setTimeout(apply, V_FADE_OUT_MS); }
-    else apply();
+      vFadeIn([id]); // 新位置在渲染窗口里才看得见; 在窗口外就是"淡走了"
+      vSpot($('#friendsList').querySelector('.friend[data-id="' + id + '"]'));
+    }, V_FADE_OUT_MS);
   }
   const r = await api('PUT', '/api/friends/' + encodeURIComponent(id) + '/config', body);
   if (r.data.ok) {

@@ -92,3 +92,47 @@ test('groupChanges: 好友消失 / 首次出现', () => {
 test('groupChanges: 组没变就不算变化(交给文案翻动)', () => {
   assert.deepEqual(v.groupChanges({ a: 'online' }, { a: 'online' }), { moved: [], entered: [], left: [] });
 });
+
+// ---- 双层范围(virt-list 式): 可见范围严格, 渲染范围在它外面多留 buffer ----
+// 只有"可见范围"变了才需要改 DOM —— 滚动过程中大部分帧 DOM 完全不动, 正在播的动画才不会被重建打断。
+
+test('renderRange: 可见范围上下各留 buffer', () => {
+  assert.deepEqual(v.renderRange({ from: 10, to: 20, count: 100, buffer: 5 }), { from: 5, to: 25 });
+});
+
+test('renderRange: 两端夹紧到 [0, count-1]', () => {
+  assert.deepEqual(v.renderRange({ from: 0, to: 3, count: 100, buffer: 5 }), { from: 0, to: 8 });
+  assert.deepEqual(v.renderRange({ from: 95, to: 99, count: 100, buffer: 5 }), { from: 90, to: 99 });
+  assert.deepEqual(v.renderRange({ from: 0, to: 0, count: 1, buffer: 8 }), { from: 0, to: 0 });
+});
+
+test('renderRange: buffer=0 就是可见范围本身', () => {
+  assert.deepEqual(v.renderRange({ from: 3, to: 7, count: 50, buffer: 0 }), { from: 3, to: 7 });
+});
+
+test('renderRange: 可见范围为空 → 渲染范围也为空', () => {
+  assert.equal(v.renderRange({ inView: null, count: 50, buffer: 5 }), null);
+  assert.equal(v.renderRange({ from: 0, to: -1, count: 50, buffer: 5 }), null);
+});
+
+test('sameRange: 判断"可见范围有没有真的变"(没变就别动 DOM)', () => {
+  assert.equal(v.sameRange({ from: 1, to: 2 }, { from: 1, to: 2 }), true);
+  assert.equal(v.sameRange(null, null), true);
+  assert.equal(v.sameRange({ from: 1, to: 2 }, { from: 1, to: 3 }), false);
+  assert.equal(v.sameRange({ from: 1, to: 2 }, null), false);
+  assert.equal(v.sameRange(null, { from: 1, to: 2 }), false);
+});
+
+test('reconcileIds: 窗口平移一格 → 只在尾部新建一个、头部删掉一个(其余复用)', () => {
+  assert.deepEqual(v.reconcileIds(['a', 'b', 'c'], ['b', 'c', 'd']), { create: ['d'], remove: ['a'], keep: ['b', 'c'] });
+});
+
+test('reconcileIds: 没变 → 什么都不用动', () => {
+  assert.deepEqual(v.reconcileIds(['a', 'b'], ['a', 'b']), { create: [], remove: [], keep: ['a', 'b'] });
+});
+
+test('reconcileIds: 整窗换掉 / 清空', () => {
+  assert.deepEqual(v.reconcileIds(['a', 'b'], ['c', 'd']), { create: ['c', 'd'], remove: ['a', 'b'], keep: [] });
+  assert.deepEqual(v.reconcileIds(['a', 'b'], []), { create: [], remove: ['a', 'b'], keep: [] });
+  assert.deepEqual(v.reconcileIds([], ['a']), { create: ['a'], remove: [], keep: [] });
+});
