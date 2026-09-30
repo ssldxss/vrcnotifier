@@ -195,8 +195,13 @@
     }
     const inject = M.INJECT_ANCHOR + "\n<script src='demomock.js'></script>\n<script src='demo-page.js'></script>";
     PAGE_STATE.phase = 'injected';
+    // index.html 是 no-store 抓的, 但它里面的 js/css 会按静态服务器的缓存策略走(GitHub Pages 默认就有
+    // max-age, python http.server 也发 Last-Modified) —— 改了前端之后普通刷新可能还是旧副本,
+    // 表现成"演示里新功能完全没有"。给所有本地 js/css 打上一次性版本号, 刷新必拿最新。
+    const v = String(Date.now());
+    const busted = html.replace(M.INJECT_ANCHOR, inject).replace(/(src|href)='([^']+\.(?:js|css))'/g, "$1='$2?v=" + v + "'");
     document.open();
-    document.write(html.replace(M.INJECT_ANCHOR, inject));
+    document.write(busted);
     document.close();
     setTimeout(start, 0); // 注入后的脚本跑完(avatarUrl 已定义)再启动
   }

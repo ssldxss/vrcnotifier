@@ -68,10 +68,17 @@ function friendCountFor(req) {
 }
 // 好友通知设置的内存表(演示后端 = 真实后端那样"进程内状态"): friendId -> config
 const friendConfigs = new Map();
-// 默认配置: 特别关注按 i%7===3 撒一些, 上线/下线通知开, 状态/世界通知关(与前端默认一致)
+// 默认配置: 特别关注只挑一小撮, 上线/下线通知开, 状态/世界通知关(与前端默认一致)。
+// 为什么要"一小撮": 真机上一个人的特别关注就是几个人, 而特别关注组是列表最上面那一组 ——
+// 如果撒成 14%(旧值 i%7===3, 5000 人里 714 个), 这一组本身就高 4.3 万像素,
+// 「好友换组」的滑动落位永远落在屏幕外, 演示里就只剩"飞出视口"那一下, 看着像没有动画。
+// 451 与 10 互质 → 11 个特别关注会均匀落在在线/网页在线/离线三种状态里。
+const FAV_EVERY = 451;
+const FAV_REM = 3;
+// 默认配置: 特别关注按上面的规则撒, 上线/下线通知开, 状态/世界通知关(与前端默认一致)
 function defaultConfigAt(i) {
   return {
-    favorite: i % 7 === 3 ? 1 : 0,
+    favorite: i % FAV_EVERY === FAV_REM ? 1 : 0,
     notify_online: 1,
     notify_offline: 1,
     notify_status_change: 0,

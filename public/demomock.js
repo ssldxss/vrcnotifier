@@ -10,6 +10,12 @@
   const DEFAULT_FRIENDS = 5000;                              // 3000 离线 + 1500 网页在线 + 500 在线
   const INJECT_ANCHOR = "<script src='base.js'></script>";   // demo.html 把 mock 脚本插在这行后面
   const PAGE_SIZE = 50;
+  // 默认特别关注: 每 451 人挑 1 个(i ≡ 3)。**别改密**: 特别关注组是列表最上面那一组,
+  // 撒到 14%(旧值 i%7===3)时 5000 人里有 714 个、组高 4.3 万像素, 「好友换组」的滑动落位
+  // 永远在屏幕外, 演示里看着就像"没有位移动画"。451 与 10 互质 → 11 个均匀落在三种状态里。
+  // 这一对常量与 serve-demo.js 的 FAV_EVERY/FAV_REM 必须一致。
+  const FAV_EVERY = 451;
+  const FAV_REM = 3;
   const T = { api: 700, login: 1500, verify: 2500, auth: 1200, roster: 1200, page: 1500 };
   const NAMES = ['星野桑', '喵杂鱼', '夜行电车', '北极熊', '小满', '阿岚', '雾岛', '青栀', '长夏', '白鹭', '空山', '三日月', '橘子汽水', '半糖去冰', '拾光', '无声铃鹿'];
   const WORLDS = [
@@ -31,7 +37,9 @@
   function nameAt(i) { return NAMES[i % NAMES.length] + (i >= NAMES.length ? ' ' + (Math.floor(i / NAMES.length) + 1) : ''); }
   function indexOfId(id) { const m = /([0-9]+)$/.exec(String(id || '')); return m ? Number(m[1]) : 0; }
   function defaultConfig(i) {
-    return { favorite: i % 7 === 3 ? 1 : 0, notify_online: 1, notify_offline: 1, notify_status_change: 0, notify_world_change: 0 };
+    // 特别关注只挑一小撮(与 serve-demo.js 的 FAV_EVERY/FAV_REM 保持一致):
+    // 撒太密的话特别关注组本身就有几万像素高, 「好友换组」的滑动落位永远在屏幕外。
+    return { favorite: i % FAV_EVERY === FAV_REM ? 1 : 0, notify_online: 1, notify_offline: 1, notify_status_change: 0, notify_world_change: 0 };
   }
   function friendAt(i, config) {
     const state = stateAt(i);
@@ -215,6 +223,7 @@
 
   return {
     DEFAULT_FRIENDS, INJECT_ANCHOR, PAGE_SIZE, T,
+    FAV_EVERY, FAV_REM,
     NAMES, WORLDS, TRUST, SEED_LINES,
     stateAt, idAt, nameAt, defaultConfig, normalizeConfig, friendAt, selfUser, configFromBody, avatarDataUrl, stamp,
     createBackend

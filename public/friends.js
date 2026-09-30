@@ -133,6 +133,7 @@ let vByFriend = new Map();         // friendId -> 好友对象(渲染窗口时�
 let vUpdateRaf = 0;
 let vLayout = null;                // 缓存的几何: { listTopDoc, mt[], mb[], titleH[] } —— 滚动时不再读布局
 let vMeasuredWidth = 0;            // 量行高时用的列表宽度; 宽度变了(窗口缩放)所有行高都要重量
+let vLastScrollUsed = -1;          // 上一次 vUpdate 实际用到的 scrollY(重绘后据此判断要不要按原位置重算)
 
 function vRowHeight(id) {
   const h = vRowHeights.get(id);
@@ -252,6 +253,7 @@ function vUpdate(force) {
   if (!vLayout) return;
   const vh = window.innerHeight || 800;
   const st = window.scrollY || document.documentElement.scrollTop || 0;
+  vLastScrollUsed = st; // 给 renderFriends 判"这次算窗口用的滚动位置对不对"(见那里的注释)
   let y = vLayout.listTopDoc;
   for (let i = 0; i < vModel.groups.length; i++) {
     const g = vModel.groups[i];
@@ -359,6 +361,10 @@ function renderFriends() {
   // 指纹 = 搜索词 + 折叠状态 + 好友数据。算一次约 4ms, 而重建整页 DOM 更贵 —— 一样就没必要重建。
   const sig = FM.renderSignature(friendsCache, searchQuery, groupCollapsed);
   if (sig === lastRenderSig) return;
+  // ★ 重绘前先记住滚动位置: 下面 list.innerHTML='' 会让页面瞬间塌高, 浏览器把滚动位置夹到顶部,
+  //   于是 vCacheLayout / vUpdate 全在"塌高"的坐标下算窗口 —— 实测后果是: 在列表深处切换特别关注,
+  //   重绘后视口里一行都没有(整片占位空白), 要滚一下才恢复。所以撑高之后必须把位置放回去再算一次。
+  const keepScroll = window.scrollY || document.documentElement.scrollTop || 0;
   const pool = FM.filterPool(friendsCache, searchQuery);
   if (!pool.length) {
     list.innerHTML = '<p class=muted>' + (friendsCache.length ? '没有匹配的好友。' : '暂无好友数据, 点击上方「刷新」拉取。') + '</p>';
@@ -420,13 +426,20 @@ function renderFriends() {
   vMeasureAll();  // 先把每行真实高量一遍(占位空白必须与真实布局逐像素一致)
   vCacheLayout(); // 缓存列表/标题几何: 之后滚动时不再读布局
   vUpdate(true);  // 按视口渲染窗口, 最后给这些行打入场标记
+  // 占位撑回去之后把滚动位置放回去, 并按"放回去之后"的位置再算一次窗口。
+  // 判据是 vUpdate **实际用到的** scrollY(而不是当前值): 被夹取后浏览器可能已经自己把位置还原了,
+  // 那时当前值看着没错, 但窗口是按夹取到的坐标算的 —— 结果就是视口整片空白(实测踩到)。
+  if (keepScroll > 0 && Math.abs(vLastScrollUsed - keepScroll) > 1) {
+    window.scrollTo(0, keepScroll);
+    vUpdate(true);
+  }
   // 首次渲染: 按 DOM 顺序(从上到下)给分组标题和每一行好友编号, 依次淡入(虚拟化后只有视口附近的行)
   if (!friendsEntered) { markFriendsEntrance(); friendsEntered = true; }
   lastRenderSig = sig; // 渲染成功才记账: 中途抛错时下次仍会重建
 }
 
-// ---------- 位置变化 → 淡入淡出(替代原来的 FLIP 飞行) ----------
-// 只有"已经渲染出来的行"才有动画 —— 不在窗口里的行没有 DOM, 无从播起(这正是"只有显示的部分才有动画")。
+// ---------- 位置变化动画: 窗口内 FLIP 位移 + 窗口外飞出视口的飞行体 ----------
+// 只有"已经渲染出来的行"才有 DOM, 也才有动画(这正是"只有显示的部分才有动画")。
 function vRowEls() {
   const m = new Map();
   $('#friendsList').querySelectorAll('.friend').forEach((el) => m.set(el.dataset.id, el));
@@ -452,13 +465,174 @@ function vFade(ids, cls) {
 function vFadeIn(ids) { vFade(ids, 'v-in'); }
 function vFadeOut(ids) { vFade(ids, 'v-out'); }
 
-// ---------- 位置变化动画: 原位淡出 → 换组 → 新位置淡入 ----------
-// (试过"幽灵飞行": 在旧位置放一个 fixed 的克隆行飞向新位置。放到长列表里太跳, 而且和虚拟列表的
-//  节点回收/滚动打架, 所以按需求改回淡入淡出 —— 不依赖绝对位置, 快速滚动时也不会乱。)
+// 被移动行的高光脉冲(与位移同步; 旧版 FLIP 里也这么做)
 function vSpot(el) {
   if (!el) return;
   el.classList.add('fav-spot');
   setTimeout(() => el.classList.remove('fav-spot'), 700);
+}
+
+// ---------- FLIP: 先量旧位置 → 重绘 → 把"旧位置−新位置"当初始位移播回去 ----------
+// 速度剖面(起步慢加速 → 7px/ms 巡航 → 对称减速, 160~2400ms)在 public/flightmath.js(有单测),
+// 与 00a09dd 那版逐字一致 —— 旧实现留在 .verify/frontend-baseline/app.js:1143-1256。
+// 与旧版的三处必要差异:
+//   1. 位置用**文档绝对坐标**采集。重绘时页面会瞬间塌高、浏览器会把滚动位置夹一次(见 renderFriends),
+//      用视口相对坐标会让位移差出几万像素 —— 实测过: 切换特别关注后整片视口空白。
+//   2. 只有"重绘前后都存在"的行/标题/组体才飞(虚拟列表里屏幕外的行没有 DOM)。
+//   3. 被点的那一行若落到渲染窗口外, 用飞行体把它送出去(旧版全量渲染时它本来就在 DOM 里)。
+const FLIGHT = window.VrcFlight;
+const V_FLYER_MAX = 4; // 一次最多放几个飞行体: 突发上下线时别在屏幕上撒一片克隆行
+let flipRafId = 0;
+let flipItems = [];   // 进行中的动画元素: 被新动画打断时清理残留 transform/opacity
+let flyers = [];      // 飞出视口的克隆行: [{ el, startDoc, targetDoc, plan, t0 }]
+let flyerRafId = 0;
+
+function flipKey(el) {
+  if (el.classList.contains('friend')) return 'r:' + el.dataset.id;
+  if (el.classList.contains('group-title')) return 'gt:' + el.dataset.group;
+  if (el.classList.contains('group-body')) return 'gb:' + el.dataset.group;
+  return null;
+}
+function vDocPos(el) {
+  const r = el.getBoundingClientRect();
+  return { top: r.top + (window.scrollY || 0), left: r.left + (window.scrollX || 0) };
+}
+// hits(可选): 额外收一份"好友行 → 节点 + 视口 rect", 给需要克隆飞出视口的行当起点
+function captureRects(hits) {
+  const rects = new Map();
+  const list = $('#friendsList');
+  if (!list) return rects;
+  for (const el of list.querySelectorAll('.friend, .group-title, .group-body')) {
+    const k = flipKey(el);
+    if (!k) continue;
+    const r = el.getBoundingClientRect();
+    rects.set(k, { top: r.top + (window.scrollY || 0), left: r.left + (window.scrollX || 0) });
+    if (hits && el.classList.contains('friend')) hits.set(el.dataset.id, { node: el, rect: r });
+  }
+  return rects;
+}
+function stopFlip() {
+  if (flipRafId) { cancelAnimationFrame(flipRafId); flipRafId = 0; }
+  for (const m of flipItems) { m.el.style.transform = ''; if (m.fade) m.el.style.opacity = ''; }
+  flipItems = [];
+}
+// 返回"真的飞了"的好友 id 集合(调用方据此避免同一行既飞又淡入)
+function playRowFlip(oldRects, movedId, rowOpts) {
+  stopFlip();
+  const flown = new Set();
+  const list = $('#friendsList');
+  if (!list || !FLIGHT || !oldRects || !oldRects.size) return flown;
+  const items = [];
+  const bodyDeltas = new Map(); // 组体位移: 行位移减去它, 避免组体+行双重移动
+  for (const el of list.querySelectorAll('.group-title, .group-body')) {
+    const prev = oldRects.get(flipKey(el));
+    if (!prev) continue;
+    const cur = vDocPos(el);
+    const dx = prev.left - cur.left;
+    const dy = prev.top - cur.top;
+    if (el.classList.contains('group-body')) bodyDeltas.set(el.dataset.group, { dx, dy });
+    if (Math.abs(dx) < .5 && Math.abs(dy) < .5) continue;
+    items.push({ el, dx, dy });
+  }
+  for (const r of list.querySelectorAll('.friend')) {
+    const prev = oldRects.get('r:' + r.dataset.id);
+    if (!prev) continue;
+    const ro = rowOpts ? rowOpts.get(r.dataset.id) : null;
+    if (ro && ro.skip) continue; // 不参与飞行(如始末都折叠的组)
+    const cur = vDocPos(r);
+    const body = r.closest('.group-body');
+    const bd = body ? (bodyDeltas.get(body.dataset.group) || { dx: 0, dy: 0 }) : { dx: 0, dy: 0 };
+    // 从原位完整飞到新位置(旧位置 − 新位置 − 所属组体位移)
+    const dx = prev.left - cur.left - bd.dx;
+    const dy = prev.top - cur.top - bd.dy;
+    if (Math.abs(dx) < .5 && Math.abs(dy) < .5) continue;
+    items.push({ el: r, dx, dy, fade: ro ? ro.fade : null });
+    flown.add(r.dataset.id);
+  }
+  if (!items.length) return flown;
+  for (const m of items) m.plan = FLIGHT.plan(Math.hypot(m.dx, m.dy));
+  const moved = movedId != null ? list.querySelector('.friend[data-id="' + movedId + '"]') : null;
+  if (moved) vSpot(moved);
+  // 动画期间放开组内裁剪: 行飞越分组边界时才不会被 overflow:hidden 吞掉(折叠组保持裁剪)
+  list.classList.add('flipping');
+  flipItems = items;
+  const t0 = performance.now();
+  const frame = (now) => {
+    const t = now - t0;
+    let done = true;
+    for (const m of items) {
+      if (!m.el.isConnected) continue; // 被虚拟列表回收了: 不再写样式(下次渲染是新节点)
+      const f = FLIGHT.progress(t, m.plan);
+      m.el.style.transform = 'translate3d(' + (m.dx * (1 - f)).toFixed(2) + 'px, ' + (m.dy * (1 - f)).toFixed(2) + 'px, 0)';
+      if (m.fade) m.el.style.opacity = (m.fade === 'in' ? (0.12 + 0.88 * f) : (1 - f)).toFixed(2);
+      if (t < m.plan.T) done = false;
+    }
+    if (!done) { flipRafId = requestAnimationFrame(frame); return; }
+    flipRafId = 0;
+    for (const m of items) { m.el.style.transform = ''; if (m.fade) m.el.style.opacity = ''; }
+    flipItems = [];
+    list.classList.remove('flipping');
+  };
+  flipRafId = requestAnimationFrame(frame);
+  return flown;
+}
+
+// ---------- 飞行体: 换组后落到渲染窗口外时, 让它照样"飞出视口" ----------
+function stopFlyers() {
+  if (flyerRafId) { cancelAnimationFrame(flyerRafId); flyerRafId = 0; }
+  for (const f of flyers) f.el.remove();
+  flyers = [];
+}
+function flyerFrame(now) {
+  const st = window.scrollY || 0;
+  let alive = 0;
+  for (const f of flyers) {
+    const t = now - f.t0;
+    if (t >= f.plan.T) { f.el.remove(); continue; } // 到点即撤(不留残留节点)
+    const k = FLIGHT.progress(t, f.plan);
+    // 飞行体定位在**旧位置**, 所以位移是 d*f(0→d); FLIP 那套 d*(1-f) 是"元素已在终点、先拉回起点"的写法。
+    // top 每帧按当前 scrollY 重算 → 用户滚动时飞行体跟着页面走, 而不是钉在视口上。
+    f.el.style.top = (f.startDoc - st).toFixed(2) + 'px';
+    f.el.style.transform = 'translate3d(0, ' + ((f.targetDoc - f.startDoc) * k).toFixed(2) + 'px, 0)';
+    alive++;
+  }
+  flyers = flyers.filter((f) => f.el.isConnected);
+  flyerRafId = alive ? requestAnimationFrame(flyerFrame) : 0;
+}
+// 目标位置的文档纵坐标: 直接用虚拟列表的模型算(vLayout + vOffsets 都是现成的), 不读布局。
+// 窗口外的那一行本来就没有 DOM, 所以没有 rect 可用 —— 这是唯一能拿到落点的办法。
+function docTopOfRow(id, groupKey) {
+  if (!vModel || !vLayout) return null;
+  let y = vLayout.listTopDoc;
+  for (let i = 0; i < vModel.groups.length; i++) {
+    const g = vModel.groups[i];
+    y += vLayout.mt[i] + vLayout.titleH[i] + vLayout.mb[i];
+    if (g.key === groupKey) {
+      if (g.collapsed) return y; // 折叠组: 落点就是组体顶部(行会被容器裁掉)
+      const idx = g.ids.indexOf(id);
+      return idx < 0 ? null : y + vOffsets(g)[idx];
+    }
+    if (!g.collapsed) y += g.total;
+  }
+  return null;
+}
+// 克隆这一行 → fixed 定位在旧位置 → 按同一套剖面飞到目标坐标 → 自行删除。
+// 用 position:fixed 而不是让它留在文档流里: 它不参与页面可滚动溢出, 不会把页面撑高。
+function flyRowOut(node, rect, targetDocTop) {
+  if (!node || !FLIGHT || targetDocTop == null || flyers.length >= V_FLYER_MAX) return false;
+  const startDoc = rect.top + (window.scrollY || 0);
+  const d = targetDocTop - startDoc;
+  if (Math.abs(d) < 2) return false; // 本来就在落点附近: 没有可看的位移
+  const el = node.cloneNode(true);
+  el.classList.remove('v-in', 'v-out', 'enter');
+  el.classList.add('v-flyer');
+  el.style.left = rect.left + 'px';
+  el.style.top = rect.top + 'px';
+  el.style.width = rect.width + 'px';
+  document.body.appendChild(el);
+  flyers.push({ el, startDoc, targetDoc: targetDocTop, plan: FLIGHT.plan(Math.abs(d)), t0: performance.now() });
+  if (!flyerRafId) flyerRafId = requestAnimationFrame(flyerFrame);
+  return true;
 }
 
 // 当前每个好友在哪个组(用于判断"换组")
@@ -504,7 +678,7 @@ function rollStateText(row, newHtml, newTxt, oldHtml, oldTxt) {
 function refreshFriendsWithMotion() {
   const before = currentGroupMap();
   const beforeText = new Map();
-  const nodes = new Map();
+  const oldHit = new Map(); // id -> { node, rect }: 落到窗口外的行要拿它克隆飞行体
   $('#friendsList').querySelectorAll('.friend').forEach((r) => {
     const st = r.querySelector('.state');
     beforeText.set(r.dataset.id, { txt: st ? st.textContent : '', html: st ? st.innerHTML : '' });
@@ -514,12 +688,25 @@ function refreshFriendsWithMotion() {
     if (!data) return;
     const after = groupsFromData(data);
     const ch = V.groupChanges(before, after);
-    const leaving = ch.moved.concat(ch.left);
+    const renderedNow = new Set(vRowEls().keys());
+    // 只有"数据里彻底消失"的行才先原位淡出。换组的行不能先淡出: 它在重绘后会以 opacity 1 的新节点
+    // 飞出去, 先淡到 0 再亮着飞会闪一下(而且旧版本来就只有"飞出视口"这一种消失方式)。
+    const leaving = ch.left;
     if (leaving.length) { vFadeOut(leaving); await new Promise((r) => setTimeout(r, V_FADE_OUT_MS)); }
+    const oldRects = captureRects(oldHit); // FLIP 的 First 必须在重绘前量(淡出只动 opacity, 不影响布局)
     friendsCache = data;
     renderFriends();
-    if (ch.moved.length) vFadeIn(ch.moved);      // 换组的: 在新位置淡入(在渲染窗口里才看得见)
-    if (ch.entered.length) vFadeIn(ch.entered);  // 新出现的
+    // 换组的行: 重绘前后都在窗口里的 → 平滑飞到新位置(旧版就是这么做的); 飞不了的按情况淡入
+    const flown = playRowFlip(oldRects, null);
+    // 换组后落到渲染窗口外的行: 旧版会从原位"飞出视口", 这里用飞行体补上(限流, 免得突发上下线撒一片)
+    for (const id of ch.moved) {
+      if (flyers.length >= V_FLYER_MAX) break;
+      if (flown.has(id) || !oldHit.has(id)) continue;
+      if ($('#friendsList').querySelector('.friend[data-id="' + id + '"]')) continue; // 还在窗口里(已由 FLIP 处理)
+      flyRowOut(oldHit.get(id).node, oldHit.get(id).rect, docTopOfRow(id, after[id]));
+    }
+    const enterIds = ch.moved.concat(ch.entered).filter((id) => !flown.has(id) && !renderedNow.has(id));
+    if (enterIds.length) vFadeIn(enterIds);
     // 没换组的行: 世界/社交状态文案变化 → 上下翻动(与位置无关, 保留)
     const skipped = new Set([...ch.moved, ...ch.entered, ...ch.left]);
     for (const r of $('#friendsList').querySelectorAll('.friend')) {
@@ -552,15 +739,22 @@ $('#friendsList').addEventListener('change', async (e) => {
   };
   const isFav = cb.classList.contains('favorite');
   if (isFav) {
-    // 乐观更新 + 位置变化: 先在这一行原位淡出, 淡完再重绘到新分组并淡入
+    // 乐观更新 + FLIP: 先量旧位置, 再按本地状态重排, 行平滑飞向新分组, 随后后台提交。
+    // 同步做完(旧版也是同步的): 中间插一个"原位淡出"的等待会让 First 与 Last 之间多出一次
+    // 可能的滚动/回收, 而且淡出与飞行叠在一起看着很怪。
+    stopFlyers(); // 连点两下: 上一次的飞行体先撤掉, 免得两个克隆行同时在天上
+    const hit = new Map();
+    const oldRects = captureRects(hit);
+    const start = hit.get(id);
     cur.config = { ...c, favorite: body.favorite ? 1 : 0 }; // 注意用 0/1: 渲染按 === 1 分组, 布尔值会导致不重排
     expandGroupFor(cur); // 目标分组折叠时先展开, 否则行落在被裁剪的隐藏区域, 看不到
-    vFadeOut([id]);
-    setTimeout(() => {
-      renderFriends();
-      vFadeIn([id]); // 新位置在渲染窗口里才看得见; 在窗口外就是"淡走了"
-      vSpot($('#friendsList').querySelector('.friend[data-id="' + id + '"]'));
-    }, V_FADE_OUT_MS);
+    renderFriends();
+    // 重绘前后都在窗口里的行(含被点行自己)→ FLIP 飞过去
+    playRowFlip(oldRects, id);
+    const landed = $('#friendsList').querySelector('.friend[data-id="' + id + '"]');
+    // 被点行落到渲染窗口外(比如在列表深处点到顶部的特别关注组): 它在 DOM 里没有落点,
+    // 用飞行体把它从旧位置送出去, 否则用户只看到"周围的行滑动一下, 被点的行凭空消失"
+    if (!landed && start) flyRowOut(start.node, start.rect, docTopOfRow(id, window.VrcFriendModel.groupOf(cur)));
   }
   const r = await api('PUT', '/api/friends/' + encodeURIComponent(id) + '/config', body);
   if (r.data.ok) {

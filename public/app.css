@@ -1336,8 +1336,21 @@ h3.chan { font-size: 13px; margin: 16px 0 6px; color: var(--text-2); font-weight
 .group-inner::after { height: var(--vbot, 0px); }
 /* 窗口末尾但后面还有未渲染的行: 把 :last-child 去掉的那条分隔线补回来 */
 .friend.v-more { border-bottom: 1px solid var(--line); }
-/* 位置变化(换组/特别关注)一律淡入淡出; 只有渲染出来的行才有机会播 */
+/* 位置变化(换组/特别关注): 重绘前后都在窗口里的行/标题/组体做 FLIP 位移;
+   落到窗口外的被点行用 .v-flyer 克隆体(fixed)飞出视口 —— 见 friends.js / flightmath.js */
 @keyframes vFadeIn { from { opacity: 0 } to { opacity: 1 } }
 @keyframes vFadeOut { from { opacity: 1 } to { opacity: 0 } }
 .friend.v-in { animation: vFadeIn .18s ease-out both; }
 .friend.v-out { animation: vFadeOut .15s ease-in both; }
+/* 飞行体: 克隆出来的被点行。fixed 定位 → 不参与页面布局与可滚动溢出(页面总高不会中途变化);
+   背景必须**不透明**(--bg 而不是半透明的 --card-bg): 飞行体要从别的行上面飞过去,
+   半透明会把底下的文字透出来糊成一片。 */
+.friend.v-flyer {
+  position: fixed;
+  z-index: 60;
+  pointer-events: none;
+  border-bottom: 0;
+  background: var(--bg);
+  box-shadow: var(--shadow-1), 0 14px 34px rgba(0, 0, 0, .38);
+  will-change: transform, top;
+}

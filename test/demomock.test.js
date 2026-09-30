@@ -20,17 +20,32 @@ test('stateAt: 6:3:1 交错(在线:网页在线:离线), 5000 人正好是 500/1
   assert.equal(M.stateAt(4), 'offline');
 });
 
-test('makeFriends: 数量/字段/config 都对, 默认特别关注按 i%7===3', () => {
+test('makeFriends: 数量/字段/config 都对, 默认特别关注按 FAV_EVERY/FAV_REM 稀疏撒', () => {
   const be = M.createBackend({ friends: 10 });
   const list = be.route({ method: 'GET', path: '/api/friends' }).body.friends;
   assert.equal(list.length, 10);
   assert.equal(list[0].friend_vrchat_id, 'usr_demo_000');
   assert.equal(list[0].state, 'online');
-  assert.equal(list[3].config.favorite, 1); // 3 % 7 === 3
+  assert.equal(list[3].config.favorite, 1); // 3 % FAV_EVERY === FAV_REM
   assert.equal(list[0].config.favorite, 0);
   assert.equal(list[0].config.notify_online, 1);
   assert.equal(list[0].world_name === null, false); // 在线的人要有世界
   assert.equal(list[4].world_name, null);           // 离线的人没有世界
+});
+
+test('默认特别关注必须稀疏: 5000 人里只有一小撮(否则演示里"换组落位"永远在屏幕外)', () => {
+  const be = M.createBackend({ friends: 5000 });
+  const list = be.route({ method: 'GET', path: '/api/friends' }).body.friends;
+  const favs = list.filter((f) => f.config.favorite === 1);
+  assert.ok(favs.length >= 5 && favs.length <= 20, '特别关注数量应在几个人量级, 实为 ' + favs.length);
+  // 特别关注组是列表最上面那一组: 它的高度必须小于一屏, 否则同屏落位看不见
+  const groupPx = favs.length * 61 + 46; // 行高 + 标题
+  assert.ok(groupPx < 900, '特别关注组高度应小于一屏(720), 实为 ' + groupPx + 'px');
+  // 稀疏且要落在不同状态里(451 与 10 互质)
+  const states = new Set(favs.map((f) => f.state));
+  assert.ok(states.size >= 2, '特别关注不该全挤在同一种状态: ' + Array.from(states).join(','));
+  assert.equal(M.FAV_EVERY, 451);
+  assert.equal(M.FAV_REM, 3);
 });
 
 test('配置落库: PUT 之后 GET /api/friends 带的就是改过的值', () => {
