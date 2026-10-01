@@ -454,7 +454,7 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
   }
 
   function eventTypeFor(changeType) {
-    const map = { 上线: 'friend_online', 下线: 'friend_offline', 状态变化: 'status_change', 切换世界: 'world_change', 自定义状态: 'status_description_change', 测试通知: 'test' };
+    const map = { 上线: 'friend_online', web端上线: 'friend_web_online', 下线: 'friend_offline', 状态变化: 'status_change', 切换世界: 'world_change', 自定义状态: 'status_description_change', 测试通知: 'test' };
     return map[changeType] || 'status_change';
   }
 

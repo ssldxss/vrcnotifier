@@ -1,4 +1,4 @@
-﻿const test = require('node:test');
+const test = require('node:test');
 const assert = require('node:assert');
 const {
   deriveStateFromLocation, deriveStateFromSnapshot,
@@ -28,7 +28,7 @@ test('deriveStateFromSnapshot prefers currentUser arrays then location', () => {
 test('classifyTransition: online/offline upgrades and downgrades', () => {
   assert.deepEqual(classifyTransition(F({ state: 'offline' }), F({ state: 'online', status: 'active' }), {}), { changeType: '上线', notifyField: 'notify_online', needsConfirm: false });
   assert.deepEqual(classifyTransition(F({ state: 'online' }), F({ state: 'offline' }), {}), { changeType: '下线', notifyField: 'notify_offline', needsConfirm: true });
-  assert.deepEqual(classifyTransition(F({ state: 'offline' }), F({ state: 'active' }), {}), { changeType: 'web端上线', notifyField: 'notify_online', needsConfirm: false }); // 网页端上线
+  assert.deepEqual(classifyTransition(F({ state: 'offline' }), F({ state: 'active' }), {}), { changeType: 'web端上线', notifyField: 'notify_web_online', needsConfirm: false }); // 网页端上线: 独立开关, 与"进游戏"分开
   assert.equal(classifyTransition(F({ state: 'active' }), F({ state: 'offline' }), {}), null); // web 下线不通知
   assert.deepEqual(classifyTransition(F({ state: 'active' }), F({ state: 'online', status: 'active' }), {}), { changeType: '上线', notifyField: 'notify_online', needsConfirm: false }); // 网页在线进入游戏 = 上线
   assert.deepEqual(classifyTransition(F({ state: 'online' }), F({ state: 'active' }), {}), { changeType: '下线', notifyField: 'notify_offline', needsConfirm: true }); // 退出游戏但网页在线 = 下线
@@ -37,6 +37,24 @@ test('classifyTransition: online/offline upgrades and downgrades', () => {
 test('classifyTransition: status change among game statuses', () => {
   const r = classifyTransition(F({ state: 'online', status: 'active' }), F({ state: 'online', status: 'busy' }), {});
   assert.deepEqual(r, { changeType: '状态变化', notifyField: 'notify_status_change', needsConfirm: false });
+});
+
+test('classifyTransition: 网页在线(active)期间的变化与游戏在线同样比较(世界/社交态/自定义状态)', () => {
+  // 只挂着网页的人换世界(理论上世界为空, 但数据里带世界时同样要按世界变化处理)
+  assert.deepEqual(classifyTransition(
+    F({ state: 'active', worldId: 'wrld_a' }), F({ state: 'active', worldId: 'wrld_b' }), {}),
+    { changeType: '切换世界', notifyField: 'notify_world_change', needsConfirm: false });
+  // 社交状态互切
+  assert.deepEqual(classifyTransition(
+    F({ state: 'active', status: 'join me' }), F({ state: 'active', status: 'busy' }), {}),
+    { changeType: '状态变化', notifyField: 'notify_status_change', needsConfirm: false });
+  // 自定义状态变化
+  assert.deepEqual(classifyTransition(
+    F({ state: 'active', status: 'active', statusDescription: '摸鱼' }), F({ state: 'active', status: 'active', statusDescription: '写码' }), {}),
+    { changeType: '自定义状态', notifyField: 'notify_status_change', needsConfirm: false });
+  // 什么都没变 → 不通知
+  assert.equal(classifyTransition(
+    F({ state: 'active', worldId: 'wrld_a' }), F({ state: 'active', worldId: 'wrld_a' }), {}), null);
 });
 
 test('classifyTransition: any world/location change notifies (incl private, unknown origin, any status)', () => {

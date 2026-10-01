@@ -78,11 +78,12 @@ const friendConfigs = new Map();
 // 451 与 10 互质 → 11 个特别关注会均匀落在在线/网页在线/离线三种状态里。
 const FAV_EVERY = 451;
 const FAV_REM = 3;
-// 默认配置: 特别关注按上面的规则撒, 上线/下线通知开, 状态/世界通知关(与前端默认一致)
+// 默认配置: 特别关注按上面的规则撒, 上线/下线通知开, 状态/世界通知关, 网页上线关(与前端默认一致)
 function defaultConfigAt(i) {
   return {
     favorite: i % FAV_EVERY === FAV_REM ? 1 : 0,
     notify_online: 1,
+    notify_web_online: 0,
     notify_offline: 1,
     notify_status_change: 0,
     notify_world_change: 0
@@ -311,8 +312,8 @@ async function handleApi(req, res, url) {
     friendConfigs.set(fid, cfg);
     const name = NAMES[idx % NAMES.length] + (idx >= NAMES.length ? ' ' + (Math.floor(idx / NAMES.length) + 1) : '');
     pushLog('[server] 更新监控配置: 好友=' + name + ', 特别关注=' + (cfg.favorite ? '开' : '关') +
-      ', 上线=' + cfg.notify_online + ', 下线=' + cfg.notify_offline +
-      ', 状态=' + cfg.notify_status_change + ', 世界=' + cfg.notify_world_change);
+      ', 上线=' + cfg.notify_online + ', 网页上线=' + cfg.notify_web_online +
+      ', 下线=' + cfg.notify_offline + ', 状态=' + cfg.notify_status_change + ', 世界=' + cfg.notify_world_change);
     return json(res, 200, { ok: true, config: configOf(fid, idx) });
   }
   if (p === '/api/me') return json(res, 200, { ok: true, user: SELF() });

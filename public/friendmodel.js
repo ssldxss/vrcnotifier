@@ -64,6 +64,7 @@
   const CONFIG_FIELDS = {
     favorite: 'favorite',
     notifyOnline: 'notify_online',
+    notifyWebOnline: 'notify_web_online',
     notifyOffline: 'notify_offline',
     notifyStatusChange: 'notify_status_change',
     notifyWorldChange: 'notify_world_change'

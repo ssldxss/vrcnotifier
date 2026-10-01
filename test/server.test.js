@@ -837,6 +837,7 @@ test('friends list 直接带出逐好友配置(存在好友行上, 默认全 0)'
   // 合并到好友行之后「没配过」和「全关」成了同一件事, 前端对两种都是未启用。
   assert.equal(f1.config.favorite, 0);
   assert.equal(f1.config.notify_online, 0);
+  assert.equal(f1.config.notify_web_online, 0, '网页上线是独立开关, 默认也是关');
   assert.equal(f1.config.notify_offline, 0);
   assert.equal(f1.config.notify_status_change, 0);
   assert.equal(f1.config.notify_world_change, 0);
@@ -859,18 +860,32 @@ test('PUT friend config: 没传的字段保持原值(不传不动, 是补丁不�
   const ctx = setup({ onlineFriends: [{ id: 'usr_f1', displayName: '朋友1', location: 'wrld_a:1', status: 'active' }] });
   t.after(() => close(ctx));
   await post(ctx, '/api/login', { username: 'me', password: 'pw' });
-  await put(ctx, '/api/friends/usr_f1/config', { favorite: true, notifyOnline: true, notifyOffline: false, notifyStatusChange: true, notifyWorldChange: false });
-  // 只传一个字段: 另外四个(含 favorite)必须原样保留
+  await put(ctx, '/api/friends/usr_f1/config', { favorite: true, notifyOnline: true, notifyWebOnline: true, notifyOffline: false, notifyStatusChange: true, notifyWorldChange: false });
+  // 只传一个字段: 另外五个(含 favorite 与独立的网页上线)必须原样保留
   const r = await put(ctx, '/api/friends/usr_f1/config', { notifyOnline: false });
   assert.equal(r.status, 200);
   assert.deepEqual(r.data.config, {
     friend_vrchat_id: 'usr_f1',
     favorite: 1,
     notify_online: 0,
+    notify_web_online: 1,
     notify_offline: 0,
     notify_status_change: 1,
     notify_world_change: 0
   });
+});
+
+test('PUT friend config: 「上线」与「网页上线」互不牵连, 可单独打开', async (t) => {
+  const ctx = setup({ onlineFriends: [{ id: 'usr_f1', displayName: '朋友1', location: 'wrld_a:1', status: 'active' }] });
+  t.after(() => close(ctx));
+  await post(ctx, '/api/login', { username: 'me', password: 'pw' });
+  // 只开网页上线: 后端不做联动强制(前端才做单向联动)
+  const a = await put(ctx, '/api/friends/usr_f1/config', { notifyWebOnline: true });
+  assert.equal(a.data.config.notify_web_online, 1);
+  assert.equal(a.data.config.notify_online, 0, '网页上线开着不代表上线也开');
+  const b = await put(ctx, '/api/friends/usr_f1/config', { notifyOnline: true, notifyWebOnline: false });
+  assert.equal(b.data.config.notify_online, 1);
+  assert.equal(b.data.config.notify_web_online, 0);
 });
 
 test('PUT friend config: 没配过的好友只传 favorite 不会顺带打开通知', async (t) => {
@@ -880,6 +895,7 @@ test('PUT friend config: 没配过的好友只传 favorite 不会顺带打开通
   const r = await put(ctx, '/api/friends/usr_f1/config', { favorite: true });
   assert.equal(r.data.config.favorite, 1);
   assert.equal(r.data.config.notify_online, 0);
+  assert.equal(r.data.config.notify_web_online, 0);
   assert.equal(r.data.config.notify_offline, 0);
   assert.equal(r.data.config.notify_status_change, 0);
   assert.equal(r.data.config.notify_world_change, 0);

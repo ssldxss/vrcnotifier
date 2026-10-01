@@ -165,11 +165,18 @@ function renderRow(f, moreAfter) {
   const c = f.config || {};
   const isOn = (v) => v === 1; // 小开关默认关闭
   const p = personParts(f);
+  // 「网页上线」紧挨在「上线」左侧: 只收进游戏的人不用看它。
+  // 显隐规则: 上线开着就显示; 上线关着但网页上线自己还开着也显示 ——
+  // 否则会留下一个界面上看不见、却还在推通知的开关(F5 之后尤其难查)。
+  // 显隐用 .off 类而不是通用 .hidden: display:none 没法做"从上线背后滑出来"的过渡(见 app.css)。
+  const webOn = isOn(c.notify_web_online);
+  const webShown = isOn(c.notify_online) || webOn;
   return '<div class="friend' + (moreAfter ? ' v-more' : '') + '" data-id="' + escapeAttr(f.friend_vrchat_id) + '">' +
     p.avatarWrap +
     '<label class=switch title=特别关注><input type=checkbox class=favorite' + (c.favorite ? ' checked' : '') + '><span class=slider></span></label>' +
     '<div class="name' + p.nameCls + '">' + p.name + p.stateHtml + '</div>' +
     '<div class=checks>' +
+    '<label class="web-online' + (webShown ? '' : ' off') + '"><span class="wo-in"><input type=checkbox data-k=notify_web_online' + (webOn ? ' checked' : '') + '>网页上线</span></label>' +
     '<label><input type=checkbox data-k=notify_online' + (isOn(c.notify_online) ? ' checked' : '') + '>上线</label>' +
     '<label><input type=checkbox data-k=notify_offline' + (isOn(c.notify_offline) ? ' checked' : '') + '>下线</label>' +
     '<label><input type=checkbox data-k=notify_status_change' + (isOn(c.notify_status_change) ? ' checked' : '') + '>状态</label>' +
@@ -723,6 +730,20 @@ function refreshFriendsWithMotion() {
   }).catch(() => {});
 }
 
+// 把一份配置(0/1 全量)写回某一行的勾选框与「网页上线」显隐。
+// 提交前乐观更新、提交失败回滚都走这里, 保证两条路径的界面规则完全一致。
+function applyConfigToRow(row, cfg) {
+  const fav = row.querySelector('.favorite');
+  if (fav) fav.checked = cfg.favorite === 1;
+  for (const snake of Object.values(window.VrcFriendModel.CONFIG_FIELDS)) {
+    const el = row.querySelector('[data-k=' + snake + ']');
+    if (el) el.checked = cfg[snake] === 1;
+  }
+  const lab = row.querySelector('.web-online');
+  // 用 .off(可过渡)而不是 .hidden(display:none): 抽屉要滑, 不能直接消失
+  if (lab) lab.classList.toggle('off', !(cfg.notify_online === 1 || cfg.notify_web_online === 1));
+}
+
 // 提交失败时的回滚: 把这一行的勾选状态与内存配置恢复成提交前。
 // 必须按 id 重新找节点 —— await 期间列表可能已经重绘、甚至把这个 DOM 节点回收给了别的好友。
 function rollbackFriendConfig(id, prev) {
@@ -730,12 +751,7 @@ function rollbackFriendConfig(id, prev) {
   if (fresh) fresh.config = { ...prev };
   const row = $('#friendsList').querySelector('.friend[data-id="' + id + '"]');
   if (!row) return;
-  const fav = row.querySelector('.favorite');
-  if (fav) fav.checked = prev.favorite === 1;
-  for (const snake of Object.values(window.VrcFriendModel.CONFIG_FIELDS)) {
-    const el = row.querySelector('[data-k=' + snake + ']');
-    if (el) el.checked = prev[snake] === 1;
-  }
+  applyConfigToRow(row, prev);
 }
 
 $('#friendsList').addEventListener('change', async (e) => {
@@ -747,10 +763,14 @@ $('#friendsList').addEventListener('change', async (e) => {
   const body = {
     favorite: !!row.querySelector('.favorite').checked,
     notifyOnline: !!row.querySelector('[data-k=notify_online]').checked,
+    notifyWebOnline: !!row.querySelector('[data-k=notify_web_online]').checked,
     notifyOffline: !!row.querySelector('[data-k=notify_offline]').checked,
     notifyStatusChange: !!row.querySelector('[data-k=notify_status_change]').checked,
     notifyWorldChange: !!row.querySelector('[data-k=notify_world_change]').checked
   };
+  // 单向联动(只在前端做, 后端不强制): 关掉「上线」时把「网页上线」一起关掉。
+  // 反过来不成立 —— 勾上「上线」不会自动打开网页上线(它默认关)。
+  if (cb.dataset.k === 'notify_online' && !body.notifyOnline) body.notifyWebOnline = false;
   const isFav = cb.classList.contains('favorite');
   // 乐观展示: 先把用户点的样子记进内存(分组/勾选都按它渲染), 提交失败再回滚。
   // 语义与后端 PUT 一致(不传不动), 所以用同一份 patchConfig 算.
@@ -775,6 +795,7 @@ $('#friendsList').addEventListener('change', async (e) => {
     if (!landed && start) flyRowOut(start.node, start.rect, docTopOfRow(id, window.VrcFriendModel.groupOf(cur)));
   } else {
     cur.config = next;
+    applyConfigToRow(row, next); // 乐观: 勾选/显隐立刻按用户点的样子变(包括"关上线连带关网页上线")
   }
   let err = '';
   try {

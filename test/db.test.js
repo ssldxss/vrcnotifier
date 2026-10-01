@@ -322,13 +322,15 @@ test('好友配置存在 friends 表里: 新好友默认全关, setFriendConfig 
   assert.equal(fresh.notify_offline, 0);
   assert.equal(fresh.notify_status_change, 0);
   assert.equal(fresh.notify_world_change, 0);
-  db.setFriendConfig('usr_f1', { favorite: true, notifyOnline: true, notifyOffline: false, notifyStatusChange: true, notifyWorldChange: false });
+  assert.equal(fresh.notify_web_online, 0, '新好友默认不推网页上线');
+  db.setFriendConfig('usr_f1', { favorite: true, notifyOnline: true, notifyOffline: false, notifyStatusChange: true, notifyWorldChange: false, notifyWebOnline: true });
   const c = db.getFriend('usr_f1');
   assert.equal(c.favorite, 1);
   assert.equal(c.notify_online, 1);
   assert.equal(c.notify_offline, 0);
   assert.equal(c.notify_status_change, 1);
   assert.equal(c.notify_world_change, 0);
+  assert.equal(c.notify_web_online, 1, '网页上线是独立开关, 能单独写入');
 });
 
 test('setFriendConfig 只改配置列, 不碰好友资料', () => {
@@ -380,6 +382,10 @@ test('monitor_config 旧库迁移: 配置并进 friends, 旧表删除', () => {
   const f2 = db.getFriend('usr_f2');
   assert.equal(f2.favorite, 0, '本来就没有配置的好友保持全关');
   assert.equal(f2.notify_online, 0, '旧语义是"无配置=不通知", 迁移后不能变成 1');
+  // 迁移前不存在的开关(网页上线): 老库升上来必须是关的, 而且不能因为 monitor_config 里
+  // 没这一列就把搬迁整段搞崩(旧表补列后按默认 0 搬)
+  assert.equal(f1.notify_web_online, 0, '旧库升级后"网页上线"保持关');
+  assert.equal(f2.notify_web_online, 0);
 
   const chk = new DatabaseSync(file);
   const tables = chk.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((r) => r.name);

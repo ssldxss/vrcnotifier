@@ -6,7 +6,6 @@ const path = require('node:path');
 const { randomBytes, timingSafeEqual } = require('node:crypto');
 const { CookieJar } = require('./cookiejar');
 const { parseLocation } = require('./location');
-const { deriveStateFromSnapshot } = require('./state');
 const { detectImageType, toThumbUrl } = require('./avatar');
 const { isMissingCredentials, isUnauthorized } = require('./vrcapi');
 const { formatLocalTime, getLogStream, avatarFields } = require('./util');
@@ -100,6 +99,7 @@ function createApp({
       friend_vrchat_id: f.friend_vrchat_id,
       favorite: f.favorite,
       notify_online: f.notify_online,
+      notify_web_online: f.notify_web_online,
       notify_offline: f.notify_offline,
       notify_status_change: f.notify_status_change,
       notify_world_change: f.notify_world_change
@@ -911,12 +911,13 @@ function createApp({
     db.setFriendConfig(req.params.friendId, {
       favorite: pick('favorite', 'favorite'),
       notifyOnline: pick('notify_online', 'notifyOnline'),
+      notifyWebOnline: pick('notify_web_online', 'notifyWebOnline'),
       notifyOffline: pick('notify_offline', 'notifyOffline'),
       notifyStatusChange: pick('notify_status_change', 'notifyStatusChange'),
       notifyWorldChange: pick('notify_world_change', 'notifyWorldChange')
     });
     const cfg = db.getFriend(req.params.friendId);
-    log.debug(`[server] 更新监控配置: 好友=${(cfg && cfg.display_name) || req.params.friendId}, 特别关注=${cfg ? (cfg.favorite ? '开' : '关') : '?'}, 上线=${cfg ? cfg.notify_online : '?'}, 下线=${cfg ? cfg.notify_offline : '?'}, 状态=${cfg ? cfg.notify_status_change : '?'}, 世界=${cfg ? cfg.notify_world_change : '?'}`);
+    log.debug(`[server] 更新监控配置: 好友=${(cfg && cfg.display_name) || req.params.friendId}, 特别关注=${cfg ? (cfg.favorite ? '开' : '关') : '?'}, 上线=${cfg ? cfg.notify_online : '?'}, 网页上线=${cfg ? cfg.notify_web_online : '?'}, 下线=${cfg ? cfg.notify_offline : '?'}, 状态=${cfg ? cfg.notify_status_change : '?'}, 世界=${cfg ? cfg.notify_world_change : '?'}`);
     return res.json({ ok: true, config: configOf(cfg) });
   });
 

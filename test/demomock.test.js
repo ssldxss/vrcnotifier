@@ -29,6 +29,7 @@ test('makeFriends: 数量/字段/config 都对, 默认特别关注按 FAV_EVERY/
   assert.equal(list[3].config.favorite, 1); // 3 % FAV_EVERY === FAV_REM
   assert.equal(list[0].config.favorite, 0);
   assert.equal(list[0].config.notify_online, 1);
+  assert.equal(list[0].config.notify_web_online, 0, '网页上线默认关');
   assert.equal(list[0].world_name === null, false); // 在线的人要有世界
   assert.equal(list[4].world_name, null);           // 离线的人没有世界
 });
@@ -50,10 +51,10 @@ test('默认特别关注必须稀疏: 5000 人里只有一小撮(否则演示里
 
 test('配置落库: PUT 之后 GET /api/friends 带的就是改过的值', () => {
   const be = M.createBackend({ friends: 20 });
-  const r = be.route({ method: 'PUT', path: '/api/friends/usr_demo_000/config', body: { favorite: true, notifyOnline: false, notifyOffline: true, notifyStatusChange: true, notifyWorldChange: false } });
+  const r = be.route({ method: 'PUT', path: '/api/friends/usr_demo_000/config', body: { favorite: true, notifyOnline: false, notifyWebOnline: true, notifyOffline: true, notifyStatusChange: true, notifyWorldChange: false } });
   assert.equal(r.status, 200);
   assert.equal(r.body.ok, true);
-  assert.deepStrictEqual(r.body.config, { favorite: 1, notify_online: 0, notify_offline: 1, notify_status_change: 1, notify_world_change: 0 });
+  assert.deepStrictEqual(r.body.config, { favorite: 1, notify_online: 0, notify_web_online: 1, notify_offline: 1, notify_status_change: 1, notify_world_change: 0 });
   assert.strictEqual(typeof r.body.config.favorite, 'number', '必须是数字: 前端用 favorite === 1 判分组');
   const again = be.route({ method: 'GET', path: '/api/friends' }).body.friends.find((f) => f.friend_vrchat_id === 'usr_demo_000');
   assert.deepStrictEqual(again.config, r.body.config);
@@ -66,20 +67,20 @@ test('配置语义与真实后端一致: 没传的字段保持原值(不传不�
   assert.equal(a.body.config.favorite, 1);
   assert.strictEqual(a.body.config.notify_online, 1);
   assert.strictEqual(a.body.config.notify_status_change, 0, '没传的字段不能被打成 1');
-  // 再只改一个字段: 其余四项保持上一次的值
+  // 再只改一个字段: 其余字段保持上一次的值(含独立的网页上线)
   const b = be.route({ method: 'PUT', path: '/api/friends/usr_demo_001/config', body: { notifyOffline: false } });
-  assert.deepStrictEqual(b.body.config, { favorite: 1, notify_online: 1, notify_offline: 0, notify_status_change: 0, notify_world_change: 0 });
+  assert.deepStrictEqual(b.body.config, { favorite: 1, notify_online: 1, notify_web_online: 0, notify_offline: 0, notify_status_change: 0, notify_world_change: 0 });
 });
 
 test('patchConfig: 请求体 → 新配置, 只覆盖显式传了的字段(serve-demo.js 复用同一份)', () => {
-  const cur = { favorite: 1, notify_online: 1, notify_offline: 1, notify_status_change: 0, notify_world_change: 0 };
+  const cur = { favorite: 1, notify_online: 1, notify_web_online: 1, notify_offline: 1, notify_status_change: 0, notify_world_change: 0 };
   assert.deepStrictEqual(M.patchConfig(cur, { notifyStatusChange: true }),
-    { favorite: 1, notify_online: 1, notify_offline: 1, notify_status_change: 1, notify_world_change: 0 });
+    { favorite: 1, notify_online: 1, notify_web_online: 1, notify_offline: 1, notify_status_change: 1, notify_world_change: 0 });
   assert.strictEqual(cur.notify_status_change, 0, '不能改入参');
   // 演示里"没配过"的默认是 上线/下线开(与真实后端"新好友全 0"不同, 见 defaultConfig 注释):
   // 只传 favorite 时其余字段应保持这份默认, 既不打成 1 也不清零
   assert.deepStrictEqual(M.patchConfig(M.defaultConfig(0), { favorite: true }),
-    { favorite: 1, notify_online: 1, notify_offline: 1, notify_status_change: 0, notify_world_change: 0 });
+    { favorite: 1, notify_online: 1, notify_web_online: 0, notify_offline: 1, notify_status_change: 0, notify_world_change: 0 });
 });
 
 test('PUT 不存在的好友: 404 + 一条日志(与真实后端同口径)', () => {
@@ -94,24 +95,26 @@ test('PUT 不存在的好友: 404 + 一条日志(与真实后端同口径)', () 
 
 test('改配置会写一条和真实后端同格式的日志', () => {
   const be = M.createBackend({ friends: 5 });
-  be.route({ method: 'PUT', path: '/api/friends/usr_demo_000/config', body: { favorite: true, notifyOnline: true, notifyOffline: false, notifyStatusChange: false, notifyWorldChange: false } });
+  be.route({ method: 'PUT', path: '/api/friends/usr_demo_000/config', body: { favorite: true, notifyOnline: true, notifyWebOnline: true, notifyOffline: false, notifyStatusChange: false, notifyWorldChange: false } });
   const last = be.logs[be.logs.length - 1];
-  assert.match(last.line, /\[server\] 更新监控配置: 好友=.+, 特别关注=开, 上线=1, 下线=0, 状态=0, 世界=0/);
+  assert.match(last.line, /\[server\] 更新监控配置: 好友=.+, 特别关注=开, 上线=1, 网页上线=1, 下线=0, 状态=0, 世界=0/);
 });
 
 test('dump/restore: 配置能存进 localStorage 再读回来(刷新不丢)', () => {
   const be = M.createBackend({ friends: 5 });
-  be.route({ method: 'PUT', path: '/api/friends/usr_demo_003/config', body: { favorite: true, notifyOnline: false, notifyOffline: false, notifyStatusChange: false, notifyWorldChange: false } });
+  be.route({ method: 'PUT', path: '/api/friends/usr_demo_003/config', body: { favorite: true, notifyOnline: false, notifyWebOnline: true, notifyOffline: false, notifyStatusChange: false, notifyWorldChange: false } });
   const saved = JSON.stringify(be.dump());
   const be2 = M.createBackend({ friends: 5, restored: JSON.parse(saved) });
   assert.strictEqual(be2.route({ method: 'GET', path: '/api/friends' }).body.friends[3].config.favorite, 1);
   assert.equal(be2.route({ method: 'GET', path: '/api/friends' }).body.friends[3].config.notify_online, 0);
+  assert.equal(be2.route({ method: 'GET', path: '/api/friends' }).body.friends[3].config.notify_web_online, 1, '网页上线也要存得住');
 });
 
 test('restore: 旧 localStorage 里的布尔配置会被归一化成 0/1(true 不进特别关注组那个坑)', () => {
+  // 旧数据里没有 notify_web_online → 按演示默认(关)补齐
   const be = M.createBackend({ friends: 5, restored: { configs: [['usr_demo_000', { favorite: true, notify_online: false, notify_offline: 1, notify_status_change: 0, notify_world_change: 1 }]] } });
   const cfg = be.route({ method: 'GET', path: '/api/friends' }).body.friends[0].config;
-  assert.deepStrictEqual(cfg, { favorite: 1, notify_online: 0, notify_offline: 1, notify_status_change: 0, notify_world_change: 1 });
+  assert.deepStrictEqual(cfg, { favorite: 1, notify_online: 0, notify_web_online: 0, notify_offline: 1, notify_status_change: 0, notify_world_change: 1 });
 });
 
 test('reset: 回到默认(和 Node 演示的 /api/demo/reset 一样)', () => {

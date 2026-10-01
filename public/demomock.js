@@ -39,7 +39,7 @@
   function defaultConfig(i) {
     // 特别关注只挑一小撮(与 serve-demo.js 的 FAV_EVERY/FAV_REM 保持一致):
     // 撒太密的话特别关注组本身就有几万像素高, 「好友换组」的滑动落位永远在屏幕外。
-    return { favorite: i % FAV_EVERY === FAV_REM ? 1 : 0, notify_online: 1, notify_offline: 1, notify_status_change: 0, notify_world_change: 0 };
+    return { favorite: i % FAV_EVERY === FAV_REM ? 1 : 0, notify_online: 1, notify_web_online: 0, notify_offline: 1, notify_status_change: 0, notify_world_change: 0 };
   }
   function friendAt(i, config) {
     const state = stateAt(i);
@@ -76,6 +76,7 @@
     return {
       favorite: on(b.favorite, c.favorite),
       notify_online: on(b.notifyOnline, c.notify_online),
+      notify_web_online: on(b.notifyWebOnline, c.notify_web_online),
       notify_offline: on(b.notifyOffline, c.notify_offline),
       notify_status_change: on(b.notifyStatusChange, c.notify_status_change),
       notify_world_change: on(b.notifyWorldChange, c.notify_world_change)
@@ -89,6 +90,7 @@
     return {
       favorite: c.favorite ? 1 : 0,
       notify_online: on(c.notify_online, d.notify_online),
+      notify_web_online: on(c.notify_web_online, d.notify_web_online),
       notify_offline: on(c.notify_offline, d.notify_offline),
       notify_status_change: on(c.notify_status_change, d.notify_status_change),
       notify_world_change: on(c.notify_world_change, d.notify_world_change)
@@ -182,7 +184,7 @@
         const cfg = patchConfig(configOf(fid, i), body);
         state.configs.set(fid, cfg);
         pushLog('[server] 更新监控配置: 好友=' + nameAt(i) + ', 特别关注=' + (cfg.favorite ? '开' : '关') +
-          ', 上线=' + (cfg.notify_online ? 1 : 0) + ', 下线=' + (cfg.notify_offline ? 1 : 0) +
+          ', 上线=' + (cfg.notify_online ? 1 : 0) + ', 网页上线=' + (cfg.notify_web_online ? 1 : 0) + ', 下线=' + (cfg.notify_offline ? 1 : 0) +
           ', 状态=' + (cfg.notify_status_change ? 1 : 0) + ', 世界=' + (cfg.notify_world_change ? 1 : 0));
         return { status: 200, body: { ok: true, config: configOf(fid, i) } };
       }

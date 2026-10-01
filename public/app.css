@@ -716,6 +716,41 @@ button.danger { background: linear-gradient(135deg, var(--bad), #b4232c); box-sh
 .friend .checks input[type='checkbox']:checked { background: var(--accent); border-color: var(--accent); }
 .friend .checks input[type='checkbox']:checked::before { transform: scale(1); }
 
+/* 「网页上线」抽屉: 勾上「上线」时它从「上线」背后滑出来, 取消时滑回去。
+   它是 .checks 的第一个 flex 项 —— 宽度一撑开, 后面的「上线」自然被推着右移, 所以"滑出来"这件事
+   一半靠 max-width, 一半靠内容自己从右边(上线底下)平移出来。四个要点:
+   1) 用可中断的 transition, 不用 keyframes: 连点「上线」时不会从头重播;
+   2) 收起态用负 margin 抵消掉 flex 的 gap, 否则藏起来还会白留一个间隙;
+   3) 收起时加延时 visibility: 0 宽之后才彻底移出 tab 顺序/无障碍树, 展开时立刻可见;
+   4) 裁切边缘(= padding box 左沿)往里留 3px, 再用等量负 margin 抵消掉 ——
+      勾选框悬停会 scale(1.1)(15px 的框左边要多出 .75px), 键盘焦点还会画到框外,
+      贴着边裁就会把左侧切掉一角。负 margin 抵消后页面位置一点没动, 只是裁切边往外挪了。 */
+.friend .checks { --wo-gap: 10px; --wo-bleed: 3px; }
+.friend .web-online {
+  flex: none;                      /* 只按内容宽, 不被挤扁(不然窄屏会被裁成半截) */
+  display: flex; align-items: center;
+  overflow: hidden;                /* 抽屉靠它裁: 收起时把内容切掉 */
+  padding-left: var(--wo-bleed);
+  margin-left: calc(-1 * var(--wo-bleed));
+  max-width: 120px;                /* 只封顶: 实际宽度仍取内容宽, 不会平白多出空白 */
+  margin-right: 0;
+  visibility: visible;
+  transition: max-width var(--t-med), margin-right var(--t-med), visibility 0s;
+}
+.friend .web-online .wo-in {
+  display: flex; align-items: center; gap: 5px; white-space: nowrap;
+  /* 展开: 先把位置让出来, 内容晚 60ms 再滑进来(抽屉感) */
+  transition: transform var(--t-med) .06s, opacity var(--t-med) .06s;
+}
+.friend .web-online.off {
+  max-width: 0;
+  margin-right: calc(-1 * var(--wo-gap));
+  visibility: hidden;
+  /* 收起: 内容先淡出, 位置随后合上 */
+  transition: max-width var(--t-med), margin-right var(--t-med), visibility 0s linear .28s; /* .28s 与 --t-med 时长保持一致 */
+}
+.friend .web-online.off .wo-in { transform: translateX(16px); opacity: 0; transition: transform var(--t-med), opacity var(--t-fast); }
+
 /* 登出弹窗勾选框: 与好友行自绘勾选框同款 */
 .modal .modal-body label.row { display: flex; align-items: center; gap: 8px; cursor: pointer; }
 .modal .modal-body input[type='checkbox'] {
@@ -1146,7 +1181,7 @@ h3.chan { font-size: 13px; margin: 16px 0 6px; color: var(--text-2); font-weight
   .overview-item.wide .ov-label { min-width: 100%; }
   .ws-panel-row { width: 100%; }
   .friend { flex-wrap: wrap; }
-  .friend .checks { width: 100%; flex-wrap: wrap; gap: 8px 14px; padding-left: 52px; }
+  .friend .checks { width: 100%; flex-wrap: wrap; gap: 8px 14px; padding-left: 52px; --wo-gap: 14px; }
   .tabs { position: static; transform: none; width: 100%; flex-direction: row; margin-bottom: 16px; }
   .tab { flex: 1; writing-mode: horizontal-tb; padding: 8px 14px; }
   #mainView.container { margin-left: 0; margin-right: 0; max-width: 980px; }

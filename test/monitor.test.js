@@ -653,6 +653,40 @@ test('自定义状态变化受状态开关(notify_status_change)控制', async (
   assert.equal(t.notifications.length, 0, '状态开关关闭时自定义状态变化不通知');
 });
 
+test('网页上线走独立开关(notify_web_online): 只开"上线"收不到, 开了才收, eventType 单独一个', async () => {
+  const t = setup({});
+  const user = addUser(t.db);
+  addConfig(t, 'usr_f1', { notifyOnline: true, notifyWebOnline: false });
+  await t.monitor.activateUser(user, t.vrcapi);
+  t.notifications.length = 0;
+  const active = { type: 'friend-active', content: { userId: 'usr_f1', platform: 'web', user: { id: 'usr_f1', displayName: 'F1', status: 'active' } } };
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'a1', active);
+  assert.equal(t.notifications.length, 0, '只开"上线"不该收到网页上线');
+  assert.equal(t.db.getFriend('usr_f1').state, 'active', '状态本身照常落地');
+
+  // 打开网页上线开关, 制造一次新的 offline -> active
+  addConfig(t, 'usr_f1', { notifyOnline: true, notifyWebOnline: true });
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'a2', { type: 'friend-offline', content: { userId: 'usr_f1' } });
+  t.notifications.length = 0;
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'a3', active);
+  assert.equal(t.notifications.length, 1);
+  assert.equal(t.notifications[0].change.changeType, 'web端上线');
+  assert.equal(t.notifications[0].change.eventType, 'friend_web_online', 'eventType 不能落到 status_change');
+});
+
+test('网页在线期间的自定义状态变化会通知(并入 online 的判定)', async () => {
+  const t = setup({ activeFriends: [onlineFriend('usr_f1', { location: 'offline' })] });
+  const user = addUser(t.db);
+  addConfig(t, 'usr_f1', { notifyStatusChange: true });
+  await t.monitor.activateUser(user, t.vrcapi);
+  assert.equal(t.db.getFriend('usr_f1').state, 'active', '前置: 好友处于网页在线');
+  t.notifications.length = 0;
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'w1', { type: 'friend-update', content: { userId: 'usr_f1', user: { id: 'usr_f1', displayName: 'F1', status: 'active', statusDescription: '写码' } } });
+  assert.equal(t.notifications.length, 1, '网页在线时改自定义状态也要通知');
+  assert.equal(t.notifications[0].change.changeType, '自定义状态');
+  assert.equal(t.notifications[0].change.eventType, 'status_description_change');
+});
+
 test('snapshot 401 Missing Credentials requests auto-relogin and keeps session', async () => {
   const t = setup();
   t.vrcapi.me = async () => { const e = new Error('"Missing Credentials"'); e.status = 401; throw e; };

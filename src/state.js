@@ -32,11 +32,13 @@ function classifyTransition(prev, next, opts = {}) {
   const b = next.state;
   if (a === 'offline' && b === 'online') return { changeType: '上线', notifyField: 'notify_online', needsConfirm: false };
   if (a === 'online' && b === 'offline') return { changeType: '下线', notifyField: 'notify_offline', needsConfirm: true };
-  if (a === 'offline' && b === 'active') return { changeType: 'web端上线', notifyField: 'notify_online', needsConfirm: false }; // 网页端上线
+  if (a === 'offline' && b === 'active') return { changeType: 'web端上线', notifyField: 'notify_web_online', needsConfirm: false }; // 只挂网页: 独立开关(与"进游戏"分开)
   if (a === 'active' && b === 'offline') return null; // 网页下线, 不通知
   if (a === 'active' && b === 'online') return { changeType: '上线', notifyField: 'notify_online', needsConfirm: false }; // 网页在线进入游戏 = 上线
   if (a === 'online' && b === 'active') return { changeType: '下线', notifyField: 'notify_offline', needsConfirm: true }; // 退出游戏但网页在线 = 下线
-  if (a === 'online' && b === 'online') {
+  // 网页在线(active)与游戏在线(online)同属"在线", 期间的世界/社交态/自定义状态变化一样要判:
+  // 只挂着网页的人改了签名、社交状态或(数据里带世界时)换了世界, 同样按对应开关通知。
+  if ((a === 'online' && b === 'online') || (a === 'active' && b === 'active')) {
     // 世界变化(全量解析; 可见世界状态下新旧世界均已知且不同才通知)
     // world/location changed -> notify (incl. private, unknown origin, any status)
     const oldId = prev.worldId || null;

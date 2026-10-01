@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS friends (
   -- 逐好友的通知配置(原先在独立的 monitor_config 表, 现在与好友同生共死): 默认全 0 = 不通知
   favorite INTEGER DEFAULT 0,
   notify_online INTEGER DEFAULT 0,
+  notify_web_online INTEGER DEFAULT 0,
   notify_offline INTEGER DEFAULT 0,
   notify_status_change INTEGER DEFAULT 0,
   notify_world_change INTEGER DEFAULT 0,
@@ -90,8 +91,9 @@ const LEGACY_NOTIFY_COLUMNS = [
 
 const MAX_DEDUPE_ROWS = 100000;
 
-// 逐好友的通知配置列(原 monitor_config 表的内容, 现在直接挂在 friends 行上)
-const FRIEND_CONFIG_COLS = ['favorite', 'notify_online', 'notify_offline', 'notify_status_change', 'notify_world_change'];
+// 逐好友的通知配置列(原 monitor_config 表的内容, 现在直接挂在 friends 行上)。
+// notify_web_online 是后加的独立开关: 只挂网页 = 网页上线, 与"进游戏"的上线分开。
+const FRIEND_CONFIG_COLS = ['favorite', 'notify_online', 'notify_web_online', 'notify_offline', 'notify_status_change', 'notify_world_change'];
 
 function createDb(location = ':memory:', opts = {}) {
   // 数据库文件路径的父目录不存在时先创建(如删除 data/ 后重启)
@@ -128,8 +130,11 @@ function createDb(location = ':memory:', opts = {}) {
   if (db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='monitor_config'").all().length) {
     db.exec('BEGIN');
     try {
-      // 很旧的库 monitor_config 可能还没有 favorite 列, 先补上再搬
-      try { db.exec('ALTER TABLE monitor_config ADD COLUMN favorite INTEGER DEFAULT 0'); } catch (e) { /* 已有 */ }
+      // 很旧的库 monitor_config 可能还没有某些列(如 favorite / 后加的 notify_web_online):
+      // 先按默认 0 补上再搬, 否则搬迁时引用不存在的列会整段回滚、库直接打不开
+      for (const col of FRIEND_CONFIG_COLS) {
+        try { db.exec(`ALTER TABLE monitor_config ADD COLUMN ${col} INTEGER DEFAULT 0`); } catch (e) { /* 已有 */ }
+      }
       for (const col of FRIEND_CONFIG_COLS) {
         db.exec(`UPDATE friends SET ${col} = COALESCE((
           SELECT mc.${col} FROM monitor_config mc
@@ -195,16 +200,16 @@ function createDb(location = ':memory:', opts = {}) {
         state TEXT DEFAULT 'offline', status TEXT,
         world_id TEXT, instance_id TEXT, status_description TEXT, platform TEXT, trust_level TEXT,
         pending_state TEXT, pending_at INTEGER, last_seen INTEGER,
-        favorite INTEGER DEFAULT 0, notify_online INTEGER DEFAULT 0, notify_offline INTEGER DEFAULT 0,
+        favorite INTEGER DEFAULT 0, notify_online INTEGER DEFAULT 0, notify_web_online INTEGER DEFAULT 0, notify_offline INTEGER DEFAULT 0,
         notify_status_change INTEGER DEFAULT 0, notify_world_change INTEGER DEFAULT 0,
         created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')),
         UNIQUE(friend_vrchat_id))`);
       db.exec(`INSERT INTO friends_new (friend_vrchat_id, display_name, avatar_url, state, status,
           world_id, instance_id, status_description, platform, trust_level, pending_state, pending_at, last_seen,
-          favorite, notify_online, notify_offline, notify_status_change, notify_world_change, created_at, updated_at)
+          favorite, notify_online, notify_web_online, notify_offline, notify_status_change, notify_world_change, created_at, updated_at)
         SELECT friend_vrchat_id, display_name, avatar_url, state, status,
           world_id, instance_id, status_description, platform, trust_level, pending_state, pending_at, last_seen,
-          favorite, notify_online, notify_offline, notify_status_change, notify_world_change, created_at, MAX(updated_at)
+          favorite, notify_online, notify_web_online, notify_offline, notify_status_change, notify_world_change, created_at, MAX(updated_at)
         FROM friends GROUP BY friend_vrchat_id`);
       db.exec('DROP TABLE friends');
       db.exec('ALTER TABLE friends_new RENAME TO friends');
@@ -275,7 +280,7 @@ function createDb(location = ':memory:', opts = {}) {
         pending_state = ?, pending_at = ?, last_seen = ?, updated_at = datetime('now')
       WHERE id = ?`),
     setFriendConfig: db.prepare(`UPDATE friends SET
-        favorite = ?, notify_online = ?, notify_offline = ?, notify_status_change = ?, notify_world_change = ?,
+        favorite = ?, notify_online = ?, notify_web_online = ?, notify_offline = ?, notify_status_change = ?, notify_world_change = ?,
         updated_at = datetime('now')
       WHERE friend_vrchat_id = ?`),
     getSetting: db.prepare('SELECT value FROM settings WHERE key = ?'),
@@ -482,8 +487,8 @@ function createDb(location = ':memory:', opts = {}) {
       );
     },
     // 逐好友通知配置(存在 friends 行上)。不传的字段按 false 处理 —— 整组覆盖写。
-    setFriendConfig(friendVrcId, { favorite = false, notifyOnline = false, notifyOffline = false, notifyStatusChange = false, notifyWorldChange = false } = {}) {
-      stmt.setFriendConfig.run(favorite ? 1 : 0, notifyOnline ? 1 : 0, notifyOffline ? 1 : 0, notifyStatusChange ? 1 : 0, notifyWorldChange ? 1 : 0, friendVrcId);
+    setFriendConfig(friendVrcId, { favorite = false, notifyOnline = false, notifyWebOnline = false, notifyOffline = false, notifyStatusChange = false, notifyWorldChange = false } = {}) {
+      stmt.setFriendConfig.run(favorite ? 1 : 0, notifyOnline ? 1 : 0, notifyWebOnline ? 1 : 0, notifyOffline ? 1 : 0, notifyStatusChange ? 1 : 0, notifyWorldChange ? 1 : 0, friendVrcId);
     },
     // 登出必清: 好友(含逐好友配置)/通知去重/用户 —— 都跟着账号走, 换个账号就没有意义了。
     // QQ 绑定与设置是全局的, 不在这里清(绑定归"彻底重置", 见 clearSettings)。
