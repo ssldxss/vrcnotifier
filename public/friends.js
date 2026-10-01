@@ -730,6 +730,24 @@ function refreshFriendsWithMotion() {
   }).catch(() => {});
 }
 
+// 鼠标点完不留焦点: 好友行里的勾选框 / 特别关注开关一旦留住 :focus,
+// 整行的低高亮(.friend:focus-within::after 的 --card-bg-hover 底)和按钮上的 focus 光晕
+// (input:focus 的 3px --accent-soft)就会一直卡着不走。
+// 项目里外链用 span+data-href 故意不取焦点, 就是为了躲这个; 但勾选框必须能用键盘操作,
+// 所以只掐"指针"这条路(mousedown/mouseup 只有真鼠标才有, 键盘激活走不到):
+//   1) mousedown 阻止默认的聚焦动作 —— 按下的那一刻就不给它焦点, 也不会闪一下高亮;
+//   2) mouseup 再兜一次底 —— 焦点本来就落在这一行时(比如刚用键盘切过), 松手也要交出去。
+$('#friendsList').addEventListener('mousedown', (e) => {
+  const lab = e.target.closest('label');
+  if (lab && lab.querySelector('input[type=checkbox]')) e.preventDefault();
+});
+$('#friendsList').addEventListener('mouseup', (e) => {
+  if (e.button !== 0) return;
+  const row = e.target.closest('.friend');
+  const active = document.activeElement;
+  if (row && active && active.type === 'checkbox' && row.contains(active)) active.blur();
+});
+
 // 把一份配置(0/1 全量)写回某一行的勾选框与「网页上线」显隐。
 // 提交前乐观更新、提交失败回滚都走这里, 保证两条路径的界面规则完全一致。
 function applyConfigToRow(row, cfg) {
