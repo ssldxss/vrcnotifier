@@ -59,13 +59,37 @@ test('配置落库: PUT 之后 GET /api/friends 带的就是改过的值', () =>
   assert.deepStrictEqual(again.config, r.body.config);
 });
 
-test('配置语义与真实后端一致: 没传的 notify* 视为 true', () => {
+test('配置语义与真实后端一致: 没传的字段保持原值(不传不动)', () => {
   const be = M.createBackend({ friends: 5 });
-  const r = be.route({ method: 'PUT', path: '/api/friends/usr_demo_001/config', body: { favorite: true } });
-  assert.equal(r.body.config.favorite, 1);
-  assert.strictEqual(r.body.config.notify_online, 1);
-  assert.strictEqual(r.body.config.notify_status_change, 1);
-  assert.strictEqual(r.body.config.favorite, 1);
+  // usr_demo_001 默认: 上线/下线开, 状态/世界关
+  const a = be.route({ method: 'PUT', path: '/api/friends/usr_demo_001/config', body: { favorite: true } });
+  assert.equal(a.body.config.favorite, 1);
+  assert.strictEqual(a.body.config.notify_online, 1);
+  assert.strictEqual(a.body.config.notify_status_change, 0, '没传的字段不能被打成 1');
+  // 再只改一个字段: 其余四项保持上一次的值
+  const b = be.route({ method: 'PUT', path: '/api/friends/usr_demo_001/config', body: { notifyOffline: false } });
+  assert.deepStrictEqual(b.body.config, { favorite: 1, notify_online: 1, notify_offline: 0, notify_status_change: 0, notify_world_change: 0 });
+});
+
+test('patchConfig: 请求体 → 新配置, 只覆盖显式传了的字段(serve-demo.js 复用同一份)', () => {
+  const cur = { favorite: 1, notify_online: 1, notify_offline: 1, notify_status_change: 0, notify_world_change: 0 };
+  assert.deepStrictEqual(M.patchConfig(cur, { notifyStatusChange: true }),
+    { favorite: 1, notify_online: 1, notify_offline: 1, notify_status_change: 1, notify_world_change: 0 });
+  assert.strictEqual(cur.notify_status_change, 0, '不能改入参');
+  // 演示里"没配过"的默认是 上线/下线开(与真实后端"新好友全 0"不同, 见 defaultConfig 注释):
+  // 只传 favorite 时其余字段应保持这份默认, 既不打成 1 也不清零
+  assert.deepStrictEqual(M.patchConfig(M.defaultConfig(0), { favorite: true }),
+    { favorite: 1, notify_online: 1, notify_offline: 1, notify_status_change: 0, notify_world_change: 0 });
+});
+
+test('PUT 不存在的好友: 404 + 一条日志(与真实后端同口径)', () => {
+  const be = M.createBackend({ friends: 5 });
+  const r = be.route({ method: 'PUT', path: '/api/friends/usr_nope/config', body: { favorite: true } });
+  assert.equal(r.status, 404);
+  assert.match(String(r.body.error), /好友/);
+  assert.ok(be.logs.some((l) => l.line.includes('usr_nope')), '应记一条带 id 的日志');
+  // 越界的好友 id(演示集里没有这个序号)也算不存在
+  assert.equal(be.route({ method: 'PUT', path: '/api/friends/usr_demo_009/config', body: { favorite: true } }).status, 404);
 });
 
 test('改配置会写一条和真实后端同格式的日志', () => {

@@ -161,7 +161,8 @@ test('end-to-end: login → configure → ws event → QQ notification', async (
   assert.equal(vrcStatus.data.state, 'normal');
 
   // 3. 配置监控 + 开启 QQ 渠道
-  const cfg = await json('PUT', '/api/friends/usr_f1/config', { favorite: true });
+  // 逐好友通知开关是「不传不动」的: 这里必须显式打开 notifyOnline, 否则新好友默认全关、不会推上线
+  const cfg = await json('PUT', '/api/friends/usr_f1/config', { favorite: true, notifyOnline: true });
   assert.equal(cfg.status, 200);
   assert.equal(cfg.data.config.favorite, 1);
   const settings = await json('PUT', '/api/settings', { qq_enabled: 1, qq_app_id: 'app1', qq_app_secret: 'sec1' });

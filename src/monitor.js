@@ -312,6 +312,7 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
     // 无总开关: 所有好友可被监控; 配置就存在好友行上, 新好友默认全 0(不通知)
     const friend = db.getFriend(friendVrcId);
     if (!friend) return;
+    // notifyField 为空表示"不受逐好友开关控制"(state.js 目前不会产生这种变化, 这里的兜底只是防御)
     if (change.notifyField && friend[change.notifyField] !== 1) return;
 
     // 去重 key 含新旧状态: 同一朋友短时间内不同的状态变化不应被吞掉

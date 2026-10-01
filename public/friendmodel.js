@@ -59,10 +59,41 @@
     return s === 'online' ? 'online' : (s === 'active' ? 'active' : 'offline');
   }
 
+  // ---- 逐好友通知配置 ----
+  // 存库形态固定是 0/1(渲染与分组都按 === 1 判), 前端拿到布尔或旧数据都要先归一化。
+  const CONFIG_FIELDS = {
+    favorite: 'favorite',
+    notifyOnline: 'notify_online',
+    notifyOffline: 'notify_offline',
+    notifyStatusChange: 'notify_status_change',
+    notifyWorldChange: 'notify_world_change'
+  };
+
+  /** 配置归一化成 0/1 的五个字段; 缺字段按 0。用于回滚基线 */
+  function normalizeConfig(c) {
+    const src = c || {};
+    const out = {};
+    for (const [camel, snake] of Object.entries(CONFIG_FIELDS)) out[snake] = src[snake] ? 1 : 0;
+    return out;
+  }
+
+  /**
+   * 乐观更新: 按请求体覆盖配置, 只覆盖显式传了的字段(与后端 PUT 的"不传不动"一致)。
+   * 返回新对象, 不改入参 —— 调用方要留一份 prev 用于失败回滚。
+   */
+  function patchConfig(cur, patch) {
+    const out = normalizeConfig(cur);
+    const p = patch || {};
+    for (const [camel, snake] of Object.entries(CONFIG_FIELDS)) {
+      if (p[camel] !== undefined) out[snake] = p[camel] ? 1 : 0;
+    }
+    return out;
+  }
+
   /** 渲染指纹: 搜索词 + 折叠状态 + 好友数据, 三者任一变化都会变 */
   function renderSignature(friends, query, collapsed) {
     return normalizeQuery(query) + '\u0001' + JSON.stringify(collapsed || {}) + '\u0001' + JSON.stringify(friends || []);
   }
 
-  return { STATE_RANK, normalizeQuery, filterPool, splitGroups, groupOf, renderSignature };
+  return { STATE_RANK, CONFIG_FIELDS, normalizeQuery, filterPool, splitGroups, groupOf, renderSignature, normalizeConfig, patchConfig };
 });

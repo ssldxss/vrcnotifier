@@ -65,18 +65,20 @@
       trust_level: 'Trusted User', avatarKey: 'file_demo_me_128_128'
     };
   }
-  // 请求体 → 配置(存库形态)。与真实后端(src/server.js)一致: 没传的 notify* 视为 true。
+  // 请求体 → 新配置(存库形态)。与真实后端(src/server.js)一致: 只有显式传了的字段才改,
+  // 没传的保持原值(旧行为是"没传的 notify* 一律视为 true", 与"新好友默认全关"正好相反)。
   // 注意存的是 0/1 而不是布尔: 前端判定分组用的是 favorite === 1(严格), 给 true 会不进特别关注组
   // (这个坑真踩过 —— 一开始用布尔, 界面刷新后那行就掉回原组了; 单测用宽松 deepEqual 还放过了它)
-  function configFromBody(body) {
+  function patchConfig(cur, body) {
+    const c = normalizeConfig(cur);
     const b = body || {};
     const on = (v, dflt) => ((v === undefined ? dflt : !!v) ? 1 : 0);
     return {
-      favorite: b.favorite ? 1 : 0,
-      notify_online: on(b.notifyOnline, true),
-      notify_offline: on(b.notifyOffline, true),
-      notify_status_change: on(b.notifyStatusChange, true),
-      notify_world_change: on(b.notifyWorldChange, true)
+      favorite: on(b.favorite, c.favorite),
+      notify_online: on(b.notifyOnline, c.notify_online),
+      notify_offline: on(b.notifyOffline, c.notify_offline),
+      notify_status_change: on(b.notifyStatusChange, c.notify_status_change),
+      notify_world_change: on(b.notifyWorldChange, c.notify_world_change)
     };
   }
   // 存库形态归一化: localStorage 里可能是旧版本写的布尔值, 恢复时统一成 0/1
@@ -173,7 +175,11 @@
       if (mCfg && method === 'PUT') {
         const fid = decodeURIComponent(mCfg[1]);
         const i = indexOfId(fid);
-        const cfg = configFromBody(body);
+        if (fid !== idAt(i) || i >= state.friends) {
+          pushLog('[server] 更新监控配置失败: 好友不存在 id=' + fid);
+          return { status: 404, body: { error: '好友不存在' } };
+        }
+        const cfg = patchConfig(configOf(fid, i), body);
         state.configs.set(fid, cfg);
         pushLog('[server] 更新监控配置: 好友=' + nameAt(i) + ', 特别关注=' + (cfg.favorite ? '开' : '关') +
           ', 上线=' + (cfg.notify_online ? 1 : 0) + ', 下线=' + (cfg.notify_offline ? 1 : 0) +
@@ -225,7 +231,7 @@
     DEFAULT_FRIENDS, INJECT_ANCHOR, PAGE_SIZE, T,
     FAV_EVERY, FAV_REM,
     NAMES, WORLDS, TRUST, SEED_LINES,
-    stateAt, idAt, nameAt, defaultConfig, normalizeConfig, friendAt, selfUser, configFromBody, avatarDataUrl, stamp,
+    stateAt, idAt, nameAt, defaultConfig, normalizeConfig, friendAt, selfUser, patchConfig, avatarDataUrl, stamp,
     createBackend
   };
 });

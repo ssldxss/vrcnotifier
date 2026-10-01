@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 // 好友状态机: 状态派生、转移分类、pending-offline 防闪烁确认。
 
 const GAME_STATUSES = ['active', 'join me', 'ask me', 'busy'];
@@ -24,7 +24,8 @@ function deriveStateFromSnapshot(friend, currentUser) {
 /**
  * 分类状态转移。prev/next: {state, status, worldId, worldName, statusDescription}
  * 返回 { changeType, notifyField, needsConfirm } 或 null(不通知)。
- * notifyField: null 表示"只要在监控名单就通知"(自定义状态)。
+ * notifyField 是发通知前要去好友行上查的逐好友开关列名(monitor.dispatchNotification 里判 !== 1 就丢)。
+ * 每个变化都有归属的开关: 上线/下线/世界/状态, 没有"不受开关控制"的变化。
  */
 function classifyTransition(prev, next, opts = {}) {
   const a = prev.state;

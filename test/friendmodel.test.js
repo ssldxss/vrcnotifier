@@ -97,3 +97,44 @@ test('renderSignature: 好友数据里与渲染无关的字段变化也算变化
   const other = fm.renderSignature([F('a', 'online', { world_name: 'y' })], '', {});
   assert.notEqual(base, other);
 });
+
+// ---- 逐好友通知配置: 乐观更新 + 失败回滚用到的纯逻辑 ----
+
+test('normalizeConfig: 归一化成 0/1 的五个字段, 缺字段按 0', () => {
+  assert.deepEqual(fm.normalizeConfig(undefined), { favorite: 0, notify_online: 0, notify_offline: 0, notify_status_change: 0, notify_world_change: 0 });
+  assert.deepEqual(fm.normalizeConfig({ favorite: 1, notify_online: 1, notify_status_change: 1 }),
+    { favorite: 1, notify_online: 1, notify_offline: 0, notify_status_change: 1, notify_world_change: 0 });
+});
+
+test('normalizeConfig: 旧数据里的布尔 true 也归一成 1(前端按 === 1 判分组)', () => {
+  const c = fm.normalizeConfig({ favorite: true, notify_online: true, notify_world_change: false });
+  assert.strictEqual(c.favorite, 1);
+  assert.strictEqual(c.notify_online, 1);
+  assert.strictEqual(c.notify_world_change, 0);
+});
+
+test('patchConfig: 只覆盖请求体里显式传了的字段, 没传的保持原值(与后端"不传不动"一致)', () => {
+  const cur = { favorite: 1, notify_online: 1, notify_offline: 0, notify_status_change: 1, notify_world_change: 0 };
+  assert.deepEqual(fm.patchConfig(cur, { notifyOnline: false }),
+    { favorite: 1, notify_online: 0, notify_offline: 0, notify_status_change: 1, notify_world_change: 0 });
+  assert.deepEqual(fm.patchConfig(cur, { favorite: false }),
+    { favorite: 0, notify_online: 1, notify_offline: 0, notify_status_change: 1, notify_world_change: 0 });
+});
+
+test('patchConfig: 没配过的好友(favorite 缺省)不会顺带打开通知', () => {
+  assert.deepEqual(fm.patchConfig({}, { favorite: true }),
+    { favorite: 1, notify_online: 0, notify_offline: 0, notify_status_change: 0, notify_world_change: 0 });
+});
+
+test('patchConfig: 返回新对象, 不改入参(回滚要靠原对象)', () => {
+  const cur = { favorite: 1, notify_online: 1, notify_offline: 1, notify_status_change: 1, notify_world_change: 1 };
+  const next = fm.patchConfig(cur, { notifyStatusChange: false });
+  assert.notEqual(next, cur);
+  assert.strictEqual(cur.notify_status_change, 1);
+  assert.strictEqual(next.notify_status_change, 0);
+});
+
+test('patchConfig: 空请求体等于原样归一化(前端每次都会发全量五个字段)', () => {
+  assert.deepEqual(fm.patchConfig({ favorite: 1, notify_online: 1 }, {}),
+    { favorite: 1, notify_online: 1, notify_offline: 0, notify_status_change: 0, notify_world_change: 0 });
+});

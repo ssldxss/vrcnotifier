@@ -899,12 +899,21 @@ function createApp({
     app.put('/api/friends/:friendId/config', (req, res) => {
     if (!current) return res.status(401).json({ error: '未登录' });
     const body = req.body || {};
+    const cur = db.getFriend(req.params.friendId);
+    if (!cur) {
+      log.warn(`[server] 更新监控配置失败: 好友不存在 id=${req.params.friendId}`);
+      return res.status(404).json({ error: '好友不存在' });
+    }
+    // 语义是补丁不是整体覆盖: 只改显式传了的字段, 没传的保持原值。
+    // (旧行为是"没传的 notify* 一律视为开" —— 任何只传部分字段的调用方都会静默打开全部通知,
+    //  而新好友默认全关, 两边正好相反。)
+    const pick = (col, camel) => (body[camel] !== undefined ? !!body[camel] : cur[col] === 1);
     db.setFriendConfig(req.params.friendId, {
-      favorite: !!body.favorite,
-      notifyOnline: body.notifyOnline !== undefined ? !!body.notifyOnline : true,
-      notifyOffline: body.notifyOffline !== undefined ? !!body.notifyOffline : true,
-      notifyStatusChange: body.notifyStatusChange !== undefined ? !!body.notifyStatusChange : true,
-      notifyWorldChange: body.notifyWorldChange !== undefined ? !!body.notifyWorldChange : true
+      favorite: pick('favorite', 'favorite'),
+      notifyOnline: pick('notify_online', 'notifyOnline'),
+      notifyOffline: pick('notify_offline', 'notifyOffline'),
+      notifyStatusChange: pick('notify_status_change', 'notifyStatusChange'),
+      notifyWorldChange: pick('notify_world_change', 'notifyWorldChange')
     });
     const cfg = db.getFriend(req.params.friendId);
     log.debug(`[server] 更新监控配置: 好友=${(cfg && cfg.display_name) || req.params.friendId}, 特别关注=${cfg ? (cfg.favorite ? '开' : '关') : '?'}, 上线=${cfg ? cfg.notify_online : '?'}, 下线=${cfg ? cfg.notify_offline : '?'}, 状态=${cfg ? cfg.notify_status_change : '?'}, 世界=${cfg ? cfg.notify_world_change : '?'}`);

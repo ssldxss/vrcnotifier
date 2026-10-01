@@ -855,6 +855,48 @@ test('PUT friend config persists and reflects in list', async (t) => {
   assert.equal(f1.config.notify_offline, 0);
 });
 
+test('PUT friend config: 没传的字段保持原值(不传不动, 是补丁不是整体覆盖)', async (t) => {
+  const ctx = setup({ onlineFriends: [{ id: 'usr_f1', displayName: '朋友1', location: 'wrld_a:1', status: 'active' }] });
+  t.after(() => close(ctx));
+  await post(ctx, '/api/login', { username: 'me', password: 'pw' });
+  await put(ctx, '/api/friends/usr_f1/config', { favorite: true, notifyOnline: true, notifyOffline: false, notifyStatusChange: true, notifyWorldChange: false });
+  // 只传一个字段: 另外四个(含 favorite)必须原样保留
+  const r = await put(ctx, '/api/friends/usr_f1/config', { notifyOnline: false });
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.data.config, {
+    friend_vrchat_id: 'usr_f1',
+    favorite: 1,
+    notify_online: 0,
+    notify_offline: 0,
+    notify_status_change: 1,
+    notify_world_change: 0
+  });
+});
+
+test('PUT friend config: 没配过的好友只传 favorite 不会顺带打开通知', async (t) => {
+  const ctx = setup({ onlineFriends: [{ id: 'usr_f1', displayName: '朋友1', location: 'wrld_a:1', status: 'active' }] });
+  t.after(() => close(ctx));
+  await post(ctx, '/api/login', { username: 'me', password: 'pw' });
+  const r = await put(ctx, '/api/friends/usr_f1/config', { favorite: true });
+  assert.equal(r.data.config.favorite, 1);
+  assert.equal(r.data.config.notify_online, 0);
+  assert.equal(r.data.config.notify_offline, 0);
+  assert.equal(r.data.config.notify_status_change, 0);
+  assert.equal(r.data.config.notify_world_change, 0);
+});
+
+test('PUT 不存在的好友: 404 + 一条带 id 的日志(不能假装成功)', async (t) => {
+  const lines = [];
+  const spy = (l) => lines.push(String(l));
+  const ctx = setup({ logger: { debug: spy, info: spy, warn: spy, error: spy } });
+  t.after(() => close(ctx));
+  await post(ctx, '/api/login', { username: 'me', password: 'pw' });
+  const r = await put(ctx, '/api/friends/usr_nope/config', { favorite: true, notifyOnline: true });
+  assert.equal(r.status, 404);
+  assert.match(String(r.data.error), /好友/);
+  assert.ok(lines.some((l) => l.includes('usr_nope')), '应留下一条带好友 id 的日志: ' + JSON.stringify(lines));
+});
+
 test('settings get masks secrets, put stores plaintext', async (t) => {
   const ctx = setup();
   t.after(() => close(ctx));

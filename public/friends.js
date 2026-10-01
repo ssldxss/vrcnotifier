@@ -723,13 +723,27 @@ function refreshFriendsWithMotion() {
   }).catch(() => {});
 }
 
+// 提交失败时的回滚: 把这一行的勾选状态与内存配置恢复成提交前。
+// 必须按 id 重新找节点 —— await 期间列表可能已经重绘、甚至把这个 DOM 节点回收给了别的好友。
+function rollbackFriendConfig(id, prev) {
+  const fresh = friendsCache.find((f) => f.friend_vrchat_id === id);
+  if (fresh) fresh.config = { ...prev };
+  const row = $('#friendsList').querySelector('.friend[data-id="' + id + '"]');
+  if (!row) return;
+  const fav = row.querySelector('.favorite');
+  if (fav) fav.checked = prev.favorite === 1;
+  for (const snake of Object.values(window.VrcFriendModel.CONFIG_FIELDS)) {
+    const el = row.querySelector('[data-k=' + snake + ']');
+    if (el) el.checked = prev[snake] === 1;
+  }
+}
+
 $('#friendsList').addEventListener('change', async (e) => {
   const cb = e.target;
   const row = cb.closest('.friend');
   if (!row) return;
   const id = row.dataset.id;
   const cur = friendsCache.find((f) => f.friend_vrchat_id === id) || {};
-  const c = cur.config || {};
   const body = {
     favorite: !!row.querySelector('.favorite').checked,
     notifyOnline: !!row.querySelector('[data-k=notify_online]').checked,
@@ -738,6 +752,10 @@ $('#friendsList').addEventListener('change', async (e) => {
     notifyWorldChange: !!row.querySelector('[data-k=notify_world_change]').checked
   };
   const isFav = cb.classList.contains('favorite');
+  // 乐观展示: 先把用户点的样子记进内存(分组/勾选都按它渲染), 提交失败再回滚。
+  // 语义与后端 PUT 一致(不传不动), 所以用同一份 patchConfig 算.
+  const prev = window.VrcFriendModel.normalizeConfig(cur.config);
+  const next = window.VrcFriendModel.patchConfig(prev, body);
   if (isFav) {
     // 乐观更新 + FLIP: 先量旧位置, 再按本地状态重排, 行平滑飞向新分组, 随后后台提交。
     // 同步做完(旧版也是同步的): 中间插一个"原位淡出"的等待会让 First 与 Last 之间多出一次
@@ -746,7 +764,7 @@ $('#friendsList').addEventListener('change', async (e) => {
     const hit = new Map();
     const oldRects = captureRects(hit);
     const start = hit.get(id);
-    cur.config = { ...c, favorite: body.favorite ? 1 : 0 }; // 注意用 0/1: 渲染按 === 1 分组, 布尔值会导致不重排
+    cur.config = next; // 注意用 0/1: 渲染按 === 1 分组, 布尔值会导致不重排
     expandGroupFor(cur); // 目标分组折叠时先展开, 否则行落在被裁剪的隐藏区域, 看不到
     renderFriends();
     // 重绘前后都在窗口里的行(含被点行自己)→ FLIP 飞过去
@@ -755,14 +773,25 @@ $('#friendsList').addEventListener('change', async (e) => {
     // 被点行落到渲染窗口外(比如在列表深处点到顶部的特别关注组): 它在 DOM 里没有落点,
     // 用飞行体把它从旧位置送出去, 否则用户只看到"周围的行滑动一下, 被点的行凭空消失"
     if (!landed && start) flyRowOut(start.node, start.rect, docTopOfRow(id, window.VrcFriendModel.groupOf(cur)));
+  } else {
+    cur.config = next;
   }
-  const r = await api('PUT', '/api/friends/' + encodeURIComponent(id) + '/config', body);
-  if (r.data.ok) {
-    cur.config = r.data.config;
-    // 注意: 这里不再重渲染 —— 乐观渲染已把行放到正确分组, 重渲染会打断正在进行的淡入
-  } else if (isFav) {
-    loadFriends(); // 提交失败: 回滚到服务端状态
+  let err = '';
+  try {
+    const r = await api('PUT', '/api/friends/' + encodeURIComponent(id) + '/config', body);
+    if (r.data.ok) {
+      // 注意: 这里不再重渲染 —— 乐观渲染已把行放到正确分组, 重渲染会打断正在进行的淡入
+      const fresh = friendsCache.find((f) => f.friend_vrchat_id === id);
+      if (fresh) fresh.config = window.VrcFriendModel.normalizeConfig(r.data.config || next);
+      return;
+    }
+    err = r.data.error || '保存失败';
+  } catch (ex) {
+    err = (ex && ex.message) || '保存失败'; // 后端不可达/响应非 JSON: api() 会抛, 同样要回滚
   }
+  rollbackFriendConfig(id, prev);
+  opMsgFlash(err);
+  if (isFav) loadFriends(); // 特别关注失败: 分组也要回滚, 直接按服务端状态重拉
 });
 
 // 高光跟随鼠标(好友行/tab/概览卡片/门禁登录卡/弹窗): 事件委托 + rAF 补间, 只维护当前悬停元素

@@ -22,6 +22,9 @@
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
+// 与浏览器内假后端(public/demomock.js)共用同一份"逐好友配置"语义, 免得两边各写一遍再慢慢漂移。
+// demomock 是 UMD: 浏览器挂 window.VrcDemoMock, Node 里直接 require。
+const DemoMock = require('./public/demomock.js');
 
 const PORT = Number(process.env.DEMO_PORT || process.argv[2] || 3100);
 // DEMO_ROOT 可切到别的前端副本(如 .verify/frontend-baseline), 用来和新前端并排对照
@@ -85,6 +88,7 @@ function defaultConfigAt(i) {
     notify_world_change: 0
   };
 }
+function idAt(i) { return 'usr_demo_' + String(i).padStart(3, '0'); }
 function configOf(id, i) {
   const saved = friendConfigs.get(id);
   return saved ? { ...saved } : defaultConfigAt(i);
@@ -103,7 +107,7 @@ function makeFriends(n) {
     const state = stateAt(i);
     const [worldId, worldName] = WORLDS[i % WORLDS.length];
     out.push({
-      friend_vrchat_id: 'usr_demo_' + String(i).padStart(3, '0'),
+      friend_vrchat_id: idAt(i),
       display_name: NAMES[i % NAMES.length] + (i >= NAMES.length ? ' ' + (Math.floor(i / NAMES.length) + 1) : ''),
       state,
       status: state === 'online' ? 'join me' : state === 'active' ? 'active' : 'offline',
@@ -112,7 +116,7 @@ function makeFriends(n) {
       world_name: state === 'offline' ? null : worldName,
       trust_level: TRUST[i % TRUST.length],
       avatarKey: 'file_demo_' + i + '_128_128',
-      config: configOf('usr_demo_' + String(i).padStart(3, '0'), i)
+      config: configOf(idAt(i), i)
     });
   }
   return out;
@@ -293,28 +297,22 @@ async function handleApi(req, res, url) {
   // 同样的请求体、同样的响应形状({ok, config})、同样记一条日志; 差别只是"库"是本进程的内存表。
   const mCfg = /^\/api\/friends\/([^/]+)\/config$/.exec(p);
   if (mCfg) {
+    if (req.method !== 'PUT') return json(res, 405, { error: '只支持 PUT' });
     const fid = decodeURIComponent(mCfg[1]);
     const body = await readBody(req);
     const idx = (() => { const m = /([0-9]+)$/.exec(fid); return m ? Number(m[1]) : 0; })();
-    const next = {
-      favorite: !!body.favorite,
-      notifyOnline: body.notifyOnline !== undefined ? !!body.notifyOnline : true,
-      notifyOffline: body.notifyOffline !== undefined ? !!body.notifyOffline : true,
-      notifyStatusChange: body.notifyStatusChange !== undefined ? !!body.notifyStatusChange : true,
-      notifyWorldChange: body.notifyWorldChange !== undefined ? !!body.notifyWorldChange : true
-    };
-    if (req.method !== 'PUT') return json(res, 405, { error: '只支持 PUT' });
-    friendConfigs.set(fid, {
-      favorite: next.favorite ? 1 : 0,
-      notify_online: next.notifyOnline ? 1 : 0,
-      notify_offline: next.notifyOffline ? 1 : 0,
-      notify_status_change: next.notifyStatusChange ? 1 : 0,
-      notify_world_change: next.notifyWorldChange ? 1 : 0
-    });
+    // 不存在的好友: 与真实后端同口径 404 + 一条日志(不能假装成功)
+    if (fid !== idAt(idx) || idx >= friendCountFor(req)) {
+      pushLog('[server] 更新监控配置失败: 好友不存在 id=' + fid);
+      return json(res, 404, { error: '好友不存在' });
+    }
+    // 不传不动: 只改显式传了的字段, 没传的保持原值(旧行为是"没传的 notify* 一律视为开")
+    const cfg = DemoMock.patchConfig(friendConfigs.get(fid) || defaultConfigAt(idx), body);
+    friendConfigs.set(fid, cfg);
     const name = NAMES[idx % NAMES.length] + (idx >= NAMES.length ? ' ' + (Math.floor(idx / NAMES.length) + 1) : '');
-    pushLog('[server] 更新监控配置: 好友=' + name + ', 特别关注=' + (next.favorite ? '开' : '关') +
-      ', 上线=' + (next.notifyOnline ? 1 : 0) + ', 下线=' + (next.notifyOffline ? 1 : 0) +
-      ', 状态=' + (next.notifyStatusChange ? 1 : 0) + ', 世界=' + (next.notifyWorldChange ? 1 : 0));
+    pushLog('[server] 更新监控配置: 好友=' + name + ', 特别关注=' + (cfg.favorite ? '开' : '关') +
+      ', 上线=' + cfg.notify_online + ', 下线=' + cfg.notify_offline +
+      ', 状态=' + cfg.notify_status_change + ', 世界=' + cfg.notify_world_change);
     return json(res, 200, { ok: true, config: configOf(fid, idx) });
   }
   if (p === '/api/me') return json(res, 200, { ok: true, user: SELF() });
