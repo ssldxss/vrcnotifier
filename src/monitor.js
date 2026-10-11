@@ -630,6 +630,8 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
   // ---------- 自己的状态 ----------
   // 自己的信息只入库 + 推给前端, 不走通知/去重/pending。
   // WS 返回 offline/空位置时网页会话仍在活动, 统一按 active(网页在线)处理。
+  // 注意: 规范写明 state 经 /auth/user 返回时"永远是 offline"(UserState 描述原文), 实测 8/8 次也是
+  // offline —— 所以"在不在游戏里"只能靠 location/presence 推, apiState 那两个分支只是防御性保留。
   function deriveSelfState(location, apiState) {
     if (apiState === 'online') return 'online';
     if (apiState === 'active') return 'active';
@@ -909,7 +911,9 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
         const worldRaw = String(pres.world || '');
         const hasWorld = worldRaw.startsWith('wrld_');
         const isPrivate = worldRaw === 'private';
-        const traveling = !hasWorld && !isPrivate && String(pres.travelingToWorld || '') !== '';
+        // 不在世界时 VRChat 给的是哨兵字符串 "offline"(实测: world/instance/travelingToWorld 全是 "offline"),
+        // 不是字段缺失 —— 只有真世界号才算"正在切世界", 否则会在没进游戏时把自己误标成 online。
+        const traveling = !hasWorld && !isPrivate && String(pres.travelingToWorld || '').startsWith('wrld_');
         const existingSelf = db.getUserByVrcId(userId);
         const selfWorldId = hasWorld ? worldRaw : (isPrivate ? 'private' : (traveling && existingSelf ? existingSelf.world_id : null));
         // 快照不查世界名(按需查询): 只同步看一眼缓存里现有的名字, 缺失交给前端 SSE / QQ 各自按需触发

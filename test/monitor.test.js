@@ -1389,6 +1389,40 @@ test('self: me() without presence derives active (session alive, not in a world)
   assert.equal(t.notifications.length, 0);
 });
 
+// 不在世界时 VRChat 的 presence 给的是哨兵字符串 "offline"(实测), 而不是"字段缺失":
+//   world/instance/travelingToWorld/travelingToInstance 全是 "offline"
+// 只判"有没有值"会把这种状态误判成正在切世界, 自己状态被写成 online —— 线上正是这个症状。
+test('self: presence 全是 "offline" 哨兵时算网页在线, 不能误判成 traveling', async () => {
+  const t = setup({
+    currentUser: {
+      id: 'usr_me', state: 'offline', status: 'ask me', statusDescription: '睡觉喵', displayName: '我',
+      presence: { world: 'offline', instance: 'offline', travelingToWorld: 'offline', travelingToInstance: 'offline', platform: 'web' },
+      friends: [], onlineFriends: [], activeFriends: [], offlineFriends: []
+    }
+  });
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+  const me = t.db.getUserByVrcId('usr_me');
+  assert.equal(me.state, 'active', '不在世界且没有真实目标世界 → 网页在线(active)');
+  assert.equal(me.world_id, null);
+  assert.equal(me.platform, 'web');
+});
+
+// 保护性契约: 真的在切世界时(travelingToWorld 是 wrld_xxx)仍然算 online。
+test('self: travelingToWorld 是真世界号时仍算 traveling(online)', async () => {
+  const t = setup({
+    currentUser: {
+      id: 'usr_me', state: 'offline', status: 'active', displayName: '我',
+      presence: { world: 'offline', instance: 'offline', travelingToWorld: 'wrld_next', travelingToInstance: '123~region(us)', platform: 'standalonewindows' },
+      friends: [], onlineFriends: [], activeFriends: [], offlineFriends: []
+    }
+  });
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+  const me = t.db.getUserByVrcId('usr_me');
+  assert.equal(me.state, 'online');
+});
+
 test('self: me() failure aborts snapshot, keeps existing row', async () => {
   const t = setup({ currentUser: currentUserOnline() });
   const user = addUser(t.db);
