@@ -124,6 +124,53 @@ test('activateUser: 首次对账只建基线不补通知, 无变化对账不重�
   assert.equal(t.notifications.length, 0);
 });
 
+// 登录流程刚落地的 CurrentUser 与首轮对账要的 /auth/user 是同一个端点, 复用即可 ——
+// 实测两次响应逐字节相同(sha256 一致), 没必要在登录成功后立刻再拉一遍。
+test('首轮对账可复用登录时已取到的 CurrentUser: 提供种子就不再调 me()', async () => {
+  const t = setup({ onlineFriends: [onlineFriend('usr_f1')] });
+  const user = addUser(t.db);
+  addConfig(t, 'usr_f1');
+  let meCalls = 0;
+  const realMe = t.vrcapi.me;
+  t.vrcapi.me = async (...a) => { meCalls++; return realMe(...a); };
+  const seed = await realMe(); // 登录时那一次
+  await t.monitor.activateUser(user, t.vrcapi, { currentUser: seed });
+  assert.equal(meCalls, 0, '种子已在手, 首轮对账不该再调 me()');
+  assert.equal(t.db.getFriend('usr_f1').state, 'online', '种子里的好友状态照样落地');
+});
+
+// 保护性契约: online/active/offlineFriends 在 VRChat 规范里是可选字段(只有 friends 必带),
+// 种子缺了状态数组就不能将就 —— 回退到真实 me(), 否则整轮好友状态判定会被静默跳过。
+test('首轮对账种子缺少状态数组时回退到真实 me()', async () => {
+  const t = setup({ onlineFriends: [onlineFriend('usr_f1')] });
+  const user = addUser(t.db);
+  addConfig(t, 'usr_f1');
+  let meCalls = 0;
+  const realMe = t.vrcapi.me;
+  t.vrcapi.me = async (...a) => { meCalls++; return realMe(...a); };
+  await t.monitor.activateUser(user, t.vrcapi, { currentUser: { id: 'usr_me', displayName: '我', friends: ['usr_f1'] } });
+  assert.equal(meCalls, 1, '种子不全 → 回退调一次 me()');
+  assert.equal(t.db.getFriend('usr_f1').state, 'online', '回退后好友状态正常落地');
+});
+
+// 复用种子这件事本身就是"省钱"的动作, 必须能在日志里看见 —— 否则线上只会看到 API 调用变少,
+// 却不知道是复用了登录时那次, 还是被别处吞了。
+test('复用登录种子时以 info 级日志写明跳过了重复的 GET /auth/user', async () => {
+  const infoLogs = [];
+  const t = setup({
+    onlineFriends: [onlineFriend('usr_f1')],
+    logger: { debug: () => {}, info: (m) => infoLogs.push(m), warn: () => {}, error: () => {} }
+  });
+  const user = addUser(t.db);
+  addConfig(t, 'usr_f1');
+  const seed = await t.vrcapi.me();
+  await t.monitor.activateUser(user, t.vrcapi, { currentUser: seed });
+  assert.ok(
+    infoLogs.some((l) => l.includes('跳过重复') && l.includes('/auth/user')),
+    `info 日志应写明跳过了重复请求: ${JSON.stringify(infoLogs)}`
+  );
+});
+
 test('WS friend-online first sight stores silently, later changes notify', async () => {
   const t = setup();
   const user = addUser(t.db);

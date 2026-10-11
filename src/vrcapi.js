@@ -46,6 +46,21 @@ function createVrcApi({ baseUrl = 'https://api.vrchat.cloud/api/1', userAgent = 
     return e.status >= 500 && e.status < 600;     // 5xx 服务端临时故障
   }
 
+  // 日志里的查询串: 好友列表两趟(offline=false 在线+活动 / offline=true 离线)必须一眼可分,
+  // 分页的 n/offset 也要能对上。敏感键统一打码, 保证日志不落明文凭据。
+  function querySuffix(params) {
+    if (!params) return '';
+    const parts = Object.entries(params).map(([k, v]) =>
+      (/token|secret|password|auth/i.test(k) ? `${k}=***` : `${k}=${String(v)}`));
+    return parts.length ? '?' + parts.join('&') : '';
+  }
+
+  // 用途标注: /auth(WS 凭据) 与 /auth/user(CurrentUser) 只差一个 /user, 日志里紧挨着极易读混,
+  // 由调用方声明这次请求是干什么的(登录取身份 / 对账 / WS 凭据 ...), 审计重复调用时一目了然。
+  function purposeSuffix(purpose) {
+    return purpose ? ` [${purpose}]` : '';
+  }
+
   async function request(path, opts = {}) {
     const endpoint = '/' + String(path).replace(/^\/+/, '');
     const limit = opts.maxRetries ?? maxRetries;
@@ -57,13 +72,13 @@ function createVrcApi({ baseUrl = 'https://api.vrchat.cloud/api/1', userAgent = 
         if (opts.noRetry || !isTransient(e) || attempt >= limit) throw e;
         const delay = backoffMs(attempt);
         attempt++;
-        log.warn(`[vrcapi] ${opts.method || 'GET'} ${endpoint} 失败(${e.message}), ${delay}ms 后重试(第 ${attempt} 次)`);
+        log.warn(`[vrcapi] ${opts.method || 'GET'} ${endpoint}${querySuffix(opts.params)} 失败(${e.message}), ${delay}ms 后重试(第 ${attempt} 次)${purposeSuffix(opts.purpose)}`);
         await sleepFn(delay);
       }
     }
   }
 
-  async function attemptRequest(path, { method = 'GET', auth, body, params } = {}) {
+  async function attemptRequest(path, { method = 'GET', auth, body, params, purpose } = {}) {
     const base = baseUrl.endsWith('/') ? baseUrl : baseUrl + '/';
     const url = new URL(String(path).replace(/^\//, ''), base);
     if (params) for (const [k, v] of Object.entries(params)) url.searchParams.set(k, String(v));
@@ -93,13 +108,13 @@ function createVrcApi({ baseUrl = 'https://api.vrchat.cloud/api/1', userAgent = 
     let data = null;
     try { data = text ? JSON.parse(text) : null; } catch (e) { data = text; }
 
-    log.info(`[vrcapi] 完成: ${method} ${endpoint} (${res.status})`);
+    log.info(`[vrcapi] 完成: ${method} ${endpoint}${querySuffix(params)} (${res.status})${purposeSuffix(purpose)}`);
 
     if (res.status >= 400) {
       let msg = `HTTP ${res.status}`;
       if (data && data.error) msg = data.error.message || msg;
       else if (data && data.message) msg = data.message;
-      log.warn(`[vrcapi] 错误响应: ${method} ${endpoint} (${res.status}): ${msg}`);
+      log.warn(`[vrcapi] 错误响应: ${method} ${endpoint}${querySuffix(params)} (${res.status}): ${msg}${purposeSuffix(purpose)}`);
       throw new ApiError(res.status, String(msg), data);
     }
     return data;
@@ -140,9 +155,9 @@ function createVrcApi({ baseUrl = 'https://api.vrchat.cloud/api/1', userAgent = 
     return request(`/users/${encodeURIComponent(userId)}`, { ...opts });
   }
 
-  /** WS token */
+  /** WS token(实时连接凭据; 与 /auth/user 只差一个 /user, 日志里标注用途避免读混) */
   function authToken() {
-    return request('/auth', { noRetry: true });
+    return request('/auth', { noRetry: true, purpose: 'WS 实时连接凭据' });
   }
 
   /** 好友列表(分页拉全量); offline=true 仅离线好友, 省略/offline=false 只在线(含网页在线)。
@@ -153,7 +168,8 @@ function createVrcApi({ baseUrl = 'https://api.vrchat.cloud/api/1', userAgent = 
     for (;;) {
       const page = await request('/auth/user/friends', {
         noRetry,
-        params: { n: pageSize, offset, ...(offline ? { offline: 'true' } : {}) }
+        // offline 显式带 true/false(VRCX 同款): 两趟拉取在日志里一眼可分, 语义与省略(=false)一致
+        params: { n: pageSize, offset, offline: String(!!offline) }
       });
       if (!Array.isArray(page) || page.length === 0) break;
       all.push(...page);

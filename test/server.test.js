@@ -553,6 +553,43 @@ test('relogin 2FA: 码已通过但取身份失败 → 不报验证码错误, 重
   assert.equal(ctx.vrcapi.verifyCalls.length, 1, '重试复用已通过的验证, 不再提交 verify');
 });
 
+// ---------- 登录与首轮对账之间的重复 GET /auth/user ----------
+
+test('2FA 登录: 首轮对账复用身份 me() 的结果, 全程只调一次 GET /auth/user', async (t) => {
+  const ctx = setup({
+    loginResult: { requiresTwoFactorAuth: ['totp'] },
+    onlineFriends: [{ id: 'usr_f1', displayName: 'F1', location: 'wrld_a:1', status: 'active' }]
+  });
+  t.after(() => close(ctx));
+  ctx.vrcapi.verifyCalls = [];
+  let meCalls = 0;
+  const realMe = ctx.vrcapi.me;
+  ctx.vrcapi.me = async (...a) => { meCalls++; return realMe(...a); };
+  const r = await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: false });
+  const v = await post(ctx, '/api/login/2fa', { tempSessionId: r.data.tempSessionId, code: '123456', kind: 'totp' });
+  assert.equal(v.status, 200, JSON.stringify(v.data));
+  assert.equal(meCalls, 1, `取身份与首轮对账共用一次 me()(实际 ${meCalls} 次)`);
+  assert.equal(ctx.pipeline.connects.length, 1, '监控仍被激活');
+  const f1 = ctx.db.getFriend('usr_f1');
+  assert.ok(f1, '快照确实处理了好友(没因为复用种子而跳过)');
+  assert.equal(f1.state, 'online');
+});
+
+test('密码直登: 首轮对账复用 login 响应里的 CurrentUser, 不再补一次 me()', async (t) => {
+  const ctx = setup({
+    loginResult: { id: 'usr_me', displayName: '我', friends: ['usr_f1'], onlineFriends: ['usr_f1'], activeFriends: [], offlineFriends: [] },
+    onlineFriends: [{ id: 'usr_f1', displayName: 'F1', location: 'wrld_a:1', status: 'active' }]
+  });
+  t.after(() => close(ctx));
+  let meCalls = 0;
+  const realMe = ctx.vrcapi.me;
+  ctx.vrcapi.me = async (...a) => { meCalls++; return realMe(...a); };
+  const r = await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: false });
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  assert.equal(meCalls, 0, `登录响应已带状态数组, 不该再补 me()(实际 ${meCalls} 次)`);
+  assert.equal(ctx.db.getFriend('usr_f1')?.state, 'online', '快照按登录响应落地了好友');
+});
+
 test('登录进度: 2FA 验证完成后经 SSE 推送各阶段(前端等待页照它点亮)', async (t) => {
   const ctx = setup({
     loginResult: { requiresTwoFactorAuth: ['emailOtp'] },

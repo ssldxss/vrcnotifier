@@ -305,6 +305,49 @@ test('every api call logs the endpoint', async () => {
   } finally { server.close(); }
 });
 
+test('完成日志带查询参数: friends 两趟 offline=false/true 一眼可分', async () => {
+  const logs = [];
+  const logger = { info: (...a) => logs.push(a.join(' ')), warn: (...a) => logs.push(a.join(' ')), error: () => {} };
+  const server = await startMockApi({
+    '/api/1/auth/user/friends': (ctx, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify([]));
+    }
+  });
+  try {
+    const v = createVrcApi({ baseUrl: 'http://127.0.0.1:' + server.address().port + '/api/1', userAgent: 't/1', logger });
+    await v.friends({ offline: false });
+    await v.friends({ offline: true });
+    const lines = logs.filter((l) => l.includes('完成: GET /auth/user/friends'));
+    assert.ok(lines.some((l) => l.includes('offline=false')), `在线+活动那趟应带 offline=false: ${JSON.stringify(lines)}`);
+    assert.ok(lines.some((l) => l.includes('offline=true')), `离线那趟应带 offline=true: ${JSON.stringify(lines)}`);
+    assert.ok(lines.every((l) => l.includes('n=100')), `分页参数 n 也要在日志里: ${JSON.stringify(lines)}`);
+  } finally { server.close(); }
+});
+
+test('完成日志带用途标注: /auth 是 WS 凭据, /auth/user 标明取身份用途', async () => {
+  const logs = [];
+  const logger = { info: (...a) => logs.push(a.join(' ')), warn: (...a) => logs.push(a.join(' ')), error: () => {} };
+  const server = await startMockApi({
+    '/api/1/auth': (ctx, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ token: 't' }));
+    },
+    '/api/1/auth/user': (ctx, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ id: 'usr_me' }));
+    }
+  });
+  try {
+    const v = createVrcApi({ baseUrl: 'http://127.0.0.1:' + server.address().port + '/api/1', userAgent: 't/1', logger });
+    await v.authToken();
+    await v.me({ purpose: '登录取身份' });
+    const joined = logs.join('\n');
+    assert.ok(joined.includes('完成: GET /auth (200) [WS 实时连接凭据]'), `两个端点相邻, 必须标出用途: ${joined}`);
+    assert.ok(joined.includes('完成: GET /auth/user (200) [登录取身份]'), `调用方声明的用途要进日志: ${joined}`);
+  } finally { server.close(); }
+});
+
 test('friends 分页时逐页回调累计数量(登录进度按它算百分比)', async () => {
   const server = await startMockApi({
     '/api/1/auth/user/friends': ({ url }, res) => {

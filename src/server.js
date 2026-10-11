@@ -234,7 +234,8 @@ function createApp({
     const user = db.getUserByDbId(dbId);
     current = { userId, dbId, vrcapi, cookieCtx };
     sessionStore.set(userId, vrcapi);
-    await monitor.activateUser(user, vrcapi);
+    // currentUser 就是刚落地用的那份 GET /auth/user 响应: 交给首轮对账当种子, 不再重复请求一次。
+    await monitor.activateUser(user, vrcapi, { currentUser });
     return db.getUserByDbId(dbId);
   }
 
@@ -255,7 +256,7 @@ function createApp({
     const jar = CookieJar.deserialize(saved.cookie_data);
     const vrcapi = vrcapiFactory(jar);
     try {
-      const user = await vrcapi.me({ noRetry: true });
+      const user = await vrcapi.me({ noRetry: true, purpose: '自动登录探测' });
       if (user && user.id) {
         await finalizeLogin(vrcapi, user, { rememberMe: true, username: saved.saved_username || null });
         log.info(`[server] 自动登录成功: ${user.displayName || user.id}`);
@@ -494,7 +495,7 @@ function createApp({
     if (st.pending) return; // 已有待验证会话
     let kinds = null;
     try {
-      const me = await vrcapi.me({ noRetry: true });
+      const me = await vrcapi.me({ noRetry: true, purpose: '2FA 探测' });
       if (me && Array.isArray(me.requiresTwoFactorAuth)) kinds = me.requiresTwoFactorAuth;
     } catch (e) {
       // 401 响应体里可能直接带 requiresTwoFactorAuth(VRCX 正是靠它弹 2FA)
@@ -548,7 +549,7 @@ function createApp({
     }
     let me;
     try {
-      me = await pending.vrcapi.me();
+      me = await pending.vrcapi.me({ purpose: '登录取身份' });
       if (!me || !me.id) throw new Error('2fa verify missing user');
     } catch (e) {
       log.warn(`[server] 2FA 已验证通过但取账号信息失败(${userId}): ${e.message}`);
@@ -819,7 +820,7 @@ function createApp({
     // ② 取身份: 码已经过了, 这一步失败只算会话/网络问题 —— 保留 pending 供原地重试
     let currentUser;
     try {
-      currentUser = await pending.vrcapi.me();
+      currentUser = await pending.vrcapi.me({ purpose: '登录取身份' });
       if (!currentUser || !currentUser.id) throw new Error('2fa verify missing user');
     } catch (e) {
       log.warn(`[server] 2FA 已验证通过但取账号信息失败: ${e.message}`);

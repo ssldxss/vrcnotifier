@@ -198,11 +198,14 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
     return [...sessions.values()];
   }
 
-  async function activateUser(user, vrcapi) {
+  async function activateUser(user, vrcapi, opts = {}) {
     sessions.set(user.vrchat_user_id, { vrcapi, user });
     log.info(`[monitor] 激活用户 ${user.display_name}(${user.vrchat_user_id})`);
     pipeline.connect(user.vrchat_user_id, user.display_name);
-    await runSnapshot(user.vrchat_user_id, { initial: true }); // 启动首次对账: 只建基线, 不补通知
+    // 启动首次对账: 只建基线, 不补通知。
+    // 登录流程刚落地的 CurrentUser 与首轮对账要的是同一个端点(GET /auth/user), 直接当种子复用,
+    // 省掉紧跟在登录成功后的一次重复请求(实测两次响应逐字节相同)。
+    await runSnapshot(user.vrchat_user_id, { initial: true, currentUser: opts.currentUser });
   }
 
   function deactivateUser(vrcId) {
@@ -529,7 +532,7 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
     if (!session || friendIds.length === 0) return;
     let cu;
     try {
-      cu = await session.vrcapi.me({ noRetry: true });
+      cu = await session.vrcapi.me({ noRetry: true, purpose: '下线待验证' });
     } catch (e) {
       log.warn(`[monitor] pending 到期验证失败(${friendIds.length} 人, 下轮快照再定): ${e.message}`);
       return;
@@ -881,12 +884,23 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
       const { vrcapi } = session;
 
       // ① me(): 状态数组(online/active/offline) + 好友名册 + 自己的 presence, 一次请求全覆盖
+      // 首轮对账可复用登录流程刚取到的 CurrentUser(同一端点); 但 online/active/offlineFriends
+      // 在 VRChat 规范里是可选字段(只有 friends 必带), 缺了就不能将就 —— 回退真实请求,
+      // 否则 arraysOk 会为假, 整轮好友状态判定被静默跳过。
+      const seed = opts.initial ? opts.currentUser : null;
+      const seedOk = !!(seed && Array.isArray(seed.onlineFriends)
+        && Array.isArray(seed.activeFriends) && Array.isArray(seed.offlineFriends));
       let currentUser;
-      try {
-        currentUser = await vrcapi.me({ noRetry: opts.noRetry });
-      } catch (e) {
-        if (!handleAuth401(e, userId)) log.error(`[monitor] 快照失败 userId=${userId}: ${e.message}`);
-        return { ok: false, error: e.message };
+      if (seedOk) {
+        currentUser = seed;
+        log.info(`[monitor] 首轮对账复用登录时的 GET /auth/user 结果, 跳过重复请求 userId=${userId}`);
+      } else {
+        try {
+          currentUser = await vrcapi.me({ noRetry: opts.noRetry, purpose: opts.initial ? '首轮对账' : '对账' });
+        } catch (e) {
+          if (!handleAuth401(e, userId)) log.error(`[monitor] 快照失败 userId=${userId}: ${e.message}`);
+          return { ok: false, error: e.message };
+        }
       }
 
       // 自己的信息: 直接从 me() 的 presence 取(不再单独请求 users/{id})
