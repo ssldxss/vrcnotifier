@@ -399,6 +399,14 @@ function createApp({
     }
   }
 
+  // 2FA 推送正文(自动重登 / 401 会话挂起共用; 邮箱验证码多一行重发提示)
+  function twofaNotifyBody(kind) {
+    const label = kind === 'emailOtp' ? '邮箱验证码' : 'TOTP';
+    const lines = [`VRChat 需要两步验证(${label})`, '请直接回复验证码'];
+    if (kind === 'emailOtp') lines.push('未收到验证码?回复:重新发送验证码');
+    return lines.join('\n');
+  }
+
   function giveUpRelogin(userId) {
     const st = relogin.get(userId);
     if (st) clearReloginTimers(st);
@@ -455,7 +463,7 @@ function createApp({
         const kind = result.requiresTwoFactorAuth.includes('emailOtp') ? 'emailOtp' : result.requiresTwoFactorAuth[0];
         st.pending = { vrcapi, username, password: user.password, kind, createdAt: now() };
         log.info(`[server] 自动重登需要 2FA(${kind}): ${userId}`);
-        notifyRelogin(user, `⚠️ VRChat 重新登录需要两步验证(${kind === 'emailOtp' ? '邮箱验证码' : 'TOTP'})\n请回复: 验证码 6位数字(重发: 回复「重发验证码」)`, '⚠️ 需要两步验证').catch(() => {});
+        notifyRelogin(user, twofaNotifyBody(kind), '⚠️ 需要两步验证').catch(() => {});
         broadcast('2fa-needed', { userId });
         return;
       }
@@ -497,7 +505,7 @@ function createApp({
     const kind = kinds.includes('emailOtp') ? 'emailOtp' : kinds[0];
     st.pending = { vrcapi, username: user ? (user.saved_username || user.username || '') : '', password: null, kind, createdAt: now() };
     log.info(`[server] 会话被挂起, 需要 2FA(${kind}): ${userId}`);
-    if (user) notifyRelogin(user, `⚠️ VRChat 需要两步验证(${kind === 'emailOtp' ? '邮箱验证码' : 'TOTP'})\n请回复: 验证码 6位数字`, '⚠️ 需要两步验证').catch(() => {});
+    if (user) notifyRelogin(user, twofaNotifyBody(kind), '⚠️ 需要两步验证').catch(() => {});
     broadcast('2fa-needed', { userId });
   }
 
@@ -536,13 +544,13 @@ function createApp({
     return { ok: true };
   }
 
-  // QQ 命令钩子: 验证码 / 重发验证码; 未消费返回 null(回落在线列表)
+  // QQ 命令钩子: 验证码 / 重发(重发|重发验证码|重新发送验证码|重更新发送验证码|r, 大小写不敏感); 未消费返回 null(回落在线列表)
   async function handleAuthCommand(dbId, content) {
     const text = String(content || '').trim();
     const user = db.getUserByDbId(dbId);
     if (!user) return null;
     const userId = user.vrchat_user_id;
-    if (/^重发验证码$/.test(text)) {
+    if (/^(?:重发(?:验证码)?|重新发送验证码|重更新发送验证码|r)$/i.test(text)) {
       const r = await resendRelogin2fa(userId);
       return { text: r.ok ? '📧 已重新发送验证邮件, 请查收后回复验证码' : ('❌ ' + r.error) };
     }

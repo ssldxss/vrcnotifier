@@ -713,6 +713,9 @@ test('auto-relogin with 2FA waits for QQ code, resend command re-logins', async 
   ctx.bus.emit('relogin-needed', { userId: 'usr_me', reason: 'IP 变化' });
   await sleep(50);
   assert.ok(ctx.notifications.some((n) => String(n.change.notificationBody).includes('两步验证')), '2FA 提示已推送');
+  const push = ctx.notifications.find((n) => String(n.change.notificationBody).includes('两步验证'));
+  assert.equal(push.change.notificationBody, 'VRChat 需要两步验证(邮箱验证码)\n请直接回复验证码\n未收到验证码?回复:重新发送验证码');
+  assert.equal(push.change.notificationTitle, '⚠️ 需要两步验证');
   // 重发验证码: 重新走登录(不消耗频控)
   const resend = await ctx.handleAuthCommand(dbId, '重发验证码');
   assert.ok(resend.text.includes('已重新发送验证邮件'));
@@ -739,10 +742,27 @@ test('Unauthorized 401 asks 2FA with existing session, QQ code resumes', async (
   ctx.bus.emit('unauthorized-2fa', { userId: 'usr_me' });
   await sleep(50);
   assert.ok(ctx.notifications.some((n) => String(n.change.notificationBody).includes('两步验证')), 'Unauthorized 触发 2FA 提示');
+  const push = ctx.notifications.find((n) => String(n.change.notificationBody).includes('两步验证'));
+  assert.equal(push.change.notificationBody, 'VRChat 需要两步验证(TOTP)\n请直接回复验证码', 'TOTP 无重发提示行');
   ctx.vrcapi.me = async () => ({ id: 'usr_me', displayName: '我', currentAvatarImageUrl: null });
   const reply = await ctx.handleAuthCommand(dbId, '2fa 654321');
   assert.equal(reply.text, '✅ 验证成功, 已重新登录');
   assert.deepEqual(ctx.vrcapi.verifyCalls, [{ kind: 'totp', code: '654321' }]);
+});
+
+test('QQ 重发命令别名: 重发/重发验证码/重新发送验证码/重更新发送验证码/r/R 都触发重登', async (t) => {
+  const ctx = setup({ loginResult: { requiresTwoFactorAuth: ['totp'] } });
+  t.after(() => close(ctx));
+  const dbId = ctx.db.upsertUser('usr_me', { username: 'me' });
+  ctx.db.savePassword(dbId, 'pw');
+  ctx.bus.emit('relogin-needed', { userId: 'usr_me', reason: 'IP 变化' });
+  await sleep(50);
+  for (const cmd of ['重发', '重发验证码', '重新发送验证码', '重更新发送验证码', 'r', 'R']) {
+    const r = await ctx.handleAuthCommand(dbId, cmd);
+    assert.ok(r && r.text.includes('已重新发送验证邮件'), `${cmd} 应触发重发: ${JSON.stringify(r)}`);
+  }
+  // 非命令文本不消费, 回落在线列表
+  assert.equal(await ctx.handleAuthCommand(dbId, '你好'), null, '非命令文本回落在线列表');
 });
 
 test('login with rememberMe=false clears previously saved cookies', async (t) => {
