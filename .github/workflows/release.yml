@@ -30,14 +30,14 @@
 name: Release
 
 on:
-  push:
-    branches: [main]
+#  push:
+ #   branches: [main]
     # 不进镜像的改动不发版: 纯文档/架构文档/CI 配置的提交不烧版本号
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
-      - 'normify-vrcnotifier/**'
-      - '.github/**'
+  #  paths-ignore:
+   #   - '**.md'
+    #  - 'docs/**'
+     # - 'normify-vrcnotifier/**'
+      # - '.github/**'
   workflow_dispatch:
 
 # 打 tag 与建 Release 需要写权限
