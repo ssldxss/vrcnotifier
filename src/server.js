@@ -509,25 +509,62 @@ function createApp({
     broadcast('2fa-needed', { userId });
   }
 
-  // 验证码核心(QQ 与前端共用): 验证成功 → 落库续会话 → 前端刷新
+  // 2FA 验证码裁决: 官方判据是 POST /auth/twofactorauth/*/verify 的返回体 verified:true,
+  // 不能拿随后 me() 的成败当"码对不对"的判据。实测负结果形态:
+  //   200/400 + {verified:false}          → 码错
+  //   400 + error("code value ... 无效")  → 码错/格式非法
+  //   401 MissingCredentialsError         → 会话失效(auth cookie 没了), 不是码错
+  //   其它(429/5xx/网络)                  → 交给 loginError / 网络错误处理
+  async function verify2faCode(vrcapi, kind, code) {
+    let body;
+    try {
+      body = await vrcapi.verify2fa(kind, String(code).trim());
+    } catch (e) {
+      if (e && e.status === 401) return { ok: false, kind: 'session', error: e };
+      if (e && e.status === 400) return { ok: false, kind: 'code', error: e };
+      return { ok: false, kind: 'server', error: e };
+    }
+    return (body && body.verified === true) ? { ok: true } : { ok: false, kind: 'code' };
+  }
+
+  // 验证码核心(QQ 与前端共用): 先判码, 再单独取身份落地。
+  // 码通过后取身份失败只算会话/网络问题: 待验证会话保留(verified 标记), 重试不必再要一次码。
   async function verifyPendingCode(userId, code) {
     const st = relogin.get(userId);
     const pending = st && st.pending;
     if (!pending) return { ok: false, error: '没有待验证的登录会话' };
-    try {
-      await pending.vrcapi.verify2fa(pending.kind, String(code).trim());
-      const me = await pending.vrcapi.me();
-      if (!me || !me.id) throw new Error('2fa verify missing user');
-      st.pending = null;
-      await finalizeLogin(pending.vrcapi, me, { rememberMe: true, username: pending.username, password: pending.password });
-      finishReloginSuccess(userId, st);
-      log.info(`[server] 2FA 验证成功: ${userId}`);
-      broadcast('relogin-ok', { userId });
-      return { ok: true };
-    } catch (e) {
-      log.warn(`[server] 2FA 验证失败(${userId}): ${e.message}`);
-      return { ok: false, error: ((e && e.status === 400) || (e && e.status === 401)) ? '验证码错误或已过期' : '网络错误, 请稍后再试' };
+    if (!pending.verified) {
+      const verdict = await verify2faCode(pending.vrcapi, pending.kind, code);
+      if (!verdict.ok) {
+        if (verdict.kind === 'code') return { ok: false, error: '验证码错误或已过期' };
+        if (verdict.kind === 'session') {
+          st.pending = null; // auth cookie 没了: 重试没有意义, 让用户重新走登录
+          return { ok: false, error: '登录会话已过期, 请重新登录' };
+        }
+        log.warn(`[server] 2FA 验证失败(${userId}): ${verdict.error && verdict.error.message}`);
+        return { ok: false, error: '网络错误, 请稍后再试' };
+      }
+      pending.verified = true;
     }
+    let me;
+    try {
+      me = await pending.vrcapi.me();
+      if (!me || !me.id) throw new Error('2fa verify missing user');
+    } catch (e) {
+      log.warn(`[server] 2FA 已验证通过但取账号信息失败(${userId}): ${e.message}`);
+      return { ok: false, error: '验证码已通过, 但获取账号信息失败, 请重试' };
+    }
+    st.pending = null;
+    try {
+      await finalizeLogin(pending.vrcapi, me, { rememberMe: true, username: pending.username, password: pending.password });
+    } catch (e) {
+      log.warn(`[server] 2FA 已验证通过但落地失败(${userId}): ${e.message}`);
+      return { ok: false, error: '验证码已通过, 但同步数据失败, 请重试' };
+    }
+    finishReloginSuccess(userId, st);
+    log.info(`[server] 2FA 验证成功: ${userId}`);
+    broadcast('relogin-ok', { userId });
+    return { ok: true };
   }
 
   // 重发验证码: 清 cookies(保留密码)重新登录, 触发 VRChat 重发邮件; 不消耗频控次数
@@ -754,23 +791,39 @@ function createApp({
     if (!tempSessionId || !code) return res.status(400).json({ error: '缺少参数' });
     const pending = pending2fa.get(tempSessionId);
     if (!pending) return res.status(400).json({ error: '登录会话已过期, 请重新登录' });
+    // ① 验证码裁决: 以 POST 返回体的 verified 为准(不再拿 me() 的成败当判据)。
+    //    已经通过过(取身份失败后的重试)则跳过 —— TOTP 码会轮换, 不能逼用户重新过一遍。
+    if (!pending.verified) {
+      const verdict = await verify2faCode(pending.vrcapi, String(kind || 'emailOtp').toLowerCase(), code);
+      if (!verdict.ok) {
+        if (verdict.kind === 'code') {
+          log.warn('[server] 2FA 验证失败: 验证码错误或已过期');
+          return res.status(400).json({ error: '验证码错误或已过期' });
+        }
+        if (verdict.kind === 'session') {
+          // 401 MissingCredentialsError: auth cookie 没了, 重试没有意义
+          pending2fa.delete(tempSessionId);
+          log.warn('[server] 2FA 验证会话失效(Missing Credentials), 需重新登录');
+          return res.status(400).json({ error: '登录会话已过期, 请重新登录' });
+        }
+        const friendly = loginError(verdict.error);
+        if (friendly) {
+          if (friendly.error.startsWith('登录过于频繁')) log.warn(`[server] 2FA 被限流: ${verdict.error.message}`);
+          return res.status(friendly.status).json({ error: friendly.error });
+        }
+        log.error(`[server] 2FA 验证失败: ${verdict.error && verdict.error.message}`);
+        return res.status(500).json({ error: '验证失败, 请重试' });
+      }
+      pending.verified = true;
+    }
+    // ② 取身份: 码已经过了, 这一步失败只算会话/网络问题 —— 保留 pending 供原地重试
     let currentUser;
     try {
-      await pending.vrcapi.verify2fa(String(kind || 'emailOtp').toLowerCase(), String(code));
       currentUser = await pending.vrcapi.me();
       if (!currentUser || !currentUser.id) throw new Error('2fa verify missing user');
     } catch (e) {
-      if (e.status === 400 || e.status === 401) {
-        log.warn('[server] 2FA 验证失败: 验证码错误或已过期');
-        return res.status(400).json({ error: '验证码错误或已过期' });
-      }
-      const friendly = loginError(e);
-      if (friendly) {
-        if (friendly.error.startsWith('登录过于频繁')) log.warn(`[server] 2FA 被限流: ${e.message}`);
-        return res.status(friendly.status).json({ error: friendly.error });
-      }
-      log.error(`[server] 2FA 验证失败: ${e.message}`);
-      return res.status(500).json({ error: '验证失败, 请重试' });
+      log.warn(`[server] 2FA 已验证通过但取账号信息失败: ${e.message}`);
+      return res.status(503).json({ error: '验证码已通过, 但获取账号信息失败, 请重试' });
     }
     pending2fa.delete(tempSessionId);
     // 验证码已通过(VRChat 2xx)且拿到用户信息: 此刻记日志并让前端淡入等待页,

@@ -455,6 +455,104 @@ test('login with 2FA: temp session then verify code completes login', async (t) 
   assert.equal(again.status, 400);
 });
 
+// ---------- 2FA 判定以 POST 返回体为准(不拿 me() 的成败当判据) ----------
+
+test('2FA: POST 返回 {verified:false}(HTTP 200) 不算通过', async (t) => {
+  const ctx = setup({ loginResult: { requiresTwoFactorAuth: ['totp'] } });
+  t.after(() => close(ctx));
+  const r = await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: false });
+  ctx.vrcapi.verify2fa = async () => ({ verified: false });
+  const v = await post(ctx, '/api/login/2fa', { tempSessionId: r.data.tempSessionId, code: '123456', kind: 'totp' });
+  assert.equal(v.status, 400);
+  assert.equal(v.data.error, '验证码错误或已过期');
+  assert.equal(ctx.sessionStore.has('usr_me'), false, '验证没过不得落地会话');
+  assert.equal(ctx.pipeline.connects.length, 0, '验证没过不得激活监控');
+});
+
+test('2FA: 400(码错) 与 401(会话失效) 必须给出不同提示', async (t) => {
+  const ctx = setup({ loginResult: { requiresTwoFactorAuth: ['totp'] } });
+  t.after(() => close(ctx));
+  const r = await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: false });
+  const tempId = r.data.tempSessionId;
+  // 400: 验证码错误(实测 wrong code → 400 {"verified":false})
+  ctx.vrcapi.verify2fa = async () => { const e = new Error('HTTP 400'); e.status = 400; e.data = { verified: false }; throw e; };
+  const wrong = await post(ctx, '/api/login/2fa', { tempSessionId: tempId, code: '111111', kind: 'totp' });
+  assert.equal(wrong.status, 400);
+  assert.equal(wrong.data.error, '验证码错误或已过期');
+  // 401: auth cookie 没了(MissingCredentialsError), 这是会话问题不是码错
+  ctx.vrcapi.verify2fa = async () => { const e = new Error('"Missing Credentials"'); e.status = 401; e.data = { error: { message: '"Missing Credentials"', status_code: 401 } }; throw e; };
+  const expired = await post(ctx, '/api/login/2fa', { tempSessionId: tempId, code: '111111', kind: 'totp' });
+  assert.notEqual(expired.data.error, '验证码错误或已过期', '401 不该说成验证码错误');
+  assert.match(expired.data.error, /重新登录/);
+});
+
+test('2FA: 码已通过但取身份失败 → 不报验证码错误, 重试无需再提交验证码', async (t) => {
+  const ctx = setup({ loginResult: { requiresTwoFactorAuth: ['totp'] } });
+  t.after(() => close(ctx));
+  ctx.vrcapi.verifyCalls = [];
+  const r = await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: false });
+  const tempId = r.data.tempSessionId;
+  const realMe = ctx.vrcapi.me;
+  let meCalls = 0;
+  ctx.vrcapi.me = async (...a) => {
+    meCalls++;
+    if (meCalls === 1) { const e = new Error('network down'); e.status = -1; throw e; }
+    return realMe(...a);
+  };
+  const v1 = await post(ctx, '/api/login/2fa', { tempSessionId: tempId, code: '123456', kind: 'totp' });
+  assert.equal(v1.status, 503, JSON.stringify(v1.data));
+  assert.notEqual(v1.data.error, '验证码错误或已过期');
+  assert.match(v1.data.error, /验证码已通过/);
+  assert.equal(ctx.sessionStore.has('usr_me'), false, '身份没取到就不该落地');
+  assert.equal(ctx.vrcapi.verifyCalls.length, 1, '第一次确实提交了验证码');
+  // 重试: TOTP 码已轮换(旧码作废), 但不能因此再让用户重新过一遍验证码
+  const v2 = await post(ctx, '/api/login/2fa', { tempSessionId: tempId, code: '000000', kind: 'totp' });
+  assert.equal(v2.status, 200, JSON.stringify(v2.data));
+  assert.equal(ctx.vrcapi.verifyCalls.length, 1, '重试复用已通过的验证, 不再提交 verify');
+  assert.equal(ctx.sessionStore.has('usr_me'), true, '重试成功后才落地');
+});
+
+test('relogin 2FA: POST 返回 {verified:false} 不算通过, 待验证会话保留可重试', async (t) => {
+  const ctx = setup();
+  t.after(() => close(ctx));
+  const dbId = ctx.db.upsertUser('usr_me', { username: 'me' });
+  ctx.sessionStore.set('usr_me', ctx.vrcapi);
+  ctx.vrcapi.me = async () => { const e = new Error('"Unauthorized"'); e.status = 401; e.data = { requiresTwoFactorAuth: ['totp'] }; throw e; };
+  ctx.bus.emit('unauthorized-2fa', { userId: 'usr_me' });
+  await sleep(50);
+  ctx.vrcapi.me = async () => ({ id: 'usr_me', displayName: '我', currentAvatarImageUrl: null });
+  ctx.vrcapi.verifyCalls = [];
+  ctx.vrcapi.verify2fa = async () => ({ verified: false });
+  const bad = await ctx.handleAuthCommand(dbId, '2fa 123456');
+  assert.equal(bad.text, '❌ 验证失败: 验证码错误或已过期');
+  // 会话保留: 换正确的码再试能成功
+  ctx.vrcapi.verify2fa = async (kind, code) => { ctx.vrcapi.verifyCalls.push({ kind, code }); return { verified: true }; };
+  const ok = await ctx.handleAuthCommand(dbId, '2fa 654321');
+  assert.equal(ok.text, '✅ 验证成功, 已重新登录');
+  assert.deepEqual(ctx.vrcapi.verifyCalls, [{ kind: 'totp', code: '654321' }]);
+});
+
+test('relogin 2FA: 码已通过但取身份失败 → 不报验证码错误, 重试不再提交 verify', async (t) => {
+  const ctx = setup();
+  t.after(() => close(ctx));
+  const dbId = ctx.db.upsertUser('usr_me', { username: 'me' });
+  ctx.sessionStore.set('usr_me', ctx.vrcapi);
+  ctx.vrcapi.me = async () => { const e = new Error('"Unauthorized"'); e.status = 401; e.data = { requiresTwoFactorAuth: ['totp'] }; throw e; };
+  ctx.bus.emit('unauthorized-2fa', { userId: 'usr_me' });
+  await sleep(50);
+  ctx.vrcapi.verifyCalls = [];
+  // 取身份失败(网络抖动)
+  ctx.vrcapi.me = async () => { const e = new Error('network down'); e.status = -1; throw e; };
+  const bad = await ctx.handleAuthCommand(dbId, '2fa 123456');
+  assert.notEqual(bad.text, '❌ 验证失败: 验证码错误或已过期');
+  assert.match(bad.text, /验证码已通过/);
+  // 重试: 码已轮换, 但已经验证通过过, 不该再提交 verify
+  ctx.vrcapi.me = async () => ({ id: 'usr_me', displayName: '我', currentAvatarImageUrl: null });
+  const ok = await ctx.handleAuthCommand(dbId, '2fa 000000');
+  assert.equal(ok.text, '✅ 验证成功, 已重新登录');
+  assert.equal(ctx.vrcapi.verifyCalls.length, 1, '重试复用已通过的验证, 不再提交 verify');
+});
+
 test('登录进度: 2FA 验证完成后经 SSE 推送各阶段(前端等待页照它点亮)', async (t) => {
   const ctx = setup({
     loginResult: { requiresTwoFactorAuth: ['emailOtp'] },
