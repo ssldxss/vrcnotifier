@@ -27,12 +27,17 @@ function personParts(p) {
   // img 与字首兜底必须同处一个 <a> 内且保持相邻 —— onerror 依赖 nextElementSibling 找到兜底
   const avatarHtml = VrcLinks.wrapHtml('user', userId, avatarInner);
   const statusCls = 'status-' + String(p.status || 'active').replace(/\s+/g, '');
-  const wrapCls = 'st-' + (p.state || 'offline') + ' ' + statusCls;
+  // 待确认时服务端给的 display_state 是"目标态": 圆点/分组都按它走, 另加 st-pending 标记
+  const displayState = p.display_state || p.state || 'offline';
+  const wrapCls = 'st-' + displayState + (p.pending ? ' st-pending' : '') + ' ' + statusCls;
   const worldTxt = p.world_id === 'private' ? '私密世界' : (p.world_name || '');
   // 世界名可点开世界页; 名字还没到(或 private/离线)时那段文字本来就是空的, 无可点内容
   const worldHtml = worldTxt ? VrcLinks.linkHtml('world', p.world_id, worldTxt) : '';
   const descHtml = p.status_description ? escapeHtml(p.status_description) : '';
-  const stateInner = [worldHtml, descHtml].filter(Boolean).join(' · ');
+  // pending: 状态行最前面加"可能离线/可能在线/可能网页在线"; 文案与正常状态同样式(分组/圆点按目标态)
+  const pendingTxt = p.pending ? (p.pending_label || ('可能' + displayState)) : '';
+  const pendingHtml = pendingTxt ? "<span class='pending'>" + escapeHtml(pendingTxt) + '</span>' : '';
+  const stateInner = [pendingHtml, worldHtml, descHtml].filter(Boolean).join(' · ');
   return {
     avatarWrap: "<div class='avatar-wrap " + wrapCls + "'>" + avatarHtml + '</div>',
     name: VrcLinks.linkHtml('user', userId, p.display_name || p.friend_vrchat_id || p.vrchat_user_id || '?'),

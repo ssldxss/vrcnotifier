@@ -10,6 +10,7 @@ const { detectImageType, toThumbUrl } = require('./avatar');
 const { isMissingCredentials, isUnauthorized } = require('./vrcapi');
 const { formatLocalTime, getLogStream, avatarFields } = require('./util');
 const { currentVersion } = require('./version');
+const { displayState, isPending, pendingLabel } = require('./presence');
 
 const MASK = '••••••••';
 const SECRET_FIELDS = new Set(['qq_app_secret']);
@@ -110,6 +111,11 @@ function createApp({
   function friendRow(f) {
     const out = { ...f };
     out.world_name = worldNameOf(f);
+    // 待确认(pending)时对外呈现"目标态 + 可能X": 面板据此分组与标注。
+    // state 仍是已确认的起始态、pending_state 是目标态, 两个原始字段都保留给需要区分逻辑的调用方。
+    out.display_state = displayState(f);
+    out.pending = isPending(f);
+    out.pending_label = pendingLabel(f);
     // 头像只有一个地址: 由 avatarFields 写库(util.js), 这里按缓存尺寸换算成 key。
     // toThumbUrl 对 /image/…/{尺寸} 与 /file/…/file 两种形态都有效, 拿不到地址就给 null。
     const thumbUrl = toThumbUrl(f.avatar_url);

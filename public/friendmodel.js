@@ -12,6 +12,11 @@
   // 特别关注组内排序: 在线 → 网页在线 → 离线(未知状态排最后)
   const STATE_RANK = { online: 0, active: 1, offline: 2 };
 
+  // 展示态: 服务端给的 display_state(pending 时 = 待确认的目标态)优先, 兼容没有该字段的调用方
+  function stateOf(f) {
+    return (f && (f.display_state || f.state)) || null;
+  }
+
   /** 搜索关键词规范化: 去空白 + 转小写; null/undefined 当空串 */
   function normalizeQuery(q) {
     return String(q == null ? '' : q).trim().toLowerCase();
@@ -40,12 +45,13 @@
   function splitGroups(friends, query) {
     const out = { fav: [], online: [], active: [], offline: [] };
     for (const f of filterPool(friends, query)) {
+      const s = stateOf(f);
       if (isFavStrict(f)) out.fav.push(f);
-      else if (f.state === 'online') out.online.push(f);
-      else if (f.state === 'active') out.active.push(f);
-      else if (f.state === 'offline') out.offline.push(f);
+      else if (s === 'online') out.online.push(f);
+      else if (s === 'active') out.active.push(f);
+      else if (s === 'offline') out.offline.push(f);
     }
-    out.fav.sort((a, b) => (STATE_RANK[a.state] ?? 3) - (STATE_RANK[b.state] ?? 3));
+    out.fav.sort((a, b) => (STATE_RANK[stateOf(a)] ?? 3) - (STATE_RANK[stateOf(b)] ?? 3));
     return out;
   }
 
@@ -55,7 +61,7 @@
    */
   function groupOf(f) {
     if (f && f.config && f.config.favorite) return 'fav';
-    const s = f && f.state;
+    const s = stateOf(f);
     return s === 'online' ? 'online' : (s === 'active' ? 'active' : 'offline');
   }
 
@@ -96,5 +102,5 @@
     return normalizeQuery(query) + '\u0001' + JSON.stringify(collapsed || {}) + '\u0001' + JSON.stringify(friends || []);
   }
 
-  return { STATE_RANK, CONFIG_FIELDS, normalizeQuery, filterPool, splitGroups, groupOf, renderSignature, normalizeConfig, patchConfig };
+  return { STATE_RANK, CONFIG_FIELDS, stateOf, normalizeQuery, filterPool, splitGroups, groupOf, renderSignature, normalizeConfig, patchConfig };
 });

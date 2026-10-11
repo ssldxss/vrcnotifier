@@ -38,6 +38,28 @@ test('filterPool: 大小写不敏感, 命中昵称/世界/自定义状态任一�
   assert.deepEqual(ids(fm.filterPool([F('d', 'online')], 'x')), []);
 });
 
+test('splitGroups: 待确认(pending)按 display_state 归组与排序, state 只是已确认的起始态', () => {
+  // Alice: state online(起始态) + display_state offline(待确认目标) → 归离线组, 而不是在线组
+  const alice = F('alice', 'online', { display_state: 'offline', pending: true, pending_label: '可能离线' });
+  // Bob: state offline + display_state online → 归在线组
+  const bob = F('bob', 'offline', { display_state: 'online', pending: true, pending_label: '可能在线' });
+  const g = fm.splitGroups([alice, bob, F('carol', 'active')], '');
+  assert.deepEqual(ids(g.online), ['bob']);
+  assert.deepEqual(ids(g.offline), ['alice']);
+  assert.deepEqual(ids(g.active), ['carol']);
+  // 特别关注组内排序同样看展示态: alice(离线) 排在 bob(在线) 后面
+  const gf = fm.splitGroups([
+    Object.assign(fav('alice', 'online'), { display_state: 'offline' }),
+    Object.assign(fav('bob', 'offline'), { display_state: 'online' })
+  ], '');
+  assert.deepEqual(ids(gf.fav), ['bob', 'alice']);
+  // groupOf(特别关注切换后的目标组)也一致
+  assert.equal(fm.groupOf(alice), 'offline');
+  assert.equal(fm.groupOf(bob), 'online');
+  // stateOf 兼容没有 display_state 的老数据
+  assert.equal(fm.stateOf(F('x', 'offline')), 'offline');
+});
+
 test('splitGroups: 特别关注优先于状态, 其余按 在线/网页在线/离线 分组', () => {
   const g = fm.splitGroups([
     F('a', 'online'), fav('b', 'online'), F('c', 'active'), F('d', 'offline'), fav('e', 'offline')

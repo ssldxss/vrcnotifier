@@ -13,6 +13,8 @@ const silent = { debug: () => {}, info: () => {}, warn: () => {}, error: () => {
 
 function startMockApi() {
   return new Promise((resolve) => {
+    // 好友状态由测试驱动: WS 推上线前 me() 报离线(基线), 推上线后 me() 报在线(到期复核通过)
+    const state = { friendOnline: false };
     const server = http.createServer((req, res) => {
       const url = new URL(req.url, 'http://127.0.0.1');
       const send = (code, obj, headers = {}) => {
@@ -20,7 +22,7 @@ function startMockApi() {
         res.end(JSON.stringify(obj));
       };
       if (url.pathname === '/api/1/auth/user' && req.method === 'GET') {
-        const me = { id: 'usr_me', displayName: 'SmokeUser', state: 'online', friends: ['usr_f1'], onlineFriends: [], offlineFriends: ['usr_f1'], activeFriends: [], presence: { world: 'wrld_b', instance: '2~region(us)', platform: 'web' } };
+        const me = { id: 'usr_me', displayName: 'SmokeUser', state: 'online', friends: ['usr_f1'], onlineFriends: state.friendOnline ? ['usr_f1'] : [], offlineFriends: state.friendOnline ? [] : ['usr_f1'], activeFriends: [], presence: { world: 'wrld_b', instance: '2~region(us)', platform: 'web' } };
         if (req.headers.authorization && req.headers.authorization.startsWith('Basic ')) {
           return send(200, me, { 'Set-Cookie': 'auth=smoke_auth; Path=/; HttpOnly' });
         }
@@ -59,29 +61,23 @@ function startMockApi() {
       }
       return send(404, { error: { message: 'not found' } });
     });
-    server.listen(0, '127.0.0.1', () => resolve({ server, base: 'http://127.0.0.1:' + server.address().port }));
+    server.listen(0, '127.0.0.1', () => resolve({ server, base: 'http://127.0.0.1:' + server.address().port, state }));
   });
 }
 
+// 不再连接即自动推事件(上线通知现在要"先排队 → 到期 me() 复核", 由测试决定推送时机与 mock 状态)
 function startMockWs() {
   return new Promise((resolve) => {
     const wss = new WebSocketServer({ host: '127.0.0.1', port: 0 });
+    const sockets = new Set();
     wss.on('connection', (ws) => {
-      // 模拟 VRChat pipeline: 连接后推送一个 friend-online 事件(双重编码 content)
-      setTimeout(() => {
-        if (ws.readyState !== 1) return;
-        ws.send(JSON.stringify({
-          type: 'friend-online',
-          content: JSON.stringify({
-            userId: 'usr_f1',
-            location: 'wrld_b:2~region(us)',
-            platform: 'standalonewindows',
-            user: { id: 'usr_f1', displayName: '朋友1', status: 'join me', statusDescription: 'hello' }
-          })
-        }));
-      }, 50);
+      sockets.add(ws);
+      ws.on('close', () => sockets.delete(ws));
     });
-    wss.on('listening', () => resolve({ wss, url: 'ws://127.0.0.1:' + wss.address().port }));
+    const emit = (msg) => {
+      for (const ws of sockets) if (ws.readyState === 1) ws.send(JSON.stringify(msg));
+    };
+    wss.on('listening', () => resolve({ wss, url: 'ws://127.0.0.1:' + wss.address().port, emit }));
   });
 }
 
@@ -117,6 +113,7 @@ test('end-to-end: login → configure → ws event → QQ notification', async (
     wsBaseUrl: ws.url,
     accessToken: 'smoke-token',
     vrcStatusUrl: api.base + '/api/2',
+    confirmDelayMs: 100, // 上线也要走"pending → me() 复核", 测试里把确认窗口压到 100ms
     qq
   });
   const server = runtime.app.listen(0);
@@ -168,7 +165,18 @@ test('end-to-end: login → configure → ws event → QQ notification', async (
   const settings = await json('PUT', '/api/settings', { qq_enabled: 1, qq_app_id: 'app1', qq_app_secret: 'sec1' });
   assert.equal(settings.status, 200);
 
-  // 4. WS 事件 → 通知 → QQ 送达
+  // 4. WS 事件 → pending → 到期 me() 复核 → QQ 送达
+  //    mock 同步把好友置为在线: 复核时 me() 报 online, 确认上线并推送
+  api.state.friendOnline = true;
+  ws.emit({
+    type: 'friend-online',
+    content: JSON.stringify({
+      userId: 'usr_f1',
+      location: 'wrld_b:2~region(us)',
+      platform: 'standalonewindows',
+      user: { id: 'usr_f1', displayName: '朋友1', status: 'join me', statusDescription: 'hello' }
+    })
+  });
   const got = await waitFor(() => (qq.sent.find((m) => m.text.includes('朋友1')) || null), 8000);
   assert.ok(got, 'QQ 未在超时内收到好友通知');
   assert.ok(got.text.includes('# 朋友1上线'), '标题为 # 昵称事件, 实际: ' + JSON.stringify(got.text));

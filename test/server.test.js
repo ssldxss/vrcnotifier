@@ -998,6 +998,30 @@ test('friends list 直接带出逐好友配置(存在好友行上, 默认全 0)'
   assert.equal(f1.config.notify_world_change, 0);
 });
 
+test('friends list 带出待确认(pending)的展示态: display_state/pending/pending_label', async (t) => {
+  const ctx = setup({ onlineFriends: [{ id: 'usr_f1', displayName: '朋友1', location: 'wrld_a:1', status: 'active' }, { id: 'usr_f2', displayName: '朋友2', location: 'wrld_b:1', status: 'active' }] });
+  t.after(() => close(ctx));
+  await post(ctx, '/api/login', { username: 'me', password: 'pw' });
+  // 模拟"下线待确认": state 仍是已确认的 online(起始态), pending_state 是目标态 offline
+  const row = ctx.db.getFriend('usr_f1');
+  ctx.db.updateFriendState(row.id, {
+    state: 'online', status: 'active', world_id: 'wrld_a', instance_id: null,
+    status_description: null, platform: 'web', pending_state: 'offline', pending_at: 123, last_seen: 123
+  });
+  const r = await get(ctx, '/api/friends');
+  const f1 = r.data.friends.find((f) => f.friend_vrchat_id === 'usr_f1');
+  assert.equal(f1.state, 'online', '原始 state 仍是已确认的起始态');
+  assert.equal(f1.pending_state, 'offline', 'pending_state 是目标态');
+  assert.equal(f1.display_state, 'offline', '展示态优先取 pending 目标态');
+  assert.equal(f1.pending, true);
+  assert.equal(f1.pending_label, '可能离线');
+  // 非 pending 的行照旧: 展示态 = state, 无"可能"标签
+  const f2 = r.data.friends.find((f) => f.friend_vrchat_id === 'usr_f2');
+  assert.equal(f2.display_state, 'online');
+  assert.equal(f2.pending, false);
+  assert.equal(f2.pending_label, null);
+});
+
 test('PUT friend config persists and reflects in list', async (t) => {
   const ctx = setup({ onlineFriends: [{ id: 'usr_f1', displayName: '朋友1', location: 'wrld_a:1', status: 'active' }] });
   t.after(() => close(ctx));

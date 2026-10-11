@@ -60,6 +60,29 @@ test('buildOnlineList without favorites omits 其他在线 header, table follows
   assert.ok(r.markdown.includes('| 🟢 Alice | WorldX |'));
 });
 
+test('buildOnlineList: 待确认(pending)按目标态归类, 世界列显示"可能X"', () => {
+  const friends = [
+    // 下线待确认: state 仍是 online, pending 目标是 offline
+    { friend_vrchat_id: 'usr_a', display_name: 'Alice', state: 'online', pending_state: 'offline', status: 'active', world_name: 'WorldX', favorite: 1 },
+    // 上线待确认: state 仍是 offline, pending 目标是 online
+    { friend_vrchat_id: 'usr_b', display_name: 'Bob', state: 'offline', pending_state: 'online', status: 'join me', world_name: 'WorldY', favorite: 1 },
+    // 网页上线待确认
+    { friend_vrchat_id: 'usr_c', display_name: 'Carol', state: 'offline', pending_state: 'active', status: 'active', world_name: null, favorite: 1 },
+    // 已确认在线(对照)
+    { friend_vrchat_id: 'usr_d', display_name: 'Dave', state: 'online', status: 'active', world_name: 'WorldZ' }
+  ];
+  const r = buildOnlineList(friends);
+  // 在线计数用展示态: Alice(离线) 不算, Bob(在线) 与 Dave 算 → 共 2 人
+  assert.ok(r.text.startsWith('【在线列表】2 人在线'), r.text);
+  assert.ok(r.text.includes('❔ Alice'), '下线待确认的特别关注: ❔ + 可能离线');
+  assert.ok(r.text.includes('可能离线'));
+  assert.ok(r.text.includes('可能在线'));
+  assert.ok(r.text.includes('可能网页在线'));
+  assert.ok(!r.text.includes('WorldX'), '待确认期间不显示旧世界名');
+  assert.ok(r.text.includes('🟢 Dave'), '已确认在线的照旧');
+  assert.ok(r.text.includes('WorldZ'));
+});
+
 test('buildOnlineList puts favorites first and includes offline favorites', () => {
   const friends = [
     { friend_vrchat_id: 'usr_a', display_name: 'Alice', state: 'online', status: 'active', world_name: 'WorldX' },

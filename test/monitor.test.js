@@ -232,17 +232,18 @@ test('WS friend-offline: pending confirm after delay; cancel on revert', async (
   let t = 0;
   const tset = setup({ now: () => t });
   const user = addUser(tset.db);
-  addConfig(tset, 'usr_f1');
+  addConfig(tset, 'usr_f1', { notifyOnline: false }); // 上线通知关着: 基线直接落 state, 只考察下线 pending
   await tset.monitor.activateUser(user, tset.vrcapi);
   // 先上线(建基线)
   await tset.monitor.handlePipelineEvent(user.vrchat_user_id, '1', { type: 'friend-online', content: { userId: 'usr_f1', location: 'wrld_a:1', user: { id: 'usr_f1', displayName: 'F1', status: 'active' } } });
   tset.notifications.length = 0;
-  // 下线事件 → 进入 pending, 不通知
+  // 下线事件 → 进入 pending, 不通知; state 保持起始态 online(等复核)
   t = 5000;
   await tset.monitor.handlePipelineEvent(user.vrchat_user_id, '2', { type: 'friend-offline', content: { userId: 'usr_f1', platform: '' } });
   assert.equal(tset.notifications.length, 0);
   let f = tset.db.getFriend('usr_f1');
   assert.equal(f.pending_state, 'offline');
+  assert.equal(f.state, 'online', '待确认期间 state 保持起始态');
   // 30s 内恢复上线 → 取消
   t = 10000;
   await tset.monitor.handlePipelineEvent(user.vrchat_user_id, '3', { type: 'friend-online', content: { userId: 'usr_f1', location: 'wrld_a:1', user: { id: 'usr_f1', displayName: 'F1', status: 'active' } } });
@@ -297,7 +298,7 @@ test('pending 到期自动调 API 验证并确认下线', async () => {
 test('instance_id: WS 在线写入实例, traveling 保留, 下线清空', async () => {
   const t = setup({ confirmDelayMs: 100000 });
   const user = addUser(t.db);
-  addConfig(t, 'usr_f1');
+  addConfig(t, 'usr_f1', { notifyOnline: false }); // 只考察下线的实例清空, 不让上线 pending 掺进来
   await t.monitor.activateUser(user, t.vrcapi);
   // 首见(带完整实例)
   await t.monitor.handlePipelineEvent(user.vrchat_user_id, '1', { type: 'friend-online', content: { userId: 'usr_f1', location: 'wrld_a:12345~region(us)~nonce(xyz)', user: { id: 'usr_f1', displayName: 'F1', status: 'active' } } });
@@ -321,7 +322,7 @@ test('instance_id: 快照在线好友从 friends 列表落库, 离线清空', as
     onlineFriends: [onlineFriend('usr_f1', { location: 'wrld_a:999~region(jp)' })]
   });
   const user = addUser(t.db);
-  addConfig(t, 'usr_f1');
+  addConfig(t, 'usr_f1', { notifyOffline: false }); // 快照路径直接落 state, 不排 pending
   await t.monitor.activateUser(user, t.vrcapi);
   let f = t.db.getFriend('usr_f1');
   assert.equal(f.state, 'online');
@@ -343,8 +344,8 @@ test('pending 合并: 多个好友同时 pending, 到期只调一次 me()', asyn
   // D 取 150ms: 两次 await 事件间的事件循环抖动(通常 <5ms)需超过 D 才会被误判为非同时
   const t = setup({ confirmDelayMs: 150, now: () => Date.now() });
   const user = addUser(t.db);
-  addConfig(t, 'usr_f1');
-  addConfig(t, 'usr_f2');
+  addConfig(t, 'usr_f1', { notifyOnline: false }); // 基线直接落 state, 两个都只考察下线 pending
+  addConfig(t, 'usr_f2', { notifyOnline: false });
   await t.monitor.activateUser(user, t.vrcapi);
   // 两个好友都上线建基线
   for (const id of ['usr_f1', 'usr_f2']) {
@@ -375,7 +376,7 @@ test('pending 顺延上限: 持续下线流不被饿死, 最早下线 2D 内通�
   const t = setup({ confirmDelayMs: 200, now: () => Date.now() });
   const ids = ['usr_f1', 'usr_f2', 'usr_f3', 'usr_f4', 'usr_f5', 'usr_f6'];
   const user = addUser(t.db);
-  for (const id of ids) addConfig(t, id);
+  for (const id of ids) addConfig(t, id, { notifyOnline: false }); // 基线直接落 state
   await t.monitor.activateUser(user, t.vrcapi);
   // 基线: 全部经 WS 上线(首见静默)
   for (const id of ids) {
@@ -411,7 +412,7 @@ test('pending 突发合并保持: 窗口内连续下线只调一次 me()', async
   const t = setup({ confirmDelayMs: 200, now: () => Date.now() });
   const ids = ['usr_f1', 'usr_f2', 'usr_f3', 'usr_f4'];
   const user = addUser(t.db);
-  for (const id of ids) addConfig(t, id);
+  for (const id of ids) addConfig(t, id, { notifyOnline: false }); // 基线直接落 state
   await t.monitor.activateUser(user, t.vrcapi);
   for (const id of ids) {
     await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'up' + id, { type: 'friend-online', content: { userId: id, location: 'wrld_a:1', user: { id, displayName: id, status: 'active' } } });
@@ -434,8 +435,8 @@ test('pending 取消不影响同桶其他好友的到期确认', async () => {
   // D 取 300ms: 回退事件必须先于第一次到期点到达, 留足抖动余量
   const t = setup({ confirmDelayMs: 300, now: () => Date.now() });
   const user = addUser(t.db);
-  addConfig(t, 'usr_f1');
-  addConfig(t, 'usr_f2');
+  addConfig(t, 'usr_f1', { notifyOnline: false }); // 基线直接落 state
+  addConfig(t, 'usr_f2', { notifyOnline: false });
   await t.monitor.activateUser(user, t.vrcapi);
   for (const id of ['usr_f1', 'usr_f2']) {
     await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'up' + id, { type: 'friend-online', content: { userId: id, location: 'wrld_a:1', user: { id, displayName: id, status: 'active' } } });
@@ -455,6 +456,87 @@ test('pending 取消不影响同桶其他好友的到期确认', async () => {
   assert.equal(t.notifications[0].change.friendId, 'usr_f2');
   assert.equal(t.db.getFriend('usr_f1').pending_state, null);
   assert.equal(t.db.getFriend('usr_f2').pending_state, null);
+});
+
+test('pending: 上线也走验证, 窗口内 state 保持起始态, 到期 me() 复核在线才通知', async () => {
+  const t = setup({ confirmDelayMs: 150, now: () => Date.now(), offlineFriends: [offlineFriend('usr_f1')] });
+  const user = addUser(t.db);
+  addConfig(t, 'usr_f1', { notifyOnline: true });
+  await t.monitor.activateUser(user, t.vrcapi); // 基线: 离线
+  t.notifications.length = 0;
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'up', { type: 'friend-online', content: { userId: 'usr_f1', location: 'wrld_a:1', user: { id: 'usr_f1', displayName: 'F1', status: 'active' } } });
+  assert.equal(t.notifications.length, 0, '排队期间不发');
+  let f = t.db.getFriend('usr_f1');
+  assert.equal(f.pending_state, 'online', '上线进 pending');
+  assert.equal(f.state, 'offline', 'state 保持起始态(等复核)');
+  assert.equal(f.world_id, 'wrld_a', '世界照常提交: 面板能显示"可能在线 · 世界"');
+  // 到期复核: me() 报在线 → 确认上线
+  let meCalls = 0;
+  t.vrcapi.me = async () => { meCalls++; return { id: 'usr_me', friends: ['usr_f1'], onlineFriends: ['usr_f1'], activeFriends: [], offlineFriends: [] }; };
+  await new Promise((r) => setTimeout(r, 400));
+  assert.equal(meCalls, 1, '到期复核一次 me()');
+  assert.equal(t.notifications.length, 1);
+  assert.equal(t.notifications[0].change.changeType, '上线');
+  assert.equal(t.notifications[0].change.oldState, 'offline');
+  assert.equal(t.notifications[0].change.newState, 'online');
+  f = t.db.getFriend('usr_f1');
+  assert.equal(f.state, 'online', '确认后提交目标态');
+  assert.equal(f.pending_state, null);
+});
+
+test('pending: 开关关着的上下线不排队、不调 me(), 状态直接落库', async () => {
+  const t = setup({ confirmDelayMs: 50, now: () => Date.now(), offlineFriends: [offlineFriend('usr_f1')] });
+  const user = addUser(t.db);
+  addConfig(t, 'usr_f1', { notifyOnline: false, notifyOffline: false });
+  await t.monitor.activateUser(user, t.vrcapi);
+  let meCalls = 0;
+  const origMe = t.vrcapi.me;
+  t.vrcapi.me = async () => { meCalls++; return origMe(); };
+  t.notifications.length = 0;
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'up', { type: 'friend-online', content: { userId: 'usr_f1', location: 'wrld_a:1', user: { id: 'usr_f1', displayName: 'F1', status: 'active' } } });
+  const f = t.db.getFriend('usr_f1');
+  assert.equal(f.state, 'online', '状态直接落地');
+  assert.equal(f.pending_state, null, '不排队');
+  await new Promise((r) => setTimeout(r, 250));
+  assert.equal(meCalls, 0, '不排队 → 完全不花 me()');
+  assert.equal(t.notifications.length, 0);
+});
+
+test('pending: 窗口内只改签名/头像的 friend-update 不会把 pending 误取消', async () => {
+  const t = setup({ confirmDelayMs: 150, now: () => Date.now(), onlineFriends: [onlineFriend('usr_f1')] });
+  const user = addUser(t.db);
+  addConfig(t, 'usr_f1', { notifyOffline: true, notifyOnline: false });
+  await t.monitor.activateUser(user, t.vrcapi); // 基线: 在线
+  t.notifications.length = 0;
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'dn', { type: 'friend-offline', content: { userId: 'usr_f1', platform: '' } });
+  assert.equal(t.db.getFriend('usr_f1').pending_state, 'offline', '进入 pending');
+  // 局部事件(不带 state): 应继承 pending 目标态, 不能带着起始态命中回退分支
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'fu', { type: 'friend-update', content: { userId: 'usr_f1', user: { id: 'usr_f1', displayName: 'F1', statusDescription: '改签名' } } });
+  let f = t.db.getFriend('usr_f1');
+  assert.equal(f.pending_state, 'offline', '局部事件不该取消 pending');
+  assert.equal(f.state, 'online', 'state 仍保持起始态');
+  assert.equal(f.status_description, '改签名', '局部字段照常提交');
+  // 到期复核 offline → 确认下线
+  t.vrcapi.me = async () => ({ id: 'usr_me', friends: ['usr_f1'], onlineFriends: [], activeFriends: [], offlineFriends: ['usr_f1'] });
+  await new Promise((r) => setTimeout(r, 400));
+  assert.equal(t.notifications.length, 1);
+  assert.equal(t.notifications[0].change.changeType, '下线');
+  f = t.db.getFriend('usr_f1');
+  assert.equal(f.state, 'offline');
+  assert.equal(f.pending_state, null);
+});
+
+test('首轮对账(silent)强制提交快照状态, 不留 pending', async () => {
+  // 库里是 online(上次运行留下的), 首轮快照说 offline: silent 必须把 state 落成 offline
+  const t = setup({ confirmDelayMs: 100000, now: () => Date.now(), offlineFriends: [offlineFriend('usr_f1')] });
+  const user = addUser(t.db);
+  t.db.upsertFriend('usr_f1', { displayName: 'F1', state: 'online', worldId: 'wrld_old' });
+  addConfig(t, 'usr_f1', { notifyOffline: true, notifyOnline: true });
+  await t.monitor.activateUser(user, t.vrcapi);
+  const f = t.db.getFriend('usr_f1');
+  assert.equal(f.state, 'offline', '首轮对账提交快照状态');
+  assert.equal(f.pending_state, null, '首轮不留 pending');
+  assert.equal(t.notifications.length, 0, '首轮不补通知');
 });
 
 test('me() 缺少状态数组: 不翻转任何好友状态(防误杀)', async () => {
@@ -700,8 +782,8 @@ test('自定义状态变化受状态开关(notify_status_change)控制', async (
   assert.equal(t.notifications.length, 0, '状态开关关闭时自定义状态变化不通知');
 });
 
-test('网页上线走独立开关(notify_web_online): 只开"上线"收不到, 开了才收, eventType 单独一个', async () => {
-  const t = setup({});
+test('网页上线走独立开关(notify_web_online): 只开"上线"收不到; 开了后经 me() 复核确认才收到', async () => {
+  const t = setup({ confirmDelayMs: 20, now: () => Date.now() });
   const user = addUser(t.db);
   addConfig(t, 'usr_f1', { notifyOnline: true, notifyWebOnline: false });
   await t.monitor.activateUser(user, t.vrcapi);
@@ -709,16 +791,25 @@ test('网页上线走独立开关(notify_web_online): 只开"上线"收不到, �
   const active = { type: 'friend-active', content: { userId: 'usr_f1', platform: 'web', user: { id: 'usr_f1', displayName: 'F1', status: 'active' } } };
   await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'a1', active);
   assert.equal(t.notifications.length, 0, '只开"上线"不该收到网页上线');
-  assert.equal(t.db.getFriend('usr_f1').state, 'active', '状态本身照常落地');
+  assert.equal(t.db.getFriend('usr_f1').state, 'active', '开关关着: 不排队, 状态直接落地');
+  assert.equal(t.db.getFriend('usr_f1').pending_state, null, '开关关着不该排 pending');
 
-  // 打开网页上线开关, 制造一次新的 offline -> active
+  // 打开网页上线开关, 制造一次新的 offline -> active: 先排队, me() 复核为 active 后才确认发出
   addConfig(t, 'usr_f1', { notifyOnline: true, notifyWebOnline: true });
   await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'a2', { type: 'friend-offline', content: { userId: 'usr_f1' } });
   t.notifications.length = 0;
+  t.vrcapi.me = async () => ({ id: 'usr_me', friends: ['usr_f1'], onlineFriends: [], activeFriends: ['usr_f1'], offlineFriends: [] });
   await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'a3', active);
+  assert.equal(t.notifications.length, 0, '排队期间不发');
+  const queued = t.db.getFriend('usr_f1');
+  assert.equal(queued.pending_state, 'active', '网页上线进 pending');
+  assert.equal(queued.state, 'offline', '待确认期间 state 保持起始态');
+  await new Promise((r) => setTimeout(r, 120));
   assert.equal(t.notifications.length, 1);
   assert.equal(t.notifications[0].change.changeType, 'web端上线');
   assert.equal(t.notifications[0].change.eventType, 'friend_web_online', 'eventType 不能落到 status_change');
+  assert.equal(t.db.getFriend('usr_f1').state, 'active', '确认后提交目标态');
+  assert.equal(t.db.getFriend('usr_f1').pending_state, null);
 });
 
 test('网页在线期间的自定义状态变化会通知(并入 online 的判定)', async () => {
@@ -882,7 +973,7 @@ test('世界名按需查询: 快照不查, WS 事件查一次后进缓存', asyn
 test('snapshot keeps social/custom status when friend offline via API list', async () => {
   const t = setup({ onlineFriends: [onlineFriend('usr_f1')] });
   const user = addUser(t.db);
-  addConfig(t, 'usr_f1');
+  addConfig(t, 'usr_f1', { notifyOffline: false }); // 快照直接落 state, 不排 pending
   await t.monitor.activateUser(user, t.vrcapi);
   // 设置社交状态与自定义状态
   await t.monitor.handlePipelineEvent(user.vrchat_user_id, '1', { type: 'friend-online', content: { userId: 'usr_f1', location: 'wrld_a:1', user: { id: 'usr_f1', displayName: 'F1', status: 'join me', statusDescription: '摸鱼中' } } });

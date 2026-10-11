@@ -2,6 +2,7 @@
 // QQ 快捷命令: 绑定用户发消息触发, 基于好友表生成文本回复。
 
 const { formatLocalTime, withDeadline } = require('./util');
+const { displayState, pendingLabel } = require('./presence');
 
 // 状态圆点与 VRCX 一致: 在线绿/加入我蓝/询问我橙/忙碌红
 const STATUS_EMOJI = { active: '🟢', 'join me': '🔵', 'ask me': '🟠', busy: '🔴' };
@@ -23,18 +24,22 @@ function padEnd(s, len) {
   return String(s || '') + ' '.repeat(Math.max(0, len - displayWidth(s)));
 }
 
-/** 在线列表: 特别关注好友(不管在线与否)优先, 其余游戏在线好友; 列: 状态圆点 + 昵称 + 世界名 */
+/** 在线列表: 特别关注好友(不管在线与否)优先, 其余游戏在线好友; 列: 状态圆点 + 昵称 + 世界名
+ * 待确认(pending)的好友按目标态归类, 世界列显示"可能X"而不是世界名 —— 此时状态还没被 me() 复核。 */
 function buildOnlineList(friends) {
   const all = friends || [];
   const fav = all.filter((f) => f.favorite === 1);
-  const online = all.filter((f) => f.favorite !== 1 && f.state === 'online');
-  const toRows = (list) => list.map((f) => ({
-    emoji: f.state === 'online' ? statusEmoji(f.status) : '⚪',
-    name: f.display_name || f.friend_vrchat_id || '?',
-    world: f.state === 'online' ? (f.world_name || '-') : '离线'
-  }));
+  const online = all.filter((f) => f.favorite !== 1 && displayState(f) === 'online');
+  const toRows = (list) => list.map((f) => {
+    const pending = pendingLabel(f);
+    return {
+      emoji: pending ? '❔' : (displayState(f) === 'online' ? statusEmoji(f.status) : '⚪'),
+      name: f.display_name || f.friend_vrchat_id || '?',
+      world: pending || (displayState(f) === 'online' ? (f.world_name || '-') : '离线')
+    };
+  });
   if (!fav.length && !online.length) return { text: '当前没有游戏在线的朋友。' };
-  const onlineCount = all.filter((f) => f.state === 'online').length;
+  const onlineCount = all.filter((f) => displayState(f) === 'online').length;
   const renderTable = (rows) => `| 昵称 | 世界 |\n| :--- | :--- |\n${rows.map((r) => `| ${r.emoji} ${r.name} | ${r.world} |`).join('\n')}`;
   const sections = [];
   if (fav.length) sections.push(`## ⭐ 特别关注\n\n${renderTable(toRows(fav))}`);
@@ -69,7 +74,7 @@ function createQqCommands({ db, worldName = null, logger = null, getStatus = nul
     const svc = worldName;
     if (!svc) return friends;
     const wanted = [...new Set(friends
-      .filter((f) => f.state === 'online' && f.world_id && f.world_id !== 'private')
+      .filter((f) => displayState(f) === 'online' && f.world_id && f.world_id !== 'private')
       .map((f) => f.world_id))];
     const resolved = new Map();
     if (wanted.length) {

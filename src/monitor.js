@@ -45,7 +45,7 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
   const running = new Set();          // userId: 快照进行中(并发触发直接忽略)
   const awaitingSnapshot = new Set(); // userId: ws 重连成功后等待全量对账, 期间忽略 WS 消息
   const pendingStatus = new Map();     // friendId: 状态变化合并中(待 friend-location 执行)
-  const pendingBuckets = new Map();    // userId: { timer, friends:Set<friendId> } 下线 pending 到期验证(多好友共享一次 me())
+  const pendingBuckets = new Map();    // userId: { timer, friends:Set<friendId> } 上下线 pending 到期验证(多好友共享一次 me())
   const connState = new Map();         // userId -> { open, snapshotDone, startupSent, recovering, apiOk, faultSince, faultNotified, faultTimer }
 
   function stateOf(userId) {
@@ -492,11 +492,11 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
   }
 
   // ---------- 状态落地 ----------
-  // 下线 pending 到期(confirmDelayMs)后调一次 /auth/user 批量验证真实状态, 再逐个走状态机。
+  // 上/下线(含网页上线) pending 到期(confirmDelayMs)后调一次 /auth/user 批量验证真实状态, 再逐个走状态机。
   // 同一账号的多个 pending 好友共享一个定时器 + 一次 me() 请求(N→1)。
   // 到期点 = min(最后到达 + confirmDelayMs, 最早 pending_at + 2*confirmDelayMs):
-  // 新下线顺延定时器以合并突发(窗口内 N→1), 但顺延不超过最早 pending 的两倍窗口 ——
-  // 持续下线流(间隔 < 窗口)不再把验证饿死: 任意好友至多 2D 内被验证, me() 间隔 ≥ D。
+  // 新事件顺延定时器以合并突发(窗口内 N→1), 但顺延不超过最早 pending 的两倍窗口 ——
+  // 持续事件流(间隔 < 窗口)不再把验证饿死: 任意好友至多 2D 内被验证, me() 间隔 ≥ D。
   // 触发安全余量: libuv 定时器按缓存的循环时间计到期, 实际触发可比 Date.now() 基准早 ~1ms,
   // 压着 confirmDelayMs 边界触发会让状态机判"未满窗口"而白费一次 me(); 晚触发无害(只会更成熟)。
   const PENDING_TIMER_SAFETY_MS = 10;
@@ -532,7 +532,7 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
     if (!session || friendIds.length === 0) return;
     let cu;
     try {
-      cu = await session.vrcapi.me({ noRetry: true, purpose: '下线待验证' });
+      cu = await session.vrcapi.me({ noRetry: true, purpose: '上下线待验证' });
     } catch (e) {
       log.warn(`[monitor] pending 到期验证失败(${friendIds.length} 人, 下轮快照再定): ${e.message}`);
       return;
@@ -608,8 +608,14 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
     const result = applyChange({ ...cur, worldName: prevWorldName(cur.world_id) }, {
       state: input.state, status: input.status, worldId: input.worldId,
       worldName: input.worldName, statusDescription: input.statusDescription, platform: input.platform
-    }, { now, confirmDelayMs });
+    }, {
+      now, confirmDelayMs,
+      // 只有"真会发通知"的上下线/网页上线才排队验证: 逐好友开关关着就直接提交状态, 不排队也不花 me()
+      notifyEnabled: (field) => cur[field] === 1
+    });
     if (opts.silent) {
+      // 首轮对账只建基线: 待确认期间状态机会钉住 state(等验证), 这里必须强制提交本次输入, 不留 pending
+      result.dbUpdate.state = input.state !== undefined ? input.state : cur.state;
       result.dbUpdate.pending_state = null;
       result.dbUpdate.pending_at = null;
     }
@@ -746,7 +752,9 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
           // 实例号: 真实实例更新, private 清空, traveling/缺省保留旧值(undefined)
           const instanceId = loc ? (loc.isReal ? loc.instanceId : (u.location === 'private' ? null : undefined)) : undefined;
           await applyFriendInput(user, u.id, {
-            state: existing ? existing.state : undefined,
+            // 待确认期间 state 停留起始态: 这里要喂"当前应有的状态"(pending 目标优先),
+            // 否则只改签名/头像的局部事件会带着起始态命中回退分支, 把 pending 误取消。
+            state: existing ? (existing.pending_state || existing.state) : undefined,
             status: u.status !== undefined ? u.status : undefined, // 缺失时继承旧值
             statusDescription: u.statusDescription !== undefined ? u.statusDescription : undefined,
             platform: u.last_platform || null,
