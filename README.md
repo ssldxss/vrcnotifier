@@ -2,7 +2,7 @@
 
 # vrcnotifier
 
-VRChat 好友监控与通知器(v0.1.0):WebSocket 实时好友**上线 / 下线 / 切换世界 / 状态变化**+ 站内通知(仅推送邀请、戳一戳、群组公告,可在设置页分别开关,公告自动解析群组名),经 **QQ bot**推送到手机(机器人还可回复 2FA 验证码、查在线好友列表);自动恢复(cookie 失效自动重登、会话挂起自动 2FA、WS 自动重连);Web 面板、REST 对账、日志监控。敏感数据(VRChat 用户名/密码/cookie、QQ AppSecret)AES-256-GCM 加密落库。
+VRChat 好友监控与通知器:WebSocket 实时好友**上线 / 下线 / 切换世界 / 状态变化**+ 站内通知(仅推送邀请、戳一戳、群组公告,可在设置页分别开关,公告自动解析群组名),经 **QQ bot**推送到手机(2FA 验证码、查在线好友列表);自动恢复(cookie 失效自动重登、会话挂起自动 2FA、WS 自动重连);Web 面板、REST 对账、日志监控。敏感数据(VRChat 用户名/密码/cookie、QQ AppSecret)AES-256-GCM 加密落库。
 
 ## 快速开始(Docker)
 
@@ -90,9 +90,6 @@ docker compose logs -f     # 需要时看启动日志
 docker compose down        # 停止(保留卷)
 ```
 
-> **勿用 `docker compose down -v`**(会删密钥+数据卷,旧数据不可恢复)。备份/迁移/镜像重建见 [DOCKER.md](./DOCKER.md)。
-
-> 门禁页仍支持手填后端地址与端口,因此「前端与后端分开部署」的旧用法依然可用;但推荐的部署方式是上面的单容器方案——面板与 API 永远同版本。
 
 ## 本地运行
 
@@ -120,14 +117,10 @@ npm start                    # 面板 + API 同源 :3000(默认行为, 打开 ht
 
 ## 日志文件
 
-后端日志写入 `data/logs/`:分段存储,一段一个文件,以创建时间命名(`vrcnotifier-20260909-120000-123.log`)。每次启动开新段;单段写满 `LOG_SEGMENT_MB`(默认 2MB)后开新段;总段数达到 `LOG_MAX_FILES`(默认 6)时删除最老的段,即「覆盖最老日志」。历史可跨重启在 Web 面板日志页翻阅(面板最多驻留 5000 行,更早的随滚动加载)。终端(`docker compose logs`)始终保留全量明文输出。
+后端日志写入 `data/logs/`:分段存储,一段一个文件(2MB),以创建时间命名(`vrcnotifier-20260909-120000-123.log`)。
 
-## 文档
 
-- [DOCKER.md](./DOCKER.md) — Docker 详解:密钥自举、卷备份、数据迁移、镜像更新与重建
-- `docker-compose.test.yml` — 自带密钥文件的联调 compose(面板 8090 / 本机调试 127.0.0.1:3001)
-
-灵感来自 [shanyaojinjn/VRC-Notifier](https://github.com/shanyaojinjn/VRC-Notifier):改用 WebSocket 实时事件 + 数据加密 + QQ 机器人集成。
+灵感来自 [shanyaojinjn/VRC-Notifier](https://github.com/shanyaojinjn/VRC-Notifier):改用 WebSocket 实时事件 + QQ 机器人集成。
 
 鉴定为玩vrc玩的
 
