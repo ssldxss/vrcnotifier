@@ -1,6 +1,7 @@
 'use strict';
-// 界面外壳: 页面切换(好友监控/设置) + 概览项引用 + 回顶 + 主题三态 + 自定义下拉 + 丝滑滚动。
-// 从 app.js 拆出; 主题循环与滚动数学在 thememodel.js / scrollmath.js(均有单测)。
+// 界面外壳: 页面切换(好友监控/设置) + 概览项引用 + 回顶 + 主题三态 + 自定义下拉。
+// 从 app.js 拆出; 主题循环在 thememodel.js(有单测)。
+// 页面滚动一律交给浏览器原生处理(不再拦截 wheel)。
 // 本文件仍是传统脚本、函数保持全局, 所以 app.js 里的调用点无需改动。
 
 // ---------- 页面切换: 好友监控 / 设置(设置页含 QQ 机器人 + 后端日志) ----------
@@ -123,7 +124,7 @@ function updateToTop() {
 }
 window.addEventListener('scroll', updateToTop, { passive: true });
 $('#toTopBtn').addEventListener('click', () => {
-  if (window.__smoothScrollTo) window.__smoothScrollTo(0); // 复用惯性滚动滑回顶部
+  window.scrollTo({ top: 0, behavior: 'smooth' }); // 浏览器原生平滑滚动
 });
 // 上次刷新卡: 点击手动触发对账刷新
 const snapshotStatusItem = $('#stSnapshot') ? $('#stSnapshot').closest('.overview-item') : null;
@@ -303,44 +304,3 @@ function saveLogFilter() {
 }
 $('#logLevelSel').addEventListener('change', () => { saveLogFilter(); loadBackendLogs({ tail: 100 }); });
 $('#logCatSel').addEventListener('change', () => { saveLogFilter(); loadBackendLogs({ tail: 100 }); });
-
-// ---------- 丝滑滚动: 替换默认滚轮为指数趋近的惯性滚动 ----------
-// 起步跟手、尾段柔和; 日志卡/下拉菜单等内部滚动容器仍走原生。
-// 不检测系统「减少动态效果」开关, 一律启用。
-(function initSmoothScroll() {
-  const NATIVE_SEL = '#log, .dd-menu'; // 内部滚动容器: 不拦截
-  let target = window.scrollY;
-  let current = window.scrollY;
-  let rafId = null;
-  const onWheel = (e) => {
-    if (e.ctrlKey) return; // ctrl+滚轮 = 缩放, 交给浏览器
-    const el = e.target && e.target.closest ? e.target.closest(NATIVE_SEL) : null;
-    if (el) return; // 容器内部原生滚动
-    e.preventDefault();
-    const delta = VrcScroll.normalizeWheelDelta(e.deltaY, e.deltaMode, window.innerHeight);
-    const max = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
-    target = VrcScroll.clampScroll(target + delta * 1.15, max); // 惯性加成: 快速拨轮/甩动滑得更远
-    if (rafId === null) rafId = requestAnimationFrame(step);
-  };
-  const step = () => {
-    current = VrcScroll.approach(current, target); // 更柔的趋近: 尾段滑行更长、更丝滑
-    if (VrcScroll.isSettled(current, target)) {
-      current = target;
-      rafId = null;
-    } else {
-      rafId = requestAnimationFrame(step);
-    }
-    window.scrollTo(0, current);
-  };
-  window.addEventListener('wheel', onWheel, { passive: false });
-  // 其他滚动源(键盘/滚动条/锚点)直接改 scrollY 时同步目标, 避免相互对抗
-  window.addEventListener('scroll', () => {
-    if (rafId === null) { target = window.scrollY; current = window.scrollY; }
-  }, { passive: true });
-  // 供「回到顶部」按钮等调用: 复用同一惯性滚动
-  window.__smoothScrollTo = (y) => {
-    const max = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
-    target = VrcScroll.clampScroll(Number(y) || 0, max);
-    if (rafId === null) rafId = requestAnimationFrame(step);
-  };
-})();

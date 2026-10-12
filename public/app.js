@@ -5,9 +5,9 @@
 // 各功能块已按文件拆分, 本文件只负责"装配与启动"(见 index.html 的脚本顺序):
 //   base.js 公共底座 · state.js 共享状态 · net.js 后端往来 · auth.js 视图与登录
 //   boot.js/bootmath.js 等待页 · friends.js/friendmodel.js 好友列表 · logpanel.js/logparse.js 日志
-//   overview.js/statusmodel.js 概览与曲线 · settings.js 设置 · ui.js/thememodel.js/scrollmath.js 外壳
+//   overview.js/statusmodel.js 概览与曲线 · settings.js 设置 · ui.js/thememodel.js 外壳
 
-// 页面切换/主题/下拉/丝滑滚动 已拆到 ui.js + thememodel.js + scrollmath.js, 见 index.html 的脚本顺序
+// 页面切换/主题/下拉 已拆到 ui.js + thememodel.js, 见 index.html 的脚本顺序
 // 启动时同步恢复上次视图(首帧前完成, 避免刷新瞬间闪出「连接后端」门禁页);
 // 会话验证仍在后台进行, 无效时再由 checkSession 切到登录/门禁页。
 try {
