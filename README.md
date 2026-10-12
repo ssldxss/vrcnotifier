@@ -121,7 +121,7 @@ npm start                    # 面板 + API 同源 :3000(默认行为, 打开 ht
 后端日志写入 `data/logs/`:分段存储,一段一个文件(2MB),以创建时间命名(`vrcnotifier-20260909-120000-123.log`)。
 
 
-灵感来自 [shanyaojinjn/VRC-Notifier](https://github.com/shanyaojinjn/VRC-Notifier):改用 WebSocket 实时事件 + QQ 机器人集成。
+灵感来自 [shanyaojinjn/VRC-Notifier](https://github.com/shanyaojinjn/VRC-Notifier):改用 WebSocket 实时事件 + QQ 机器人集成,极致的vrcapi调用(平均3次/h)。
 
 鉴定为玩vrc玩的
 
