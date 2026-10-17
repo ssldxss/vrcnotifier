@@ -636,3 +636,170 @@ test('头像改由单一地址承载: 旧库的 avatar_thumb_url 列被删除, �
   assert.ok(db.getFriend('usr_f1'), '迁移后仍能按新 schema 读好友');
   assert.equal(db.getFriend('usr_f1').avatar_url, 'https://x/f1-full.png');
 });
+
+// ---------- 好友动态(friend_events): 只增不改的历史流水 ----------
+
+test('friend_events: addFriendEvent 写入并返回整行', () => {
+  const db = newDb();
+  const row = db.addFriendEvent({
+    type: '切换世界', at: 1700000000000,
+    friend_vrchat_id: 'usr_a', friend_name: '甲', friend_avatar: 'https://x/a.png',
+    old_state: 'online', new_state: 'online',
+    old_world_id: 'wrld_1', old_world_name: '世界一',
+    world_id: 'wrld_2', world_name: '世界二'
+  });
+  assert.ok(row.id > 0, '返回带自增 id 的整行');
+  assert.equal(row.type, '切换世界');
+  assert.equal(row.at, 1700000000000);
+  assert.equal(row.friend_vrchat_id, 'usr_a');
+  assert.equal(row.friend_name, '甲');
+  assert.equal(row.friend_avatar, 'https://x/a.png');
+  assert.equal(row.old_world_name, '世界一');
+  assert.equal(row.world_name, '世界二');
+  assert.equal(row.title, null, '没传的列是 null');
+  const again = db.listFriendEvents({ limit: 10 }).events;
+  assert.equal(again.length, 1, '真的落库了');
+  assert.equal(again[0].id, row.id);
+});
+
+test('friend_events: 旧库打开自动建表(不需要迁移代码)', () => {
+  const { DatabaseSync } = require('node:sqlite');
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'vrcnt-db-ev-')), 'old.db');
+  const raw = new DatabaseSync(file);
+  // 旧库(真实老 schema): 只有好友表, 完全没有 friend_events
+  raw.exec(`CREATE TABLE friends (id INTEGER PRIMARY KEY AUTOINCREMENT, friend_vrchat_id TEXT NOT NULL,
+    display_name TEXT, avatar_url TEXT, avatar_thumb_url TEXT,
+    state TEXT DEFAULT 'offline', status TEXT, world_id TEXT, instance_id TEXT,
+    status_description TEXT, platform TEXT, trust_level TEXT, pending_state TEXT, pending_at INTEGER,
+    last_seen INTEGER, created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(friend_vrchat_id))`);
+  raw.exec("INSERT INTO friends (friend_vrchat_id, display_name) VALUES ('usr_f1','朋友')");
+  raw.close();
+
+  const db = createDb(file);
+  const chk = new DatabaseSync(file, { readOnly: true });
+  const has = chk.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='friend_events'").all();
+  chk.close();
+  assert.equal(has.length, 1, '打开旧库就把表建出来');
+  const row = db.addFriendEvent({ type: '上线', at: 5, friend_vrchat_id: 'usr_f1', friend_name: '朋友' });
+  assert.ok(row.id > 0, '建完表立刻能写');
+  assert.equal(db.listFriends().length, 1, '老数据不受影响');
+  db.close();
+});
+
+test('friend_events: 超过条数上限丢最旧(每次写入都裁)', () => {
+  const db = newDb();
+  for (let i = 1; i <= 5; i++) {
+    db.addFriendEvent({ type: '上线', at: i, friend_vrchat_id: 'usr_a', friend_name: '甲' }, { limit: 3 });
+  }
+  const rows = db.listFriendEvents({ limit: 10 }).events;
+  assert.equal(rows.length, 3, '只留最新 3 条');
+  assert.deepEqual(rows.map((r) => r.at), [5, 4, 3], '留下的是最新的那些(倒序返回)');
+});
+
+test('friend_events: 不传上限就不裁(交给调用方定策略)', () => {
+  const db = newDb();
+  for (let i = 1; i <= 5; i++) db.addFriendEvent({ type: '上线', at: i, friend_vrchat_id: 'usr_a' });
+  assert.equal(db.listFriendEvents({ limit: 10 }).events.length, 5);
+});
+
+test('friend_events: listFriendEvents 倒序 / before 游标 / types / friendId / q / hasMore', () => {
+  const db = newDb();
+  const a1 = db.addFriendEvent({ type: '上线', at: 1, friend_vrchat_id: 'usr_a', friend_name: '甲', world_id: 'wrld_1', world_name: '世界一' });
+  const a2 = db.addFriendEvent({ type: '切换世界', at: 2, friend_vrchat_id: 'usr_a', friend_name: '甲', old_world_name: '世界一', world_name: '世界二' });
+  const b1 = db.addFriendEvent({ type: '戳一戳', at: 3, friend_vrchat_id: 'usr_b', friend_name: '乙', title: '戳了你一下' });
+
+  const first = db.listFriendEvents({ limit: 2 });
+  assert.deepEqual(first.events.map((e) => e.id), [b1.id, a2.id], '按 id 倒序(最新在前)');
+  assert.equal(first.hasMore, true, '还有更旧的');
+  const second = db.listFriendEvents({ limit: 2, before: b1.id });
+  assert.deepEqual(second.events.map((e) => e.id), [a2.id, a1.id]);
+  assert.equal(second.hasMore, false, '到尾了');
+
+  assert.deepEqual(db.listFriendEvents({ limit: 10, types: ['上线', '戳一戳'] }).events.map((e) => e.id), [b1.id, a1.id]);
+  assert.deepEqual(db.listFriendEvents({ limit: 10, types: [] }).events, [], '空集合 = 什么都不要(不是不过滤)');
+  assert.deepEqual(db.listFriendEvents({ limit: 10, friendId: 'usr_a' }).events.map((e) => e.id), [a2.id, a1.id]);
+  assert.deepEqual(db.listFriendEvents({ limit: 10, q: '世界一' }).events.map((e) => e.id), [a1.id], 'q 匹配世界名');
+  assert.deepEqual(db.listFriendEvents({ limit: 10, q: '乙' }).events.map((e) => e.id), [b1.id], 'q 匹配昵称');
+  assert.deepEqual(db.listFriendEvents({ limit: 10, q: '戳了你' }).events.map((e) => e.id), [b1.id], 'q 匹配通知文案');
+  assert.deepEqual(db.listFriendEvents({ limit: 10, q: '查无此人' }).events, []);
+});
+
+test('friend_events: q 里的 % 与 _ 当普通字符(不当通配符)', () => {
+  const db = newDb();
+  db.addFriendEvent({ type: '改名', at: 1, friend_vrchat_id: 'usr_a', friend_name: '100%猫' });
+  db.addFriendEvent({ type: '改名', at: 2, friend_vrchat_id: 'usr_b', friend_name: '100X猫' });
+  db.addFriendEvent({ type: '改名', at: 3, friend_vrchat_id: 'usr_c', friend_name: 'AB' });
+  assert.deepEqual(db.listFriendEvents({ limit: 10, q: '100%' }).events.map((e) => e.at), [1], '% 不是通配符');
+  assert.deepEqual(db.listFriendEvents({ limit: 10, q: 'A_' }).events, [], '_ 不是通配符');
+});
+
+test('friend_events: 登出与清库都带走(与好友同一生命周期)', () => {
+  const db = newDb();
+  db.upsertFriend('usr_a', { displayName: '甲' });
+  db.addFriendEvent({ type: '上线', at: 1, friend_vrchat_id: 'usr_a', friend_name: '甲' });
+  const cleared = db.clearAccountData();
+  assert.equal(cleared.events, 1, 'clearAccountData 报告清了 1 条');
+  assert.equal(db.listFriendEvents({ limit: 10 }).events.length, 0);
+
+  db.addFriendEvent({ type: '上线', at: 2, friend_vrchat_id: 'usr_a', friend_name: '甲' });
+  db.wipeAllExceptToken();
+  assert.equal(db.listFriendEvents({ limit: 10 }).events.length, 0, 'wipeAllExceptToken 也清');
+
+  db.addFriendEvent({ type: '上线', at: 3, friend_vrchat_id: 'usr_a', friend_name: '甲' });
+  db.clearSettings();
+  assert.equal(db.listFriendEvents({ limit: 10 }).events.length, 1, 'clearSettings 只动设置, 不动动态');
+  assert.equal(db.clearFriendEvents(), 1, '手动清空返回条数');
+  assert.equal(db.listFriendEvents({ limit: 10 }).events.length, 0);
+});
+
+test('friend_events: 早期写入的 "web端上线" 开库时统一改名成界面用的 "网页上线"', () => {
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'vrcnt-db-ev2-')), 'old.db');
+  const db1 = createDb(file);
+  db1.addFriendEvent({ type: 'web端上线', at: 1, friend_vrchat_id: 'usr_a', friend_name: '甲' });
+  db1.addFriendEvent({ type: '上线', at: 2, friend_vrchat_id: 'usr_a', friend_name: '甲' });
+  db1.close();
+
+  const db2 = createDb(file); // 开库时的迁移
+  const rows = db2.listFriendEvents({ limit: 10 }).events;
+  assert.deepEqual(rows.map((r) => r.type), ['上线', '网页上线'], '老行改名, 其它类型不动');
+  db2.close();
+});
+
+test('friend_events: 按页取(total/offset) —— 分页栏要的"共 N 条"和"跳到第 K 页"', () => {
+  const db = newDb();
+  for (let i = 1; i <= 12; i++) db.addFriendEvent({ type: i % 2 ? '上线' : '下线', at: i, friend_vrchat_id: 'usr_a', friend_name: '甲' });
+
+  const p1 = db.listFriendEvents({ limit: 5, page: 1 });
+  assert.equal(p1.total, 12, '总数按筛选后的条数算');
+  assert.equal(p1.events.length, 5);
+  assert.equal(p1.hasMore, true);
+  assert.deepEqual(p1.events.map((e) => e.at), [12, 11, 10, 9, 8]);
+
+  const p2 = db.listFriendEvents({ limit: 5, page: 2 });
+  assert.deepEqual(p2.events.map((e) => e.at), [7, 6, 5, 4, 3]);
+  assert.equal(p2.hasMore, true);
+
+  const p3 = db.listFriendEvents({ limit: 5, page: 3 });
+  assert.deepEqual(p3.events.map((e) => e.at), [2, 1], '最后一页不满也照给');
+  assert.equal(p3.hasMore, false);
+
+  assert.deepEqual(db.listFriendEvents({ limit: 5, page: 9 }).events, [], '越界页给空');
+  // 筛选与总数一起考虑
+  const only = db.listFriendEvents({ limit: 5, page: 1, types: ['上线'] });
+  assert.equal(only.total, 6);
+  assert.ok(only.events.every((e) => e.type === '上线'));
+  // q 也参与总数
+  assert.equal(db.listFriendEvents({ limit: 5, q: '甲' }).total, 12);
+  assert.equal(db.listFriendEvents({ limit: 5, q: '没人' }).total, 0);
+});
+
+test('friend_events: order 支持最早在前(表头点一下反转)', () => {
+  const db = newDb();
+  for (let i = 1; i <= 4; i++) db.addFriendEvent({ type: '上线', at: i, friend_vrchat_id: 'usr_a', friend_name: '甲' });
+  assert.deepEqual(db.listFriendEvents({ limit: 10 }).events.map((e) => e.at), [4, 3, 2, 1], '默认最新在前');
+  assert.deepEqual(db.listFriendEvents({ limit: 10, order: 'asc' }).events.map((e) => e.at), [1, 2, 3, 4], 'asc = 最早在前');
+  const p2 = db.listFriendEvents({ limit: 2, page: 2, order: 'asc' });
+  assert.deepEqual(p2.events.map((e) => e.at), [3, 4], '排序与分页能一起用');
+  assert.equal(p2.total, 4);
+});

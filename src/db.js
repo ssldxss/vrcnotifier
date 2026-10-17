@@ -69,13 +69,43 @@ CREATE TABLE IF NOT EXISTS group_cache (
   fail_count INTEGER NOT NULL DEFAULT 0,
   retry_at INTEGER NOT NULL DEFAULT 0
 );
+-- 好友动态(历史流水): 只增不改。每类事件只用自己那两列, 渲染规则在前端 eventmodel.js。
+-- 昵称/头像存事件发生时的快照 —— 好友被删或改名后, 历史照样读得出来。
+CREATE TABLE IF NOT EXISTS friend_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  at INTEGER NOT NULL,
+  type TEXT NOT NULL,
+  friend_vrchat_id TEXT,
+  friend_name TEXT,
+  friend_avatar TEXT,
+  old_name TEXT,
+  old_trust TEXT, new_trust TEXT,
+  old_state TEXT, new_state TEXT,
+  old_status TEXT, new_status TEXT,
+  old_desc TEXT, new_desc TEXT,
+  old_world_id TEXT, old_world_name TEXT,
+  world_id TEXT, world_name TEXT,
+  title TEXT, body TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_friend_events_at ON friend_events(at DESC);
+CREATE INDEX IF NOT EXISTS idx_friend_events_friend ON friend_events(friend_vrchat_id, id DESC);
 `;
+
+// 好友动态的列白名单: 写入按这个顺序铺平, 多余的键直接丢掉(列名不来自调用方)
+const FRIEND_EVENT_COLS = [
+  'at', 'type', 'friend_vrchat_id', 'friend_name', 'friend_avatar', 'old_name',
+  'old_trust', 'new_trust', 'old_state', 'new_state',
+  'old_status', 'new_status', 'old_desc', 'new_desc',
+  'old_world_id', 'old_world_name', 'world_id', 'world_name', 'title', 'body'
+];
 
 /** 设置字段白名单: 列名 -> 类型(int|str); 当前仅 QQ 通知渠道 */
 const SETTING_COLUMNS = {
   qq_enabled: 'int', qq_app_id: 'str', qq_app_secret: 'str',
   // 站内通知类型开关(0=关, 缺省/1=开): 群组公告 / 戳一戳(boop) / 世界邀请
-  notify_group_announcement: 'int', notify_boop: 'int', notify_invite: 'int'
+  notify_group_announcement: 'int', notify_boop: 'int', notify_invite: 'int',
+  // 好友动态保留条数(0/缺省 → 用 monitor 里的默认 5 万)
+  friend_event_limit: 'int'
 };
 
 // 已移除渠道的历史通知列(仅旧库 users 表迁移/删除用, 与当前白名单分离)
@@ -122,6 +152,9 @@ function createDb(location = ':memory:', opts = {}) {
   // 旧库清理: 世界名查询失败不再入库, 失败退避列已无意义(群组名有自己的 group_cache 列, 不受影响)
   try { db.exec('ALTER TABLE world_cache DROP COLUMN fail_count'); } catch (e) { /* 新库无此列 */ }
   try { db.exec('ALTER TABLE world_cache DROP COLUMN retry_at'); } catch (e) { /* 新库无此列 */ }
+  // 好友动态的早期行: 类型名曾用通知渠道的叫法(web端上线), 界面档位叫"网页上线" ——
+  // 统一改过来, 否则那一档筛不到这些老行、配色也认不出它们。(没有老行时就是一次空扫)
+  try { db.exec("UPDATE friend_events SET type = '网页上线' WHERE type = 'web端上线'"); } catch (e) { /* 表不存在等情况忽略 */ }
   // 逐好友通知配置并入 friends(原先在独立的 monitor_config 表): 先给 friends 补列, 再把旧表数据搬过来, 最后删表。
   // 旧语义是「没有配置行 = 不通知」, 所以补列默认 0, 只有真正有配置行的好友才会被搬成 1。
   for (const col of FRIEND_CONFIG_COLS) {
@@ -304,8 +337,23 @@ function createDb(location = ':memory:', opts = {}) {
         fail_count = excluded.fail_count, retry_at = excluded.retry_at`),
     isDuplicate: db.prepare('SELECT created_at FROM notif_dedupe WHERE key = ?'),
     upsertQqBinding: db.prepare('INSERT INTO qq_bindings (app_id, openid, nickname, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(app_id) DO UPDATE SET openid = excluded.openid, nickname = excluded.nickname, updated_at = excluded.updated_at'),
-    getQqBinding: db.prepare('SELECT * FROM qq_bindings WHERE app_id = ?')
+    getQqBinding: db.prepare('SELECT * FROM qq_bindings WHERE app_id = ?'),
+    // 好友动态: 列顺序与 FRIEND_EVENT_COLS 严格对应(写入前按该顺序铺平)
+    addFriendEvent: db.prepare(`INSERT INTO friend_events (${FRIEND_EVENT_COLS.join(', ')})
+      VALUES (${FRIEND_EVENT_COLS.map(() => '?').join(', ')})`),
+    getFriendEvent: db.prepare('SELECT * FROM friend_events WHERE id = ?'),
+    // 只增不改 + id 单调递增, 所以"留最新 N 条"可以直接按 id 算, 不必 COUNT
+    trimFriendEvents: db.prepare('DELETE FROM friend_events WHERE id <= (SELECT MAX(id) FROM friend_events) - ?'),
+    clearAllFriendEvents: db.prepare('DELETE FROM friend_events')
   };
+
+  // 好友动态筛选的 SQL 形状有限(before/types/friendId/q 的组合), 按 SQL 文本缓存 prepared statement
+  const dynStmt = new Map();
+  function dynamicStmt(sql) {
+    let s = dynStmt.get(sql);
+    if (!s) { s = db.prepare(sql); dynStmt.set(sql, s); }
+    return s;
+  }
 
   // 通知设置全局化: 统一写入 settings 表(key-value); qq_app_secret 加密存储
   function updateGlobalSettings(fields) {
@@ -427,7 +475,7 @@ function createDb(location = ':memory:', opts = {}) {
     wipeAllExceptToken() {
       db.exec('BEGIN');
       try {
-        for (const t of ['users', 'friends', 'qq_bindings', 'notif_dedupe', 'world_cache', 'group_cache']) {
+        for (const t of ['users', 'friends', 'friend_events', 'qq_bindings', 'notif_dedupe', 'world_cache', 'group_cache']) {
           db.prepare('DELETE FROM ' + t).run();
         }
         const token = stmt.getSetting.get('access_token');
@@ -490,14 +538,73 @@ function createDb(location = ':memory:', opts = {}) {
     setFriendConfig(friendVrcId, { favorite = false, notifyOnline = false, notifyWebOnline = false, notifyOffline = false, notifyStatusChange = false, notifyWorldChange = false } = {}) {
       stmt.setFriendConfig.run(favorite ? 1 : 0, notifyOnline ? 1 : 0, notifyWebOnline ? 1 : 0, notifyOffline ? 1 : 0, notifyStatusChange ? 1 : 0, notifyWorldChange ? 1 : 0, friendVrcId);
     },
-    // 登出必清: 好友(含逐好友配置)/通知去重/用户 —— 都跟着账号走, 换个账号就没有意义了。
+    // 好友动态(历史流水): 只增不改。ev 用列名做键(与 updateFriendState 同一口径), 未列出的键直接忽略。
+    // opts.limit 是"保留最新多少条", 由调用方按设置传(不传就不裁, 策略归上层)。
+    addFriendEvent(ev = {}, { limit } = {}) {
+      const type = ev.type == null ? '' : String(ev.type);
+      if (!type) throw new Error('addFriendEvent: 缺少 type');
+      const values = FRIEND_EVENT_COLS.map((col) => {
+        if (col === 'type') return type;
+        if (col === 'at') return ev.at == null ? Date.now() : Number(ev.at);
+        const v = ev[col];
+        return v === undefined ? null : v;
+      });
+      const info = stmt.addFriendEvent.run(...values);
+      const row = stmt.getFriendEvent.get(info.lastInsertRowid);
+      const keep = Math.trunc(Number(limit) || 0);
+      if (keep > 0) stmt.trimFriendEvents.run(keep);
+      return row;
+    },
+    // 只增不改 + id 单调递增 → "留最新 N 条"按 id 直接算(需要删时才是区间扫描, 平时等于一次 seek)
+    trimFriendEvents(limit) {
+      const n = Math.trunc(Number(limit) || 0);
+      if (n <= 0) return 0;
+      return stmt.trimFriendEvents.run(n).changes;
+    },
+    clearFriendEvents() { return stmt.clearAllFriendEvents.run().changes; },
+    // 历史查询: 一律按 id 倒序(最新在前), before 是游标(取更旧的一页)。
+    // limit 多取一条只为判断 hasMore, 返回时丢掉。types 是精确集合语义: 空数组 = 什么都不要(与日志筛选同约定)。
+    // page(从 1 起)是给分页栏用的: 与 offset 二者取一, 传 page 就按 (page-1)*limit 跳。
+    // total 是同一套筛选下的总条数(分页栏的"共 N 条"与页码数都要它)。
+    listFriendEvents({ limit = 50, before, offset, page, types, friendId, q, order } = {}) {
+      const lim = Math.max(1, Math.min(500, Math.trunc(Number(limit) || 50)));
+      const where = [];
+      const params = [];
+      if (before != null && before !== '') { where.push('id < ?'); params.push(Math.trunc(Number(before))); }
+      if (Array.isArray(types)) {
+        if (types.length === 0) return { events: [], hasMore: false, total: 0 };
+        where.push(`type IN (${types.map(() => '?').join(', ')})`);
+        params.push(...types.map((t) => String(t)));
+      }
+      if (friendId) { where.push('friend_vrchat_id = ?'); params.push(String(friendId)); }
+      if (q) {
+        // % 与 _ 当普通字符: 转义后配 ESCAPE, 否则搜 "100%" 会变成"以 100 开头"
+        const like = '%' + String(q).replace(/[\\%_]/g, (c) => '\\' + c) + '%';
+        where.push("(friend_name LIKE ? ESCAPE '\\' OR world_name LIKE ? ESCAPE '\\' OR title LIKE ? ESCAPE '\\')");
+        params.push(like, like, like);
+      }
+      const whereSql = where.length ? ' WHERE ' + where.join(' AND ') : '';
+      const total = dynamicStmt('SELECT COUNT(*) AS c FROM friend_events' + whereSql).get(...params).c;
+      let skip = 0;
+      if (page != null && page !== '') skip = Math.max(0, (Math.trunc(Number(page)) || 1) - 1) * lim;
+      else if (offset != null && offset !== '') skip = Math.max(0, Math.trunc(Number(offset)) || 0);
+      const desc = String(order || 'desc').toLowerCase() !== 'asc'; // 默认最新在前
+      const sql = 'SELECT * FROM friend_events' + whereSql
+        + ' ORDER BY id ' + (desc ? 'DESC' : 'ASC') + ' LIMIT ?' + (skip ? ' OFFSET ?' : '');
+      const args = skip ? [...params, lim + 1, skip] : [...params, lim + 1];
+      const rows = dynamicStmt(sql).all(...args);
+      const hasMore = rows.length > lim;
+      return { events: hasMore ? rows.slice(0, lim) : rows, hasMore, total };
+    },
+    // 登出必清: 好友(含逐好友配置)/好友动态/通知去重/用户 —— 都跟着账号走, 换个账号就没有意义了。
     // QQ 绑定与设置是全局的, 不在这里清(绑定归"彻底重置", 见 clearSettings)。
     clearAccountData() {
       const friends = stmt.clearAllFriends.run();
+      const events = stmt.clearAllFriendEvents.run();
       const dedupe = stmt.clearAllDedupe.run();
       const users = stmt.clearAllUsers.run();
       return {
-        friends: friends.changes,
+        friends: friends.changes, events: events.changes,
         dedupe: dedupe.changes, users: users.changes
       };
     },

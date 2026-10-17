@@ -6,3 +6,4 @@ data/
 .agents/
 secrets/
 .playwright-mcp/
+docs/

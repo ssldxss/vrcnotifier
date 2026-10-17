@@ -16,7 +16,8 @@ const MASK = '••••••••';
 const SECRET_FIELDS = new Set(['qq_app_secret']);
 const SETTING_MAP = {
   qqEnabled: 'qq_enabled', qqAppId: 'qq_app_id', qqAppSecret: 'qq_app_secret',
-  notifyGroupAnnouncement: 'notify_group_announcement', notifyBoop: 'notify_boop', notifyInvite: 'notify_invite'
+  notifyGroupAnnouncement: 'notify_group_announcement', notifyBoop: 'notify_boop', notifyInvite: 'notify_invite',
+  friendEventLimit: 'friend_event_limit'
 };
 
 // 日志筛选(服务端): 多选集合语义 — 选中集合=匹配集合(选一个只显示一个);
@@ -87,9 +88,24 @@ function createApp({
     if (!worldNameSvc) return;
     const ids = new Set();
     for (const r of rows || []) {
-      if (r && r.world_id && r.world_id !== 'private') ids.add(r.world_id);
+      for (const col of ['world_id', 'old_world_id']) {
+        if (r && r[col] && r[col] !== 'private') ids.add(r[col]);
+      }
     }
     for (const id of ids) worldNameSvc.get(id).catch(() => {}); // get 保证不抛出, 这里只是兜底
+  }
+
+  // 好友动态行 -> 客户端形状(与 friendRow 同一套口径):
+  // world_name 存的是"写日志那一刻"的快照, 缺的先用世界名缓存同步补(peek 不发请求);
+  // 缓存也没有的由 kickWorldNames 后台查完, 经 world-name 事件推给前端定点补上。
+  function eventRow(e) {
+    const out = { ...e };
+    const nameOf = (id) => (id && id !== 'private' && worldNameSvc ? worldNameSvc.peek(id) : null);
+    if (!out.world_name && out.world_id) out.world_name = out.world_id === 'private' ? '私密世界' : nameOf(out.world_id);
+    if (!out.old_world_name && out.old_world_id) out.old_world_name = out.old_world_id === 'private' ? '私密世界' : nameOf(out.old_world_id);
+    const thumbUrl = toThumbUrl(out.friend_avatar);
+    out.avatarKey = thumbUrl && avatarCache ? avatarCache.thumbKeyFromUrl(thumbUrl) : null;
+    return out;
   }
 
   // 逐好友通知配置: 原先存在独立的 monitor_config 表, 现在直接挂在 friends 行上。
@@ -646,6 +662,7 @@ function createApp({
     broadcast('status', statusPayload());
   });
   bus.on('notification', (e) => broadcast('notification', e));
+  bus.on('friend-event', (e) => broadcast('friend-event', eventRow(e)));
   // 世界名按需查到名字 → 推给前端定点更新那一行(前端从不等待世界名)
   bus.on('world-name', (e) => broadcast('world-name', e));
   bus.on('session-expired', ({ userId }) => {
@@ -987,6 +1004,49 @@ function createApp({
     const cfg = db.getFriend(req.params.friendId);
     log.debug(`[server] 更新监控配置: 好友=${(cfg && cfg.display_name) || req.params.friendId}, 特别关注=${cfg ? (cfg.favorite ? '开' : '关') : '?'}, 上线=${cfg ? cfg.notify_online : '?'}, 网页上线=${cfg ? cfg.notify_web_online : '?'}, 下线=${cfg ? cfg.notify_offline : '?'}, 状态=${cfg ? cfg.notify_status_change : '?'}, 世界=${cfg ? cfg.notify_world_change : '?'}`);
     return res.json({ ok: true, config: configOf(cfg) });
+  });
+
+  // 好友动态(历史流水): 只读 + 清空。limit 给数字就夹到 1..200, 缺省/非法按 50。
+  app.get('/api/friend-events', (req, res) => {
+    if (!current) return res.status(401).json({ error: '未登录' });
+    const query = req.query || {};
+    let limit = 50;
+    if (query.limit !== undefined && query.limit !== '') {
+      const n = Number(query.limit);
+      if (Number.isFinite(n)) limit = Math.min(200, Math.max(1, Math.trunc(n)));
+    }
+    const before = Number(query.before);
+    // types 只要出现在查询串里就是"显式给了选择": 空串 = 一个类型都没勾 = 什么都不匹配
+    // (与日志筛选同约定 —— 空集合不是"不过滤", 不过滤的表现是压根不传这个参数)
+    const types = typeof query.types === 'string'
+      ? query.types.split(',').filter(Boolean).slice(0, 20)
+      : undefined;
+    const friendId = typeof query.friendId === 'string' && query.friendId ? query.friendId : undefined;
+    const search = typeof query.q === 'string' && query.q ? query.q : undefined;
+    // page(从 1 起, 缺省 1)是给日志页那条分页栏用的: 与 before 游标二者取一,
+    // 传了 page 就按页跳, 只传 before 就还是游标翻页(旧调用方不用改)。
+    let page = 1;
+    if (query.page !== undefined && query.page !== '') {
+      const n = Number(query.page);
+      if (Number.isFinite(n)) page = Math.max(1, Math.trunc(n));
+    }
+    const useCursor = Number.isFinite(before) && query.page === undefined;
+    const order = query.order === 'asc' ? 'asc' : 'desc'; // 表头点时间可反转, 默认最新在前
+    const { events, hasMore, total } = db.listFriendEvents({
+      limit, types, friendId, q: search, order,
+      before: useCursor ? before : undefined,
+      page: useCursor ? undefined : page
+    });
+    kickWorldNames(events);
+    // total 是同一套筛选下的总条数, 分页栏的"共 N 条 / 第 K 页"都要它
+    return res.json({ ok: true, events: events.map(eventRow), hasMore, total, page, pageSize: limit });
+  });
+
+  app.delete('/api/friend-events', (req, res) => {
+    if (!current) return res.status(401).json({ error: '未登录' });
+    const removed = db.clearFriendEvents();
+    log.info(`[server] 清空好友动态: 移除 ${removed} 条`);
+    return res.json({ ok: true, removed });
   });
 
   app.get('/api/settings', (req, res) => {
