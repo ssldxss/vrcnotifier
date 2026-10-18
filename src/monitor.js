@@ -3,6 +3,7 @@
 
 const { EventEmitter } = require('node:events');
 const { applyChange, classifyTransition } = require('./state');
+const { locationOf } = require('./friend-events');
 const { parseLocation } = require('./location');
 const { formatLocalTime, createLogger, trustLevelFromTags, avatarFields, withDeadline } = require('./util');
 const { isMissingCredentials, isUnauthorized } = require('./vrcapi');
@@ -357,13 +358,16 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
     }
     if (details && typeof details === 'object') {
       const nested = details.invite || {};
-      const worldId = details.worldId || nested.worldId || null;
+      const rawLocation = details.location || details.worldId || nested.location || nested.worldId || null;
+      const instanceId = details.instanceId || nested.instanceId;
+      const location = rawLocation && !rawLocation.includes(':') ? locationOf(rawLocation, instanceId) : rawLocation;
+      const worldId = location ? location.split(':')[0] : null;
       const worldName = details.worldName || nested.worldName || null;
-      if (worldId || worldName) return { worldId, worldName };
+      if (location || worldName) return { worldId, worldName, location };
     }
     const hay = [n && n.link, n && n.message, n && n.title].filter(Boolean).join(' ');
-    const m = hay.match(/wrld_[A-Za-z0-9-]+/);
-    return m ? { worldId: m[0], worldName: null } : null;
+    const m = hay.match(/wrld_[A-Za-z0-9-]+(?::[A-Za-z0-9_~().-]+)?/);
+    return m ? { worldId: m[0].split(':')[0], worldName: null, location: m[0] } : null;
   }
 
   // 从通知的 details/link/message/title 中提取群组 id。
@@ -385,7 +389,7 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
   // VRChat 站内通知(notification / notification-v2) -> 复用通知渠道推送
   // 仅推送三类: 世界邀请(invite/requestInvite) / 戳一戳(boop) / 群组公告(group.announcement);
   // 其余(好友请求/私信/社交/系统等)不推送。
-  async function dispatchVrcNotification(user, n, vrcapi) {
+  async function dispatchVrcNotification(user, n, vrcapi, at = now()) {
     if (!n || !n.id) return;
     // v2 的 type 是具体类型(group.announcement/boop/invite...), category 是宽泛分类; 两者都参与匹配
     const kinds = [String(n.type || ''), String(n.category || '')];
@@ -399,34 +403,32 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
       if (!isAnnouncement) return;
     } else if (n.senderUserId === user.vrchat_user_id) return;
 
-    // 记录与推送各用各的去重键 —— 关闭通知开关期间来的事件照样要进动态, 而推送侧保留
-    // "开关关着就不写去重键, 打开后还能补推积压" 的既有语义(两者互不影响)。
-    const settings = db.getGlobalSettings();
-    const switchOn = isAnnouncement ? settings.notify_group_announcement !== 0
-      : isBoop ? settings.notify_boop !== 0 : settings.notify_invite !== 0;
-    const logKey = `${user.id}|notif|${n.id}|log`;
-    const shouldLog = !db.isDuplicate(logKey, dedupeWindowMs, now());
-    let shouldPush = false;
-    if (switchOn) {
-      const key = `${user.id}|notif|${n.id}`;
-      if (!db.isDuplicate(key, dedupeWindowMs, now())) {
-        db.markNotified(key, now());
-        shouldPush = true;
-      }
-    }
-    // 重复通知, 或者推送关着又不记 → 没必要再花力气去解析世界名/群名
-    if (!shouldLog && !shouldPush) return;
-    if (shouldLog) db.markNotified(logKey, now());
-
-    const friend = n.senderUserId ? db.getFriend(n.senderUserId) : null;
-    let sender = n.senderUserId ? ((friend && friend.display_name) || n.senderUserId) : 'VRChat';
     const rawCategory = kinds[0] || kinds[1] || '';
     const title = n.title || categoryLabel(rawCategory) || 'VRChat通知';
     const message = n.message || '';
-    // 内容与标题相同或空时不重复展示
     const body = message && message !== title ? message : '';
-    // 世界邀请类: 解析邀请到的世界名, 替代分类行
     const worldInfo = isInvite ? worldInfoFromNotification(n) : null;
+    const groupId = isAnnouncement ? groupIdFromNotification(n) : null;
+    // 先记录已收到的内容，不等待 REST，也不受推送开关/通知防抖窗口影响。
+    // 通知原生 ID 在库中唯一：重连重放、重启后重放只保留一条（直到历史被清理）。
+    recordEvent({
+      type: isAnnouncement ? '群组公告' : isBoop ? '戳一戳' : kindOf('requestInvite') ? '请求邀请' : '世界邀请',
+      at, source: 'ws', notification_id: n.id, group_id: groupId,
+      friend_vrchat_id: n.senderUserId || null,
+      location: worldInfo?.location || null,
+      world_id: worldInfo?.worldId || null, world_name: worldInfo?.worldName || null,
+      title, body
+    });
+    const settings = db.getGlobalSettings();
+    const switchOn = isAnnouncement ? settings.notify_group_announcement !== 0
+      : isBoop ? settings.notify_boop !== 0 : settings.notify_invite !== 0;
+    if (!switchOn) return;
+    const key = `${user.id}|notif|${n.id}`;
+    if (db.isDuplicate(key, dedupeWindowMs, now())) return;
+    db.markNotified(key, now());
+
+    const friend = n.senderUserId ? db.getFriend(n.senderUserId) : null;
+    let sender = n.senderUserId ? ((friend && friend.display_name) || n.senderUserId) : 'VRChat';
     let notificationWorld = null;
     if (vrcapi && isInvite) {
       if (worldInfo && (worldInfo.worldId || worldInfo.worldName)) {
@@ -439,26 +441,11 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
     // 群组公告: payload 不带群名, 提取 groupId 后经 REST+缓存解析, 作为发送者展示
     let notificationGroup = null;
     if (isAnnouncement) {
-      const groupId = groupIdFromNotification(n);
       if (groupId && vrcapi) notificationGroup = await resolveGroupName(vrcapi, groupId, user.vrchat_user_id);
       else if (!groupId) log.warn(`[monitor] 群组公告无群组 id id=${n.id} link=${n.link || '-'} details=${JSON.stringify(n.details || null)}`);
       if (notificationGroup) sender = notificationGroup;
     }
 
-    // 好友动态: 开关关着也要记(记与推是两件事)
-    if (shouldLog) {
-      recordEvent({
-        type: isAnnouncement ? '群组公告' : (isBoop ? '戳一戳' : '世界邀请'),
-        at: now(),
-        friend_vrchat_id: n.senderUserId || null,
-        friend_name: sender,
-        friend_avatar: (friend && friend.avatar_url) || null,
-        world_id: (worldInfo && worldInfo.worldId) || null,
-        world_name: notificationWorld || (worldInfo && worldInfo.worldName) || null,
-        title, body
-      });
-    }
-    if (!shouldPush) return;
     const changeForNotify = {
       changeType: 'VRChat通知',
       friendName: sender,
@@ -516,7 +503,7 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
   }
 
   // ---------- 好友动态(历史流水) ----------
-  // 只增不改的历史: 状态变化/改名/信任等级/好友增删/站内通知都往这里落一行。
+  // 只增不改的历史: 在线状态/社交状态/完整位置变化，以及现有范围内的站内通知。
   // 记不上就算了 —— 历史是附加价值, 绝不能让监控主流程(状态落地/通知)跟着失败。
   const DEFAULT_EVENT_LIMIT = 50000; // 保留最新多少条(设置项 friend_event_limit 可改)
   // 日志里的类型名以"界面上的说法"为准: 通知渠道那边这个变化叫 web端上线,
@@ -530,7 +517,7 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
   function recordEvent(ev) {
     try {
       const row = db.addFriendEvent(ev, { limit: eventLimit() });
-      events.emit('friend-event', row); // server 转 SSE, 前端实时插到"动态"页顶部
+      if (row) events.emit('friend-event', row); // server 转 SSE, 前端实时插到"动态"页顶部
       return row;
     } catch (e) {
       log.warn(`[monitor] 写好友动态失败: ${e.message}`);
@@ -606,14 +593,6 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
         const f = db.getFriend(id);
         db.deleteFriend(id);
         clearPendingCheck(user, id);
-        // 好友被删了也留一笔: 名字/头像用删除前的快照, 历史照样读得出来
-        recordEvent({
-          type: '好友移除', at: now(),
-          friend_vrchat_id: id,
-          friend_name: (f && f.display_name) || id,
-          friend_avatar: (f && f.avatar_url) || null,
-          title: null, body: null
-        });
         log.info(`[monitor] pending 验证 ${id}${f && f.display_name ? `(${f.display_name})` : ''}: 不在好友名册, 视为已删除好友, 已移除记录`);
         continue;
       }
@@ -639,27 +618,39 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
 
   // 当前状态机的 pending_state 是最后观察到的状态。日志立即写入,
   // 确认相同目标不重复; WS/对账/验证发现变回去则追加一条, 通知规则保持原样。
-  function recordFriendTransition(cur, input) {
+  function recordFriendTransition(cur, input, opts = {}) {
     const before = {
       state: cur.pending_state || cur.state,
       status: cur.status, statusDescription: cur.status_description,
-      worldId: cur.world_id, worldName: prevWorldName(cur.world_id)
+      worldId: cur.world_id, worldName: prevWorldName(cur.world_id), instanceId: cur.instance_id
     };
     const after = { ...before };
     for (const key of Object.keys(before)) if (input[key] !== undefined) after[key] = input[key];
-    let transition = classifyTransition(before, after);
-    if (!transition && before.state === 'active' && after.state === 'offline') transition = { changeType: '网页下线' };
-    if (!transition) return;
-    recordEvent({
-      type: LOG_TYPE_ALIAS[transition.changeType] || transition.changeType,
-      at: now(), friend_vrchat_id: cur.friend_vrchat_id,
-      friend_name: cur.display_name || cur.friend_vrchat_id, friend_avatar: cur.avatar_url || null,
+    const types = [];
+    if (before.state !== after.state) {
+      const transition = classifyTransition(before, after);
+      if (transition) types.push(LOG_TYPE_ALIAS[transition.changeType] || transition.changeType);
+      else if (before.state === 'active' && after.state === 'offline') types.push('网页下线');
+    } else if (after.state === 'online' || after.state === 'active') {
+      if (locationOf(before.worldId, before.instanceId) !== locationOf(after.worldId, after.instanceId)) types.push('切换世界');
+    }
+    // 分开判断各维度，避免通知分类的优先级吞掉同时发生的变化。
+    // 上下线携带的状态只是当前资料，持续在线期间的变化才单独记为社交动态。
+    if (['online', 'active'].includes(before.state) && ['online', 'active'].includes(after.state)) {
+      const statusChange = classifyTransition(
+        { ...before, state: 'online', worldId: null, statusDescription: null },
+        { ...after, state: 'online', worldId: null, statusDescription: null });
+      if (statusChange) types.push('状态变化');
+      if ((before.statusDescription || null) !== (after.statusDescription || null)) types.push('自定义状态');
+    }
+    for (const type of types) recordEvent({
+      type, at: opts.at ?? now(),
+      source: opts.eventType === 'pending-check' ? 'pending-check' : opts.eventType === 'snapshot' ? 'snapshot' : 'ws',
+      friend_vrchat_id: cur.friend_vrchat_id,
+      old_location: locationOf(before.worldId, before.instanceId), location: locationOf(after.worldId, after.instanceId),
       old_state: before.state, new_state: after.state,
       old_status: before.status, new_status: after.status,
-      old_desc: before.statusDescription || null, new_desc: after.statusDescription || null,
-      old_world_id: before.worldId, old_world_name: before.worldName,
-      world_id: after.worldId, world_name: after.worldName || prevWorldName(after.worldId),
-      title: null, body: null
+      old_desc: before.statusDescription || null, new_desc: after.statusDescription || null
     });
   }
 
@@ -677,57 +668,14 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
         trustLevel: input.trustLevel || null,
         lastSeen: now()
       });
-      // 首见记一笔"新增好友"。首次全量对账(opts.silent)不记 —— 那是把整个名册一次性建基线,
-      // 不是"新加了这么多好友"。
-      if (!opts.silent) {
-        recordEvent({
-          type: '新增好友',
-          at: now(),
-          friend_vrchat_id: friendVrcId,
-          friend_name: input.displayName || friendVrcId,
-          friend_avatar: input.avatarUrl || null,
-          new_state: input.state || 'offline',
-          world_id: input.worldId || null,
-          world_name: input.worldName || prevWorldName(input.worldId),
-          title: null, body: null
-        });
-      }
       return;
-    }
-    // 改名这类"资料变化"必须在 updateFriendProfile 之前判: 那条 UPDATE 是 COALESCE 语义,
-    // 更新完就再也读不到旧值了。旧值为空(第一次拿到名字)不算改名, 免得新好友刷一行。
-    if (!opts.silent && input.displayName !== undefined
-      && existed.display_name && input.displayName !== existed.display_name) {
-      recordEvent({
-        type: '改名',
-        at: now(),
-        friend_vrchat_id: friendVrcId,
-        friend_name: input.displayName,
-        friend_avatar: existed.avatar_url || null,
-        old_name: existed.display_name,
-        title: null, body: null
-      });
-    }
-    // 信任等级变化: 与改名同一处判定(必须在 updateFriendProfile 之前读旧值), 来源是快照里的 tags。
-    // 两边都有值且不同才算"变化" —— 老库第一次拿到等级不该记成一次升级。
-    if (!opts.silent && input.trustLevel !== undefined
-      && existed.trust_level && input.trustLevel !== existed.trust_level) {
-      recordEvent({
-        type: '信任等级变化',
-        at: now(),
-        friend_vrchat_id: friendVrcId,
-        friend_name: existed.display_name || input.displayName || friendVrcId,
-        friend_avatar: existed.avatar_url || null,
-        old_trust: existed.trust_level, new_trust: input.trustLevel,
-        title: null, body: null
-      });
     }
     // 仅更新资料字段, 状态由状态机接管
     if (input.displayName !== undefined || input.avatarUrl !== undefined || input.trustLevel !== undefined) {
       db.updateFriendProfile(existed.id, { displayName: input.displayName, avatarUrl: input.avatarUrl, trustLevel: input.trustLevel });
     }
     const cur = db.getFriend(friendVrcId);
-    if (!opts.silent) recordFriendTransition(cur, input);
+    if (!opts.silent) recordFriendTransition(cur, input, opts);
     // 世界名不再入库: 状态机要的"旧世界名"从世界名缓存同步取(peek, 不发请求);
     // private 是哨兵值, 缓存里没有, 就地写死
     const result = applyChange({ ...cur, worldName: prevWorldName(cur.world_id) }, {
@@ -752,6 +700,11 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
       schedulePendingCheck(user, friendVrcId);
     } else {
       clearPendingCheck(user, friendVrcId);
+    }
+    // 先同步写日志和状态，再沿用原来的世界名查询。网络慢或失败不会拖延/丢失动态。
+    if (opts.resolveWorldName && input.worldId && input.worldId !== 'private') {
+      const resolved = await lookupWorldName(input.worldId);
+      if (result.change && resolved) result.change.newWorld = resolved;
     }
     if (!opts.silent && result.notify) {
       await dispatchChange(user, friendVrcId, { ...result.change, friendId: friendVrcId, newWorldId: result.dbUpdate.world_id }, opts.eventType);
@@ -817,6 +770,7 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
     const user = db.getUserByVrcId(userId);
     if (!user) return;
     const { type, content } = parsed || {};
+    const at = now();
     if (!content) return;
     try {
       const { vrcapi } = session;
@@ -825,29 +779,29 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
           const id = content.user?.id || content.userId;
           const loc = parseLocation(content.location);
           const worldId = loc.isReal ? loc.worldId : (content.location === 'private' ? 'private' : null);
-          const worldName = worldId === 'private' ? '私密世界' : (worldId ? await lookupWorldName(worldId) : null);
+          const worldName = worldId === 'private' ? '私密世界' : (worldId ? worldNames.peek(worldId) : null);
           await applyFriendInput(user, id, {
-            state: 'online', status: content.user?.status || 'active',
-            statusDescription: content.user?.statusDescription || null,
+            state: 'online', status: content.user?.status,
+            statusDescription: content.user?.statusDescription,
             worldId, worldName, instanceId: loc.isReal ? loc.instanceId : null, platform: content.platform || null,
             displayName: content.user?.displayName, ...avatarFields(content.user)
-          });
+          }, { eventType: type, at, resolveWorldName: true });
           break;
         }
         case 'friend-active': {
           const id = content.user?.id || content.userId || content.userid;
           await applyFriendInput(user, id, {
-            state: 'active', status: content.user?.status || 'active',
-            statusDescription: content.user?.statusDescription || null,
+            state: 'active', status: content.user?.status,
+            statusDescription: content.user?.statusDescription,
             worldId: null, worldName: null, instanceId: null, platform: content.platform || 'web',
             displayName: content.user?.displayName, ...avatarFields(content.user)
-          });
+          }, { eventType: type, at, resolveWorldName: true });
           break;
         }
         case 'friend-offline': {
           const id = content.userId || content.user?.id;
           // 下线保留社交状态与自定义状态, 仅更新在线状态/世界/平台/实例
-          await applyFriendInput(user, id, { state: 'offline', worldId: null, worldName: null, instanceId: null, platform: content.platform || null });
+          await applyFriendInput(user, id, { state: 'offline', worldId: null, worldName: null, instanceId: null, platform: content.platform || null }, { eventType: type, at });
           break;
         }
         case 'friend-location': {
@@ -857,15 +811,15 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
           const traveling = content.location === 'traveling';
           const worldId = loc.isReal ? loc.worldId : (content.location === 'private' ? 'private' : (traveling && existing ? existing.world_id : null));
           const worldName = worldId === 'private' ? '私密世界'
-            : worldId ? await lookupWorldName(worldId)
+            : worldId ? worldNames.peek(worldId)
               : (traveling && existing ? worldNames.peek(existing.world_id) : null);
           await applyFriendInput(user, id, {
-            state: 'online', status: content.user?.status || 'active',
-            statusDescription: content.user?.statusDescription || null,
+            state: 'online', status: content.user?.status,
+            statusDescription: content.user?.statusDescription,
             worldId, worldName, instanceId: loc.isReal ? loc.instanceId : (traveling && existing ? (existing.instance_id ?? null) : null),
             platform: content.platform || null,
             displayName: content.user?.displayName, ...avatarFields(content.user)
-          }, { eventType: 'friend-location' });
+          }, { eventType: type, at, resolveWorldName: true });
           break;
         }
         case 'friend-update': {
@@ -873,7 +827,8 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
           if (!u || !u.id) break;
           const existing = db.getFriend(u.id);
           const loc = u.location !== undefined ? parseLocation(u.location) : null;
-          const world = loc && !loc.isReal && u.location === 'private' ? { worldId: 'private', worldName: '私密世界' } : {};
+          const world = loc?.isReal ? { worldId: loc.worldId, worldName: worldNames.peek(loc.worldId) }
+            : u.location === 'private' ? { worldId: 'private', worldName: '私密世界' } : {};
           // 实例号: 真实实例更新, private 清空, traveling/缺省保留旧值(undefined)
           const instanceId = loc ? (loc.isReal ? loc.instanceId : (u.location === 'private' ? null : undefined)) : undefined;
           await applyFriendInput(user, u.id, {
@@ -886,7 +841,7 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
             displayName: u.displayName, ...avatarFields(u),
             instanceId,
             ...world
-          }, { eventType: 'friend-update' });
+          }, { eventType: type, at });
           break;
         }
         case 'user-update': {
@@ -950,7 +905,7 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
         }
         case 'notification-v2':
         case 'notification': {
-          await dispatchVrcNotification(user, content, vrcapi);
+          await dispatchVrcNotification(user, content, vrcapi, at);
           break;
         }
         case 'notification-v2-update':
@@ -1141,7 +1096,7 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
         emitProgress(userId, { stage: 'friends', fetched: friendTotal, total: friendTotal });
       }
 
-      const applyOpts = opts.initial ? { silent: true } : {};
+      const applyOpts = opts.initial ? { silent: true, eventType: 'snapshot' } : { eventType: 'snapshot' };
       let processed = 0;
 
       for (const id of friendIds) {
@@ -1168,7 +1123,7 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
             status: f.status || 'active',
             statusDescription: f.statusDescription || null,
             worldId, worldName,
-            instanceId: loc.isReal ? loc.instanceId : null,
+            instanceId: loc.isReal ? loc.instanceId : (f.location === 'traveling' ? existingForTravel?.instance_id ?? null : null),
             platform: f.last_platform || f.platform || null,
             displayName: f.displayName, ...avatarFields(f),
             trustLevel: trustLevelFromTags(f.tags)
@@ -1199,16 +1154,6 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
           if (rosterOk) {
             db.deleteFriend(f.friend_vrchat_id);
             clearPendingCheck(user, f.friend_vrchat_id);
-            // 首次全量对账不记(那是在清旧库残留, 不是"刚刚被删好友")
-            if (!opts.initial) {
-              recordEvent({
-                type: '好友移除', at: now(),
-                friend_vrchat_id: f.friend_vrchat_id,
-                friend_name: f.display_name || f.friend_vrchat_id,
-                friend_avatar: f.avatar_url || null,
-                title: null, body: null
-              });
-            }
             log.info(`[monitor] 快照对账 ${f.friend_vrchat_id}${f.display_name ? `(${f.display_name})` : ''} 不在好友名册, 视为已删除好友, 已移除记录`);
           } else {
             await applyFriendInput(user, f.friend_vrchat_id, { state: 'offline', worldId: null, worldName: null, instanceId: null, platform: null }, applyOpts);

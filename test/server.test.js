@@ -1788,6 +1788,7 @@ test('GET /api/friend-events: 世界名缓存命中就同步补上, 头像按同
   await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: false });
 
   ctx.db.upsertWorldCache('wrld_old', '旧世界', 1);
+  ctx.db.upsertFriend('usr_a', { displayName: '甲', avatarUrl: 'https://api.vrchat.cloud/api/1/file/file_aaa-111/1/file' });
   ctx.db.addFriendEvent({
     type: '切换世界', at: 1, friend_vrchat_id: 'usr_a', friend_name: '甲',
     old_world_id: 'wrld_old', old_world_name: null,
@@ -1888,4 +1889,29 @@ test('GET /api/friend-events: order=asc 最早在前(表头点一下反转)', as
   const a = await get(ctx, '/api/friend-events?limit=10&order=asc');
   assert.deepEqual(a.data.events.map((e) => e.at), [1, 2, 3, 4]);
   assert.equal(a.data.total, 4);
+});
+
+test('GET /api/friend-events: 完整实例和当前昵称随筛选返回，通知原生 ID 可读取', async (t) => {
+  const ctx = setup();
+  t.after(async () => { ctx.server.closeAllConnections?.(); await close(ctx); });
+  await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: false });
+  ctx.db.upsertFriend('usr_a', { displayName: '旧名字' });
+  const row = ctx.db.addFriendEvent({ type: '切换世界', at: 1792252800123, friend_vrchat_id: 'usr_a',
+    old_location: 'wrld_a:1~region(jp)', location: 'wrld_a:2~friends(usr_host)~region(us)' });
+  ctx.db.updateFriendProfile(ctx.db.getFriend('usr_a').id, { displayName: '新名字' });
+  ctx.db.addFriendEvent({ type: '请求邀请', at: 1792252800456, friend_vrchat_id: 'usr_a', notification_id: 'n_request', location: 'wrld_b:3' });
+  const r = await get(ctx, '/api/friend-events?q=' + encodeURIComponent('新名字') + '&types=' + encodeURIComponent('切换世界'));
+  assert.equal(r.status, 200);
+  assert.equal(r.data.total, 1);
+  const event = r.data.events[0];
+  assert.equal(event.id, row.id);
+  assert.equal(event.friend_name, '新名字');
+  assert.equal(event.at, 1792252800123);
+  assert.equal(event.world_id, 'wrld_a');
+  assert.equal(event.instance_id, '2~friends(usr_host)~region(us)');
+  assert.equal(event.old_instance_id, '1~region(jp)');
+  assert.equal(event.location, 'wrld_a:2~friends(usr_host)~region(us)');
+  const notification = await get(ctx, '/api/friend-events?types=' + encodeURIComponent('请求邀请'));
+  assert.equal(notification.data.events[0].notification_id, 'n_request');
+  assert.equal(notification.data.events[0].location, 'wrld_b:3');
 });
