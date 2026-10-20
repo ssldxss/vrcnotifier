@@ -1,6 +1,6 @@
 'use strict';
 // 自定义下拉(隐藏原生 select, 玻璃拟态菜单 + 动画 + 键盘导航)。
-// 从旧前端 ui.js 抽出的公共组件, 新版概览与旧页面共用同一套 .dd-* 样式(app.css)。
+// 独立的玻璃拟态多选/单select组件, 样式在 app.css 的 .dd-* 里。
 // 浏览器全局: window.VrcDropdown.makeDropdown(sel, { multi, label })
 // Node 单测用: require('../public/dropdown').makeDropdown —— 需要 DOM, 这里只导出纯辅助判断。
 (function (root, factory) {

@@ -1,7 +1,7 @@
 'use strict';
 // 日志行解析(纯逻辑): 把后端日志行 [时间] [级别] [分类] 正文 拆开。
 // 浏览器用 <script src="logparse.js"> 引入(挂 window.VrcLogParse); Node 用 require 引入(单测)。
-// 渲染(DOM)在 logpanel.js, 这里只管拆解与分类归一。
+// 渲染(DOM)在 dashboard.js, 这里只管拆解与分类归一。
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
     module.exports = factory();

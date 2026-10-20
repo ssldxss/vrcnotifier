@@ -1206,9 +1206,7 @@ function createApp({
   app.use('/api', (req, res) => res.status(404).json({ error: '接口不存在' }));
 
   if (publicDir) {
-    // 根路径给新版概览页; 经典页面仍可通过 /index.html 打开(过渡期保留)
-    app.get('/', (req, res) => res.sendFile(path.join(publicDir, 'dashboard.html')));
-    app.use(express.static(publicDir));
+    app.use(express.static(publicDir)); // 根路径由 public/index.html(新版概览)提供
   }
 
   // eslint-disable-next-line no-unused-vars

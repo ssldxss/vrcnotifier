@@ -1918,7 +1918,7 @@ test('GET /api/friend-events: 完整实例和当前昵称随筛选返回，通�
 
 
 // ---------- 新前端作为根页面 ----------
-test('托管静态目录时 GET / 返回新概览页(而不是经典 index.html)', async (t) => {
+test('托管静态目录时 GET / 返回新概览页', async (t) => {
   const ctx = setup({ publicDir: path.join(__dirname, '..', 'public') });
   t.after(() => close(ctx));
   const res = await fetch(ctx.base + '/');
