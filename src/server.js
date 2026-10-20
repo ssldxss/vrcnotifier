@@ -1032,8 +1032,10 @@ function createApp({
     }
     const useCursor = Number.isFinite(before) && query.page === undefined;
     const order = query.order === 'asc' ? 'asc' : 'desc'; // 表头点时间可反转, 默认最新在前
+    // "只看特别关注"开关: favorite=1 生效; 缺省/其他值都不过滤(与现有 query 参数风格一致)。
+    const favorite = query.favorite === '1';
     const { events, hasMore, total } = db.listFriendEvents({
-      limit, types, friendId, q: search, order,
+      limit, types, friendId, q: search, order, favorite,
       before: useCursor ? before : undefined,
       page: useCursor ? undefined : page
     });
@@ -1204,6 +1206,8 @@ function createApp({
   app.use('/api', (req, res) => res.status(404).json({ error: '接口不存在' }));
 
   if (publicDir) {
+    // 根路径给新版概览页; 经典页面仍可通过 /index.html 打开(过渡期保留)
+    app.get('/', (req, res) => res.sendFile(path.join(publicDir, 'dashboard.html')));
     app.use(express.static(publicDir));
   }
 

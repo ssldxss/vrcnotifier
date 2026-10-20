@@ -2456,3 +2456,29 @@ test('好友动态: 传送中的 WS 和快照保留最后实例，不伪造离�
   await t.monitor.runSnapshot(user.vrchat_user_id);
   assert.equal(events(t).length, 0, '回到原实例不算换实例');
 });
+
+// ---------- 好友动态: 保留条数默认不限制, 只有开启设置才自动清理 ----------
+test('好友动态: 未设置保留条数时按不限制写入(limit=0)', async () => {
+  const t = setup();
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+  seedFriend(t, 'usr_f1', { state: 'online', status: 'active', worldId: 'wrld_a', instanceId: '1' });
+  const limits = [];
+  const add = t.db.addFriendEvent.bind(t.db);
+  t.db.addFriendEvent = (ev, opts) => { limits.push(opts && opts.limit); return add(ev, opts); };
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '', { type: 'friend-location', content: { userId: 'usr_f1', location: 'wrld_b:2' } });
+  assert.deepStrictEqual(limits, [0], '默认应传 0 表示不限制(不自动清理)');
+});
+
+test('好友动态: 设置 friend_event_limit 后才按该条数清理', async () => {
+  const t = setup();
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+  t.db.updateGlobalSettings({ friend_event_limit: 1234 });
+  seedFriend(t, 'usr_f1', { state: 'online', status: 'active', worldId: 'wrld_a', instanceId: '1' });
+  const limits = [];
+  const add = t.db.addFriendEvent.bind(t.db);
+  t.db.addFriendEvent = (ev, opts) => { limits.push(opts && opts.limit); return add(ev, opts); };
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '', { type: 'friend-location', content: { userId: 'usr_f1', location: 'wrld_b:2' } });
+  assert.deepStrictEqual(limits, [1234]);
+});

@@ -77,7 +77,7 @@ const SETTING_COLUMNS = {
   qq_enabled: 'int', qq_app_id: 'str', qq_app_secret: 'str',
   // 站内通知类型开关(0=关, 缺省/1=开): 群组公告 / 戳一戳(boop) / 世界邀请
   notify_group_announcement: 'int', notify_boop: 'int', notify_invite: 'int',
-  // 好友动态保留条数(0/缺省 → 用 monitor 里的默认 5 万)
+  // 好友动态保留条数(0/缺省 → 不限制, 永不自动清理; >0 → 只保留最新 N 条)
   friend_event_limit: 'int'
 };
 

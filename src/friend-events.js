@@ -164,7 +164,8 @@ function createFriendEventStore(db) {
   }
   function project(row) {
     const old = splitLocation(row.old_location), next = splitLocation(row.location);
-    return { ...row, type: Object.hasOwn(TYPE_LABELS, row.type) ? TYPE_LABELS[row.type] : row.type, old_world_id: old.worldId, old_instance_id: old.instanceId,
+    // type 是展示用中文标签, type_code 保留入库的英文代码(筛选/前端按 code 判断用)。
+    return { ...row, type_code: row.type, type: Object.hasOwn(TYPE_LABELS, row.type) ? TYPE_LABELS[row.type] : row.type, old_world_id: old.worldId, old_instance_id: old.instanceId,
       world_id: next.worldId, instance_id: next.instanceId,
       old_world_name: old.worldId === 'private' ? '私密世界' : row.old_world_name,
       world_name: next.worldId === 'private' ? '私密世界' : row.world_name };
@@ -210,7 +211,7 @@ function createFriendEventStore(db) {
     },
     trimFriendEvents,
     clearFriendEvents() { return db.prepare('DELETE FROM friend_logs').run().changes; },
-    listFriendEvents({ limit = 50, before, offset, page, types, friendId, q, order } = {}) {
+    listFriendEvents({ limit = 50, before, offset, page, types, friendId, q, order, favorite } = {}) {
       const lim = Math.max(1, Math.min(500, Math.trunc(Number(limit) || 50)));
       const where = [], params = [];
       if (before != null && before !== '' && Number.isFinite(Number(before))) { where.push('e.id < ?'); params.push(Math.trunc(Number(before))); }
@@ -219,6 +220,8 @@ function createFriendEventStore(db) {
         where.push(`e.type IN (${types.map(() => '?').join(',')})`); params.push(...types.map(typeCode));
       }
       if (friendId) { where.push('e.friend_vrchat_id=?'); params.push(String(friendId)); }
+      // 特别关注: 已删除好友 join 出来是 NULL, 自然被排除。
+      if (favorite) where.push('f.favorite = 1');
       if (q) {
         const like = '%' + String(q).replace(/[\\%_]/g, (c) => '\\' + c) + '%';
         const cols = ['f.display_name','e.friend_vrchat_id','w.world_name','n.title','n.body','g.group_name','n.group_id',locationExpr];

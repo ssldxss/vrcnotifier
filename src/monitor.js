@@ -505,13 +505,13 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
   // ---------- 好友动态(历史流水) ----------
   // 只增不改的历史: 在线状态/社交状态/完整位置变化，以及现有范围内的站内通知。
   // 记不上就算了 —— 历史是附加价值, 绝不能让监控主流程(状态落地/通知)跟着失败。
-  const DEFAULT_EVENT_LIMIT = 50000; // 保留最新多少条(设置项 friend_event_limit 可改)
   // 日志里的类型名以"界面上的说法"为准: 通知渠道那边这个变化叫 web端上线,
   // 而动态页的档位叫 网页上线 —— 名字不一致的话, 那一档筛不到它、配色也认不出它。
   const LOG_TYPE_ALIAS = { web端上线: '网页上线' };
+  // 默认不限制保留条数(0 = 不自动清理); 设置项 friend_event_limit > 0 时才按该条数裁剪。
   function eventLimit() {
     const n = Number(db.getSetting('friend_event_limit'));
-    return n > 0 ? n : DEFAULT_EVENT_LIMIT;
+    return n > 0 ? n : 0;
   }
 
   function recordEvent(ev) {
