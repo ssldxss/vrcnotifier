@@ -1520,8 +1520,8 @@
     $('#gateToken').value = accessToken();
     $('#gateTokenLabel').textContent = state.config.tokenRequired ? '访问令牌 *' : '访问令牌';
   }
-  function switchLoginForm(name) {
-    // 登录卡片 / 2FA 卡片: 两张卡都居中, 切换时淡出淡入
+  function switchLoginForm(name, onShown) {
+    // 登录卡片 / 2FA 卡片: 两张卡都居中, 切换时淡出淡入; onShown 在目标卡片显示后回调
     const cards = { login: $('#loginCard'), twofa: $('#twofaCard') };
     const to = cards[name];
     if (!to) return;
@@ -1534,6 +1534,7 @@
       to.classList.add('form-in');
       const focusEl = name === 'login' ? $('#loginUser') : $('#twofaCode');
       if (focusEl) setTimeout(() => { try { focusEl.focus(); } catch (e) { /* ignore */ } }, 80);
+      if (typeof onShown === 'function') onShown();
     };
     if (!from) { show(); return; }
     from.classList.add('form-fade-out');
@@ -1819,6 +1820,17 @@
     void el.offsetWidth;
     el.classList.add('show');
   }
+  // 立即把等待页变成完全不透明(跳过淡入): 登录成功后主界面马上在背后渲染,
+  // 若等待页还在淡入中, 会透出还没加载好的主界面。
+  function bootForceOpaque() {
+    const el = $('#bootScreen');
+    if (!el) return;
+    el.style.transition = 'none';
+    el.classList.remove('hidden', 'out');
+    el.classList.add('show');
+    void el.offsetWidth;
+    requestAnimationFrame(() => { el.style.transition = ''; });
+  }
   function bootProgress(d) {
     if (!d || !d.stage) return;
     if (d.stage === 'verified') { if (state.loginWaiting) bootShow(); return; }
@@ -1897,6 +1909,40 @@
     if (el) { el.classList.add('hidden'); el.classList.remove('show', 'out'); }
   }
 
+  // 登录/2FA 成功: 保持加载页, 原地完成主界面数据加载后淡出, 直接露出主界面(不再 location.reload)。
+  // 旧实现是"登录页上播完动画 -> 刷新": 淡出时背后还是登录/2FA 卡片, 然后才 reload 到主界面。
+  let enteringMain = false;
+  async function completeLoginAndEnterMain() {
+    if (enteringMain) return;
+    enteringMain = true;
+    state.loginWaiting = false;
+    if (!bootState.active) bootShow(); // 成功响应一到就显示加载页, 不给主界面提前露出的机会
+    bootForceOpaque(); // 立即完全不透明, 防止主界面从仍在淡入的等待页下面透出来
+    state.pendingFirstBackfill = false; // 登录后 loadAll 会重新拉一遍数据, 不需要首连补拉(否则两个 feed 请求会互相作废)
+    try {
+      await loadAll(); // 内部会 showView('main') 并加载好友/动态/健康等, 全部在加载页后面完成
+    } catch (e) {
+      enteringMain = false;
+      bootHide();
+      const msg = $('#loginMsg');
+      if (msg) msg.textContent = (e && e.message) || '加载失败, 请重试';
+      const btn = $('#loginBtn');
+      if (btn) btn.disabled = false;
+      return;
+    }
+    if (state.view !== 'main') {
+      // 会话还没就绪(极少见): 收起加载页回到登录页, 让用户重试
+      enteringMain = false;
+      bootHide();
+      return;
+    }
+    try { $('#loginPass').value = ''; $('#twofaCode').value = ''; } catch (e) { /* ignore */ }
+    state.tempSessionId = null;
+    // 等主界面完成一帧绘制再开始收尾动画, 避免"等待页结束但主界面还没画好"
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    bootFinish(); // 主界面已就绪, 播完剩余步骤并淡出, 背后直接是主界面
+  }
+
   // ---------- 自动重登 2FA 弹窗 ----------
   function openReloginModal() {
     const modal = $('#twofaReloginModal');
@@ -1965,12 +2011,12 @@
       btn.disabled = true;
       $('#loginMsg').textContent = '登录中...';
       state.loginWaiting = true;
-      bootShow(); // 先显示加载页, 再发登录请求
+      // 与旧前端一致: 提交时只置 loginWaiting, 等待页由后端「验证通过」事件淡入;
+      // 需要 2FA 时后端不会发 verified, 因此不会闪等待页, 直接切 2FA 卡片。
       try {
         const r = await api('POST', '/api/login', { username, password, rememberMe: true });
         if (r.data.requiresTwoFactorAuth) {
           state.loginWaiting = false;
-          bootHide(); // 需要 2FA: 收起加载页, 显示 2FA 卡片
           state.tempSessionId = r.data.tempSessionId;
           state.twofaKind = r.data.requiresTwoFactorAuth[0] || 'emailOtp';
           $('#loginMsg').textContent = '';
@@ -1979,7 +2025,7 @@
           return;
         }
         state.loginWaiting = false;
-        if (r.data.ok) { bootShow(); bootFinish(() => location.reload()); }
+        if (r.data.ok) completeLoginAndEnterMain();
         else { bootHide(); $('#loginMsg').textContent = r.data.error || '登录失败'; btn.disabled = false; }
       } catch (e) {
         state.loginWaiting = false;
@@ -1994,16 +2040,20 @@
       const btn = $('#twofaBtn');
       btn.disabled = true;
       $('#twofaMsg').textContent = '验证中...';
-      bootShow(); // 先显示加载页, 再发验证请求
+      // 和密码提交一样: 置 loginWaiting, 等待页只由后端 verified 事件淡入;
+      // 这样同一时刻到达的 status(loggedIn=true) 不会提前触发 loadAll 把主界面闪出来。
+      state.loginWaiting = true;
       try {
         const r = await api('POST', '/api/login/2fa', { tempSessionId: state.tempSessionId, code, kind: state.twofaKind });
-        if (r.data.ok) { bootShow(); bootFinish(() => location.reload()); }
+        if (r.data.ok) completeLoginAndEnterMain();
         else {
-          bootHide(); // 验证失败: 收起加载页, 回到 2FA 卡片
+          state.loginWaiting = false;
+          bootHide(); // 若 SSE verified 已经把加载页拉出来, 失败时收起
           btn.disabled = false;
           $('#twofaMsg').textContent = r.data.error || '验证失败';
         }
       } catch (e) {
+        state.loginWaiting = false;
         bootHide();
         btn.disabled = false;
         $('#twofaMsg').textContent = e.message || '验证失败';
