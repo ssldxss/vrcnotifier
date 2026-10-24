@@ -49,9 +49,14 @@ function createQqManager(opts = {}) {
     return next;
   }
 
+  function boundOf(appId) {
+    const binding = db.getQqBinding(appId) || null;
+    return binding ? { openid: binding.openid, nickname: binding.nickname, at: binding.updated_at } : null;
+  }
   function notifyStatus(dbId, appId, connected) {
     if (!onStatusChange) return;
-    try { onStatusChange({ dbId, appId, connected }); } catch (e) { /* 订阅者异常不影响连接 */ }
+    // 带上绑定信息: 前端状态栏据此区分「已连接未绑定」(黄色提示)
+    try { onStatusChange({ dbId, appId, connected, bound: boundOf(appId) }); } catch (e) { /* 订阅者异常不影响连接 */ }
   }
 
   function truncate(text) {
@@ -309,6 +314,7 @@ function createQqManager(opts = {}) {
     if (!existing) {
       db.upsertQqBinding({ appId: bot.appId, openid, nickname, at: now() });
       log.info(`[qq] 已绑定QQ用户 ${nickname || openid} (${eventType}) appId=${bot.appId}`);
+      notifyStatus(bot.dbId, bot.appId, !!(bot.ws && bot.ready));
       if (eventType === 'C2C_MESSAGE_CREATE' && d.id) {
         sendPassive(bot, openid, d.id, '绑定成功! 输入任意消息查看在线列表');
       }
@@ -495,7 +501,6 @@ function createQqManager(opts = {}) {
   function status(dbId) {
     const bot = bots.get(dbId);
     if (!bot) return { configured: false };
-    const binding = db.getQqBinding(bot.appId) || null;
     return {
       configured: true,
       appId: bot.appId,
@@ -503,7 +508,7 @@ function createQqManager(opts = {}) {
       wsOpen: !!bot.ws,
       attempt: bot.attempt,
       tokenOk: !!bot.token,
-      bound: binding ? { openid: binding.openid, nickname: binding.nickname, at: binding.updated_at } : null,
+      bound: boundOf(bot.appId),
       lastError: bot.lastError || null
     };
   }

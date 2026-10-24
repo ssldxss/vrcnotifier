@@ -44,9 +44,9 @@
     };
   }
 
-  // 自己的状态文案: 自定义状态 + 在线状态(游戏中/网页在线/离线) + 非常规社交状态(加入我/询问我/请勿打扰)
+  // 自己的状态文案: 自定义状态 + 在线状态(游戏中/网页在线/离线)。
+  // 社交状态(活跃/加入我/询问我/请勿打扰)不再用文字展示, 只靠头像圆点的颜色表达。
   const SELF_PRESENCE = { online: '游戏中', active: '网页在线', offline: '离线' };
-  const SOCIAL_LABELS = { active: '活跃', 'join me': '加入我', 'ask me': '询问我', busy: '请勿打扰' };
 
   function selfStateText(user) {
     const u = user || {};
@@ -54,9 +54,6 @@
     const parts = [];
     if (u.status_description) parts.push(u.status_description);
     parts.push(SELF_PRESENCE[state] || '离线');
-    const social = SOCIAL_LABELS[u.status];
-    // 「活跃」是默认社交状态, 不占文字; 其余(加入我/询问我/请勿打扰)明确显示
-    if (state !== 'offline' && social && social !== '活跃') parts.push(social);
     return parts.join(' · ');
   }
 

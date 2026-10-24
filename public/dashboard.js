@@ -28,13 +28,24 @@
     friendRange: null,
     friendOffsets: null,
     friendItems: [],
+    friendRowEls: new Map(),   // id -> 行 DOM(增量更新时复用)
+    friendRowHtml: new Map(),  // id -> 上次渲染的 HTML(只替换变化的行)
+    friendGroupEls: new Map(), // groupKey -> { titleEl, bodyEl, innerEl }
+    friendRenderSig: null,     // 旧前端同款指纹: 数据/搜索/折叠都没变就不动 DOM
     search: '',
     expanded: null,
     loadingOlder: false,
     feedReqId: 0,
+    feedDataVersion: 0,
+    feedRenderedVersion: -1,
     newCount: 0,
     unseenFrom: 0,
     wsHistory: window.VrcWsChart.emptyHistory(60),
+    wsSec: null,
+    favorites: new Set(),
+    vrcAbnormal: false,
+    sseOpened: false,
+    resyncing: false,
     config: {},
     status: {},
     settingsOpen: false,
@@ -99,12 +110,18 @@
     const c = cur || 'dark';
     return c === 'dark' ? 'auto' : (c === 'auto' ? 'light' : 'dark');
   }
+  const THEME_ICONS = {
+    dark: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A8.6 8.6 0 1 1 11.2 3a6.8 6.8 0 0 0 9.8 9.8z"></path></svg>',
+    light: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4.2"></circle><path d="M12 2v2.4M12 19.6V22M2 12h2.4M19.6 12H22M4.9 4.9l1.7 1.7M17.4 17.4l1.7 1.7M19.1 4.9l-1.7 1.7M6.6 17.4l-1.7 1.7"></path></svg>',
+    auto: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.4"></circle><path d="M12 3.6a8.4 8.4 0 0 1 0 16.8z" fill="currentColor" stroke="none"></path></svg>'
+  };
   function applyTheme(mode) {
     const attr = mode === 'auto' ? null : mode;
     if (attr) document.documentElement.setAttribute('data-theme', attr);
     else document.documentElement.removeAttribute('data-theme');
     localStorage.setItem(LS_THEME, mode);
     $('#themeBtn').title = { auto: '主题: 自动', dark: '主题: 深色', light: '主题: 浅色' }[mode];
+    $('#themeBtn').innerHTML = THEME_ICONS[mode] || THEME_ICONS.dark;
   }
 
   // ---------- 顶部状态条 / 自己 ----------
@@ -132,9 +149,22 @@
     $('#stWeb').textContent = counts.active;
     $('#stOffline').textContent = counts.offline;
     const qq = state.status.qq;
-    const qqOn = !!(qq && qq.configured && qq.connected);
-    $('#stQq').textContent = qq && qq.configured ? (qq.connected ? '已连接' : '未连接') : '未配置';
-    setDot($('#stQqDot'), !!(qq && qq.configured && qq.connected));
+    const qqConfigured = !!(qq && qq.configured);
+    const qqConnected = !!(qqConfigured && qq.connected);
+    const qqBound = !!(qq && qq.bound);
+    $('#stQq').textContent = !qqConfigured ? '未配置' : (qqConnected ? (qqBound ? '已连接' : '未绑定') : '未连接');
+    const qqDot = $('#stQqDot');
+    if (qqDot) qqDot.className = 'ss-dot' + (qqConnected ? (qqBound ? ' ok' : ' warn') : '');
+    const qqItem = $('#stQqItem');
+    if (qqItem) {
+      qqItem.classList.toggle('qq-warn', qqConnected && !qqBound);
+      let qqTip = '';
+      if (!qqConfigured) qqTip = 'QQ 机器人未配置: 在设置 → QQ 机器人填写 AppID / AppSecret 并启用';
+      else if (!qqConnected) qqTip = 'QQ 机器人已配置但未连接' + (qq.lastError ? ': ' + qq.lastError : '');
+      else if (!qqBound) qqTip = 'QQ 机器人已连接, 但还没有绑定 QQ 用户: 在 QQ 里给机器人发一条任意消息即可完成绑定';
+      else qqTip = 'QQ 机器人已连接' + (qq.bound && qq.bound.nickname ? ', 已绑定: ' + qq.bound.nickname : '');
+      if (qqItem.title !== qqTip) qqItem.title = qqTip;
+    }
     const wsOn = !!state.status.wsConnected;
     $('#stWs').textContent = state.status.loggedIn ? (wsOn ? '已连接' : '重连中') : '-';
     setDot($('#stWsDot'), wsOn);
@@ -153,7 +183,9 @@
       $('#selfAvatar').removeAttribute('src');
       return;
     }
-    $('#selfName').textContent = u.display_name || u.username || '-';
+    $('#selfName').innerHTML = window.VrcLinks
+      ? window.VrcLinks.linkHtml('user', u.vrchat_user_id || u.id, u.display_name || u.username || '-')
+      : escapeHtml(u.display_name || u.username || '-');
     $('#selfState').textContent = FR.selfStateText(u);
     $('#selfAvatarWrap').className = 'avatar-wrap ' + FR.selfDotClasses(u);
     $('#selfName').title = [u.display_name, $('#selfState').textContent].filter(Boolean).join(' · ');
@@ -202,24 +234,50 @@
       const series = (r.data && r.data.series) || [];
       if (series.length) state.wsHistory = series.slice(-60);
       while (state.wsHistory.length < 60) state.wsHistory.unshift(0);
+      // 服务端 series 最后一格是「上一秒」, 用它与后续 ws-stats 的 sec 对齐去重
+      state.wsSec = Math.floor(Date.now() / 1000) - 1;
       drawWsSpark();
       renderTop();
     } catch (e) { drawWsSpark(); }
   }
 
+  // 顶栏 + 登录页「服务器状态」卡共用: 健康探测(延迟/连通) 与官方状态(VRChat)分开显示
+  function applyHealthUi(hd) {
+    state.lastHealth = hd || null;
+    const ok = !!hd && hd.status === 'ok';
+    const lat = hd ? hd.latencyMs : null;
+    const text = state.vrcAbnormal ? 'VRC 异常' : (ok ? '正常' : (hd ? '异常' : '-'));
+    const latText = typeof lat === 'number' ? lat + ' ms' : '';
+    // 主页顶栏和登录页右上角的状态条共用同一套字段(st/lg 前缀)
+    for (const prefix of ['st', 'lg']) {
+      const dot = document.getElementById(prefix + 'HealthDot');
+      if (dot) setDot(dot, ok && !state.vrcAbnormal);
+      const label = document.getElementById(prefix + 'Health');
+      if (label) label.textContent = text;
+      const meta = document.getElementById(prefix + 'Latency');
+      if (meta) meta.textContent = latText;
+    }
+  }
+  function applyVrcStatus(vd) {
+    state.vrcStatus = vd || null;
+    state.vrcAbnormal = !!(vd && vd.state && vd.state !== 'normal');
+    if (state.lastHealth) applyHealthUi(state.lastHealth);
+    else {
+      for (const prefix of ['st', 'lg']) {
+        const label = document.getElementById(prefix + 'Health');
+        if (label) label.textContent = state.vrcAbnormal ? 'VRC 异常' : '-';
+        if (state.vrcAbnormal) {
+          const dot = document.getElementById(prefix + 'HealthDot');
+          if (dot) setDot(dot, false);
+        }
+      }
+    }
+  }
   async function loadHealth() {
     try {
       const [h, v] = await Promise.all([api('GET', '/api/health'), api('GET', '/api/vrc-status')]);
-      const hd = h.data || {};
-      const ok = hd.status === 'ok';
-      setDot($('#stHealthDot'), ok);
-      $('#stHealth').textContent = ok ? '正常' : '异常';
-      $('#stLatency').textContent = typeof hd.latencyMs === 'number' ? hd.latencyMs + ' ms' : '';
-      const vd = v.data || {};
-      if (vd.state && vd.state !== 'normal') {
-        $('#stHealth').textContent = 'VRC 异常';
-        setDot($('#stHealthDot'), false);
-      }
+      applyHealthUi(h.data || {});
+      applyVrcStatus(v.data || {});
     } catch (e) { /* 顶栏保持 - */ }
   }
 
@@ -230,22 +288,38 @@
     ['active', '网页在线', false],
     ['offline', '离线', true]
   ];
+  const COLLAPSE_KEY = 'vrcn_groupCollapsed';
   const collapsed = { offline: true };
+  try {
+    const saved = JSON.parse(localStorage.getItem(COLLAPSE_KEY) || 'null');
+    if (saved && typeof saved === 'object') Object.assign(collapsed, saved);
+  } catch (e) { /* 缓存不可用, 用默认 */ }
+  function saveCollapsed() {
+    try { localStorage.setItem(COLLAPSE_KEY, JSON.stringify(collapsed)); } catch (e) { /* ignore */ }
+  }
 
-  function groupTitleHtml(key, title, count, isCollapsed) {
+  function groupTitleInnerHtml(key, title, count, isCollapsed) {
     return (
-      '<div class="group-title' + (isCollapsed ? ' collapsed' : '') + '" data-group="' + key + '">' +
       '<button class="group-toggle" title="' + (isCollapsed ? '展开' : '收起') + '">' +
       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"></path></svg>' +
-      '</button><span>' + title + '</span><span class="gcount' + (key === 'fav' ? ' fav' : '') + '">' + count + '</span></div>'
+      '</button><span>' + title + '</span><span class="gcount' + (key === 'fav' ? ' fav' : '') + '">' + count + '</span>'
     );
   }
-  function placeHtml(place) {
+  function groupTitleHtml(key, title, count, isCollapsed) {
+    return '<div class="group-title' + (isCollapsed ? ' collapsed' : '') + '" data-group="' + key + '">' +
+      groupTitleInnerHtml(key, title, count, isCollapsed) + '</div>';
+  }
+  function placeHtml(place, worldId) {
     if (!place) return '';
     if (place.kind === 'text') return '<span class="w">' + escapeHtml(place.text) + '</span>';
     const parts = [];
     if (place.flagClass) parts.push('<i class="flags ' + place.flagClass + '"></i>');
-    if (place.worldName) parts.push('<span class="w">' + escapeHtml(place.worldName) + '</span>');
+    if (place.worldName) {
+      const w = window.VrcLinks
+        ? window.VrcLinks.linkHtml('world', worldId, place.worldName)
+        : escapeHtml(place.worldName);
+      parts.push('<span class="w">' + w + '</span>');
+    }
     if (place.accessLabel) parts.push('<span class="sep">·</span><span class="inst">' + escapeHtml(place.accessLabel) + '</span>');
     return parts.join('');
   }
@@ -254,31 +328,91 @@
   const BELL_HOLLOW = '<svg class="bh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 8-3 8h18s-3-1-3-8"></path><path d="M13.7 20a2 2 0 0 1-3.4 0"></path></svg>';
   const BELL_SOLID = '<svg class="bs" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 2a6 6 0 0 0-6 6c0 5.2-2.1 6.7-2.8 7.2-.4.3-.2 1 .4 1h16.8c.6 0 .8-.7.4-1C20.1 14.7 18 13.2 18 8a6 6 0 0 0-6-6z"></path><path d="M9.8 19.6a2.4 2.4 0 0 0 4.4 0z"></path></svg>';
   const BELL_LABELS = [
-    ['notify_online', '上线'],
-    ['notify_web_online', '网页上线'],
-    ['notify_offline', '下线'],
-    ['notify_status_change', '状态变化'],
-    ['notify_world_change', '世界变化']
+    ['notify_online', 'notifyOnline', '上线'],
+    ['notify_web_online', 'notifyWebOnline', '网页上线'],
+    ['notify_offline', 'notifyOffline', '下线'],
+    ['notify_status_change', 'notifyStatusChange', '状态变化'],
+    ['notify_world_change', 'notifyWorldChange', '世界变化']
   ];
 
+  function avatarInnerHtml(f, m) {
+    const initial = escapeHtml((m.name || '?').charAt(0).toUpperCase());
+    return f.avatarKey
+      ? '<img class="avatar" src="' + avatarUrl(f.avatarKey) + '" loading="lazy" alt="" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'"><div class="avatar-fallback">' + initial + '</div>'
+      : '<div class="avatar-fallback" style="display:flex">' + initial + '</div>';
+  }
+  function bellClsOf(state) {
+    return state === 'bad' ? ' bad' : (state === 'warn-solid' ? ' warn-solid' : (state === 'warn' ? ' warn' : ''));
+  }
+  function nameInnerHtml(f, m) {
+    return window.VrcLinks
+      ? window.VrcLinks.linkHtml('user', f.friend_vrchat_id, m.name)
+      : escapeHtml(m.name);
+  }
   function friendRowHtml(f) {
     const m = FR.rowModel(f);
-    const av = f.avatarKey
-      ? '<img class="avatar" src="' + avatarUrl(f.avatarKey) + '" loading="lazy" alt="" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'"><div class="avatar-fallback">' + escapeHtml((m.name || '?').charAt(0).toUpperCase()) + '</div>'
-      : '<div class="avatar-fallback" style="display:flex">' + escapeHtml((m.name || '?').charAt(0).toUpperCase()) + '</div>';
-    const bellCls = m.bell === 'bad' ? ' bad' : (m.bell === 'warn-solid' ? ' warn-solid' : (m.bell === 'warn' ? ' warn' : ''));
+    const av = avatarInnerHtml(f, m);
     return (
       '<div class="friend" data-id="' + escapeHtml(f.friend_vrchat_id) + '">' +
-      '<span class="avatar-wrap ' + m.dotClasses + '">' + av + '</span>' +
+      '<span class="avatar-wrap ' + m.dotClasses + '" data-avatar-key="' + escapeHtml(f.avatarKey || '') + '">' +
+      (window.VrcLinks ? window.VrcLinks.wrapHtml('user', f.friend_vrchat_id, av) : av) + '</span>' +
       '<div class="fmeta"><div class="frow1">' +
-      '<span class="name ' + m.nameClass + '">' + escapeHtml(m.name) + '</span>' +
+      '<span class="name ' + m.nameClass + '">' + nameInnerHtml(f, m) + '</span>' +
       (m.statusText ? '<span class="cstatus">' + escapeHtml(m.statusText) + '</span>' : '') +
-      '</div><div class="floc">' + placeHtml(m.place) + '</div></div>' +
+      '</div><div class="floc">' + placeHtml(m.place, f.world_id) + '</div></div>' +
       '<span class="fx">' +
       '<button class="fav-star' + (m.favorite ? ' on' : '') + '" data-act="fav" title="' + (m.favorite ? '取消关心' : '关心(特别关注)') + '">' + (m.favorite ? STAR_ON : STAR_OFF) + '</button>' +
-      '<button class="push-bell' + bellCls + '" data-act="bell" title="推送设置">' + BELL_HOLLOW + BELL_SOLID + '</button>' +
+      '<button class="push-bell' + bellClsOf(m.bell) + '" data-act="bell" title="推送设置">' + BELL_HOLLOW + BELL_SOLID + '</button>' +
       '</span></div>'
     );
+  }
+
+  // 已存在的行只更新发生变化的子元素(头像圆点/昵称/自定义状态/位置/星标/铃铛), 不重建整行
+  function patchFriendRowEl(el, f) {
+    const m = FR.rowModel(f);
+    const avWrap = el.querySelector('.avatar-wrap');
+    if (avWrap) {
+      avWrap.className = 'avatar-wrap ' + m.dotClasses;
+      const key = f.avatarKey || '';
+      if (avWrap.dataset.avatarKey !== key) {
+        avWrap.dataset.avatarKey = key;
+        const av = avatarInnerHtml(f, m);
+        avWrap.innerHTML = window.VrcLinks ? window.VrcLinks.wrapHtml('user', f.friend_vrchat_id, av) : av;
+      }
+    }
+    const nameEl = el.querySelector('.name');
+    if (nameEl) {
+      const wantHtml = nameInnerHtml(f, m);
+      if (nameEl.innerHTML !== wantHtml) nameEl.innerHTML = wantHtml;
+      const wantCls = 'name ' + m.nameClass;
+      if (nameEl.className !== wantCls) nameEl.className = wantCls;
+    }
+    const row1 = el.querySelector('.frow1');
+    if (row1) {
+      let cs = row1.querySelector('.cstatus');
+      if (m.statusText) {
+        if (!cs) { cs = document.createElement('span'); cs.className = 'cstatus'; row1.appendChild(cs); }
+        if (cs.textContent !== m.statusText) cs.textContent = m.statusText;
+      } else if (cs) cs.remove();
+    }
+    const loc = el.querySelector('.floc');
+    if (loc) {
+      const want = placeHtml(m.place, f.world_id);
+      if (loc.innerHTML !== want) loc.innerHTML = want;
+    }
+    const fav = el.querySelector('.fav-star');
+    if (fav) {
+      const wantHtml = m.favorite ? STAR_ON : STAR_OFF;
+      if (fav.innerHTML !== wantHtml) fav.innerHTML = wantHtml;
+      fav.classList.toggle('on', m.favorite);
+      const wantTitle = m.favorite ? '取消关心' : '关心(特别关注)';
+      if (fav.title !== wantTitle) fav.title = wantTitle;
+    }
+    const bell = el.querySelector('.push-bell');
+    if (bell) {
+      const wantCls = 'push-bell' + bellClsOf(m.bell);
+      if (bell.className !== wantCls) bell.className = wantCls;
+    }
   }
 
   // 好友超过阈值时切换虚拟滚动(复用 vlist): 扁平项 = 分组标题 + 好友行
@@ -300,7 +434,15 @@
     }
     return friendRowHtml(item.friend);
   }
-  function renderFriendsVirtual() {
+  function virtualTargetRect(id, list) {
+    const idx = state.friendItems.findIndex((it) => it.type === 'friend' && it.friend.friend_vrchat_id === id);
+    if (idx < 0) return null;
+    const offsets = friendOffsets();
+    const listRect = list.getBoundingClientRect();
+    const itemH = state.friendHeights.get('f:' + id) || 38;
+    return { left: listRect.left + 12, top: listRect.top + offsets[idx] - list.scrollTop, width: Math.max(80, listRect.width - 24), height: itemH };
+  }
+  function renderFriendsVirtual(opts) {
     const list = $('#friendsList');
     list.classList.add('virtual');
     const offsets = friendOffsets();
@@ -318,10 +460,60 @@
       }
       return;
     }
+    // 数据更新时: 记下重绘前的位置, 之后窗口内 FLIP、窗口外(没渲染出来的落点)克隆飞行体
+    let oldRects = null;
+    let oldClones = null;
+    let oldGroups = null;
+    if (opts && opts.animate) {
+      oldRects = new Map();
+      oldClones = new Map();
+      oldGroups = new Map();
+      let curGroup = null;
+      for (const el of list.children) {
+        if (el.classList.contains('group-title')) { curGroup = el.dataset.group; continue; }
+        if (!el.classList.contains('friend')) continue;
+        const key = 'r:' + el.dataset.id;
+        oldRects.set(key, el.getBoundingClientRect());
+        oldClones.set(key, el.cloneNode(true));
+        oldGroups.set(el.dataset.id, curGroup);
+      }
+      for (const el of list.querySelectorAll(':scope > .group-title')) {
+        oldRects.set('g:' + el.dataset.group, el.getBoundingClientRect());
+      }
+    }
     list.innerHTML = '<div class="vlist-gap" style="height:' + sp.before + 'px"></div>' +
       state.friendItems.slice(win.from, win.to + 1).map(friendItemHtml).join('') +
       '<div class="vlist-gap" style="height:' + sp.after + 'px"></div>';
     state.friendRange = win;
+    if (oldRects && oldRects.size) {
+      const listRect = list.getBoundingClientRect();
+      const newEls = new Map();
+      for (const el of list.querySelectorAll('.friend')) newEls.set('r:' + el.dataset.id, el);
+      for (const el of list.querySelectorAll(':scope > .group-title')) newEls.set('g:' + el.dataset.group, el);
+      for (const [key, oldRect] of oldRects) {
+        const el = newEls.get(key);
+        if (el) {
+          const nr = el.getBoundingClientRect();
+          const dx = oldRect.left - nr.left;
+          const dy = oldRect.top - nr.top;
+          if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) continue;
+          try {
+            el.animate([{ transform: 'translate(' + dx + 'px,' + dy + 'px)' }, { transform: 'none' }],
+              { duration: 300, easing: 'cubic-bezier(.22,.8,.3,1)' });
+          } catch (e) { /* ignore */ }
+        } else if (key.startsWith('r:')) {
+          // 飞到没有渲染出来的位置: 先判断是否真的换了分组, 再按方向克隆飞过去
+          const id = key.slice(2);
+          const oldVisible = oldRect.bottom > listRect.top && oldRect.top < listRect.bottom;
+          if (!oldVisible) continue;
+          const item = state.friendItems.find((it) => it.type === 'friend' && it.friend.friend_vrchat_id === id);
+          if (!item || oldGroups.get(id) === item.groupKey) continue;
+          const clone = oldClones.get(key);
+          const target = virtualTargetRect(id, list);
+          if (clone && target) flyNode(clone, oldRect, target);
+        }
+      }
+    }
     requestAnimationFrame(() => {
       let changed = false;
       for (const el of list.querySelectorAll(':scope > .group-title, :scope > .friend')) {
@@ -340,32 +532,248 @@
     });
   }
 
+  function ensureFriendGroupEls(key, title, count, isCollapsed) {
+    let g = state.friendGroupEls.get(key);
+    if (g) return g;
+    const titleEl = document.createElement('div');
+    titleEl.className = 'group-title' + (isCollapsed ? ' collapsed' : '');
+    titleEl.dataset.group = key;
+    titleEl.innerHTML = groupTitleInnerHtml(key, title, count, isCollapsed);
+    const bodyEl = document.createElement('div');
+    bodyEl.className = 'group-body';
+    bodyEl.dataset.group = key;
+    const innerEl = document.createElement('div');
+    innerEl.className = 'group-inner';
+    bodyEl.appendChild(innerEl);
+    g = { titleEl, bodyEl, innerEl };
+    state.friendGroupEls.set(key, g);
+    return g;
+  }
+  function makeFriendRowEl(f, enterIndex) {
+    const tpl = document.createElement('template');
+    tpl.innerHTML = friendRowHtml(f).trim();
+    const el = tpl.content.firstElementChild;
+    if (enterIndex != null) {
+      el.classList.add('enter');
+      el.style.setProperty('--i', String(Math.min(enterIndex, 24)));
+      const clearEnter = () => { el.classList.remove('enter'); el.style.removeProperty('--i'); };
+      el.addEventListener('animationend', clearEnter, { once: true });
+      setTimeout(clearEnter, 1400); // 兜底: 动画被跳过/打断时也清掉, 防止以后重播
+    }
+    return el;
+  }
+  // 飞行体: 目标位置不在可视/已渲染区域时, 克隆当前行从原位朝目标方向飞过去(旧前端同款)
+  const flyerNodes = [];
+  const FLYER_MAX = 4;
+  function flyNode(node, fromRect, toRect, opts) {
+    if (!node || !fromRect || !toRect || flyerNodes.length >= FLYER_MAX) return false;
+    node.classList.remove('enter', 'spot-on', 'v-in', 'v-out', 'fav-spot');
+    const pop = node.querySelector('.push-pop');
+    if (pop) pop.remove();
+    node.classList.add('v-flyer');
+    node.style.position = 'fixed';
+    node.style.margin = '0';
+    node.style.left = fromRect.left + 'px';
+    node.style.top = fromRect.top + 'px';
+    node.style.width = fromRect.width + 'px';
+    node.style.height = fromRect.height + 'px';
+    node.style.pointerEvents = 'none';
+    node.style.zIndex = '60';
+    document.body.appendChild(node);
+    flyerNodes.push(node);
+    const dx = toRect.left - fromRect.left;
+    const dy = toRect.top - fromRect.top;
+    const dist = Math.hypot(dx, dy);
+    const dur = Math.min(520, Math.max(260, 240 + Math.sqrt(dist) * 8));
+    const done = () => {
+      node.remove();
+      const i = flyerNodes.indexOf(node);
+      if (i >= 0) flyerNodes.splice(i, 1);
+    };
+    try {
+      const anim = node.animate([
+        { transform: 'translate3d(0, 0, 0)', opacity: 1 },
+        { transform: 'translate3d(' + (dx * 0.86).toFixed(1) + 'px, ' + (dy * 0.86).toFixed(1) + 'px, 0)', opacity: 0.9, offset: 0.7 },
+        { transform: 'translate3d(' + dx.toFixed(1) + 'px, ' + dy.toFixed(1) + 'px, 0)', opacity: 0 }
+      ], { duration: dur, easing: 'cubic-bezier(.22,.8,.3,1)', fill: 'forwards' });
+      anim.onfinish = done;
+      anim.oncancel = done;
+    } catch (e) { done(); }
+    return true;
+  }
+  function flyRowClone(rowEl, fromRect, toRect) {
+    if (!rowEl) return false;
+    return flyNode(rowEl.cloneNode(true), fromRect, toRect);
+  }
+
+  // 按目标顺序摆放子节点: 已经在该位置的节点不碰(避免重插入导致 CSS 动画重播)
+  function syncChildren(parent, desiredEls) {
+    for (let i = 0; i < desiredEls.length; i++) {
+      const el = desiredEls[i];
+      if (parent.children[i] !== el) parent.insertBefore(el, parent.children[i] || null);
+    }
+    while (parent.children.length > desiredEls.length) parent.removeChild(parent.lastElementChild);
+  }
+  // 增量更新: 只替换内容变化的行、移动换组的行(DOM 复用 + FLIP), 不再整表重建
+  function renderFriendsIncremental(groups) {
+    const list = $('#friendsList');
+    // 清掉上一次的空状态提示
+    for (const child of [...list.children]) {
+      if (!child.classList.contains('group-title') && !child.classList.contains('group-body')) child.remove();
+    }
+    const order = [];
+    for (const [key, title, defaultCollapsed] of TRUST_GROUPS) {
+      if ((groups[key] || []).length) order.push({ key, title, defaultCollapsed, list: groups[key] });
+    }
+    if (!order.length) {
+      list.innerHTML = '<p class="muted" style="padding:10px">没有好友</p>';
+      state.friendRowEls.clear();
+      state.friendRowHtml.clear();
+      state.friendGroupEls.clear();
+      return;
+    }
+    const wanted = new Set();
+    const orderedGroups = [];
+    for (const g of order) for (const f of g.list) wanted.add(f.friend_vrchat_id);
+    // 先量旧位置(FLIP 的 First): 行和分组标题都要平滑飞过去(只平移, 不重建)
+    const oldRects = new Map();
+    const oldGroups = new Map();
+    for (const [id, el] of state.friendRowEls) {
+      if (!el.isConnected) continue;
+      oldRects.set('r:' + id, el.getBoundingClientRect());
+      const b = el.closest('.group-body');
+      oldGroups.set(id, b ? b.dataset.group : '');
+    }
+    for (const [key, g] of state.friendGroupEls) {
+      if (g.titleEl.isConnected) oldRects.set('g:' + key, g.titleEl.getBoundingClientRect());
+    }
+    // 删掉已经不在列表里的行(搜索/离线删除等)
+    for (const [id, el] of [...state.friendRowEls]) {
+      if (!wanted.has(id)) {
+        el.remove();
+        state.friendRowEls.delete(id);
+        state.friendRowHtml.delete(id);
+      }
+    }
+    for (const { key, title, defaultCollapsed, list: arr } of order) {
+      const isCollapsed = collapsed[key] !== undefined ? collapsed[key] : defaultCollapsed;
+      const g = ensureFriendGroupEls(key, title, arr.length, isCollapsed);
+      g.titleEl.className = 'group-title' + (isCollapsed ? ' collapsed' : '');
+      g.titleEl.dataset.group = key;
+      const titleSig = title + '|' + arr.length + '|' + (isCollapsed ? '1' : '0');
+      if (g.titleSig !== titleSig) {
+        // 只更新变化的那几个子节点, 不重建整块标题
+        const toggleBtn = g.titleEl.querySelector('.group-toggle');
+        if (toggleBtn) {
+          const wantBtnTitle = isCollapsed ? '展开' : '收起';
+          if (toggleBtn.title !== wantBtnTitle) { toggleBtn.title = wantBtnTitle; toggleBtn.setAttribute('aria-label', wantBtnTitle); }
+        }
+        const labelEl = g.titleEl.children[1];
+        if (labelEl && labelEl.textContent !== title) labelEl.textContent = title;
+        const countEl = g.titleEl.querySelector('.gcount');
+        if (countEl && countEl.textContent !== String(arr.length)) countEl.textContent = String(arr.length);
+        g.titleSig = titleSig;
+      }
+      g.bodyEl.className = 'group-body' + (isCollapsed ? ' collapsed' : '');
+      g.bodyEl.dataset.group = key;
+      // 按分组顺序摆放标题+内容(顺序没变的节点不移动)
+      orderedGroups.push(g);
+      const rowEls = [];
+      arr.forEach((f, idx) => {
+        const id = f.friend_vrchat_id;
+        const html = friendRowHtml(f);
+        let el = state.friendRowEls.get(id);
+        if (el) {
+          // 已存在的行: 只 patch 变化的子元素, 整行节点/头像/动画都不重建
+          if (state.friendRowHtml.get(id) !== html) {
+            patchFriendRowEl(el, f);
+            state.friendRowHtml.set(id, html);
+          }
+        } else {
+          el = makeFriendRowEl(f, idx);
+          state.friendRowEls.set(id, el);
+          state.friendRowHtml.set(id, html);
+        }
+        rowEls.push(el);
+      });
+      syncChildren(g.innerEl, rowEls);
+    }
+    syncChildren(list, orderedGroups.flatMap((g) => [g.titleEl, g.bodyEl]));
+    // 移除变空的分组
+    for (const [key, g] of [...state.friendGroupEls]) {
+      if (!order.some((o) => o.key === key)) {
+        g.titleEl.remove();
+        g.bodyEl.remove();
+        state.friendGroupEls.delete(key);
+      }
+    }
+    // FLIP: 换组/排序后, 行与分组标题都平滑平移到新位置;
+    // 若落点不在当前可视区域(折叠组/窗口外), 克隆一行判断方向后飞过去
+    const listRect = list.getBoundingClientRect();
+    for (const [key, oldRect] of oldRects) {
+      let el = null;
+      if (key.startsWith('r:')) el = state.friendRowEls.get(key.slice(2));
+      else {
+        const g = state.friendGroupEls.get(key.slice(2));
+        el = g ? g.titleEl : null;
+      }
+      if (!el || !el.isConnected) continue;
+      const newRect = el.getBoundingClientRect();
+      const dx = oldRect.left - newRect.left;
+      const dy = oldRect.top - newRect.top;
+      if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) continue;
+      if (key.startsWith('r:')) {
+        const id = key.slice(2);
+        const body = el.closest('.group-body');
+        const newGroup = body ? body.dataset.group : '';
+        const collapsedTarget = !!(body && body.classList.contains('collapsed'));
+        const oldVisible = oldRect.bottom > listRect.top && oldRect.top < listRect.bottom;
+        const newVisible = newRect.bottom > listRect.top && newRect.top < listRect.bottom;
+        // 只有换了分组的行飞向"没加载出来"的落点时才用飞行体;
+        // 同组内被挤动的行仍走普通 FLIP(避免一次折叠冒出一堆克隆行)
+        if (oldGroups.get(id) !== newGroup && oldVisible && (collapsedTarget || !newVisible)) {
+          flyRowClone(el, oldRect, newRect);
+          continue;
+        }
+      }
+      try {
+        el.animate(
+          [{ transform: 'translate(' + dx + 'px,' + dy + 'px)' }, { transform: 'none' }],
+          { duration: 300, easing: 'cubic-bezier(.22,.8,.3,1)' }
+        );
+      } catch (e) { /* WAAPI 不可用时直接落位 */ }
+    }
+  }
+
   function renderFriends() {
+    const list = $('#friendsList');
     const groups = FM.splitGroups(state.friends, state.friendsQuery || '');
     $('#friendsCount').textContent = state.friends.length;
     if (state.friends.length > state.friendVlistAt) {
+      // 超大同好列表: 退回窗口渲染(此模式重建固定窗口, 不做增量)
+      list.classList.add('virtual');
+      state.friendRowEls.clear();
+      state.friendRowHtml.clear();
+      state.friendGroupEls.clear();
+      state.friendRenderSig = null;
       state.friendItems = window.VrcFriendLayout.layout(groups, collapsed);
       state.friendOffsets = null;
       state.friendRange = null;
-      renderFriendsVirtual();
+      renderFriendsVirtual({ animate: true });
       return;
     }
-    $('#friendsList').classList.remove('virtual');
-    let html = '';
-    for (const [key, title, defaultCollapsed] of TRUST_GROUPS) {
-      const list = groups[key] || [];
-      if (!list.length) continue;
-      const isCollapsed = collapsed[key] !== undefined ? collapsed[key] : defaultCollapsed;
-      html += groupTitleHtml(key, title, list.length, isCollapsed);
-      html += '<div class="group-body' + (isCollapsed ? ' collapsed' : '') + '"><div class="group-inner">';
-      html += list.map((f, i) => {
-        const row = friendRowHtml(f);
-        // 入场错峰: 复用 app.css 的 .friend.enter 动画
-        return row.replace('class="friend"', 'class="friend enter" style="--i:' + i + '"');
-      }).join('');
-      html += '</div></div>';
+    if (list.classList.contains('virtual')) {
+      list.innerHTML = '';
+      list.classList.remove('virtual');
+      state.friendRowEls.clear();
+      state.friendRowHtml.clear();
+      state.friendGroupEls.clear();
     }
-    $('#friendsList').innerHTML = html || '<p class="muted" style="padding:10px">没有好友</p>';
+    // 旧前端同款: 数据/搜索词/折叠状态都没变 → 什么都不做(避免无意义的全局刷新)
+    const sig = FM.renderSignature(state.friends, state.friendsQuery || '', collapsed);
+    if (sig === state.friendRenderSig && list.querySelector('.group-title')) return;
+    renderFriendsIncremental(groups);
+    state.friendRenderSig = sig;
   }
 
   function findFriend(id) {
@@ -383,6 +791,7 @@
       const r = await api('PUT', '/api/friends/' + encodeURIComponent(id) + '/config', { favorite: want });
       if (r.data && r.data.ok) {
         f.config = r.data.config || Object.assign({}, f.config, { favorite: want });
+        updateFavoriteIds();
         renderFriends();
       } else toast((r.data && r.data.error) || '保存失败');
     } catch (e) { toast(e.message || '保存失败'); }
@@ -393,24 +802,29 @@
     const on = (k) => cfg[k] === 1;
     return (
       '<div class="push-pop"><div class="pp-head"><span class="pp-title">推送设置</span><span class="pp-who">' + escapeHtml(f.display_name) + '</span></div>' +
-      BELL_LABELS.map(([key, label]) =>
-        '<div class="pp-row"><span>' + label + '</span><label class="switch"><input type="checkbox" data-k="' + key + '"' + (on(key) ? ' checked' : '') + '><span class="slider"></span></label></div>'
+      BELL_LABELS.map(([key, camel, label]) =>
+        '<div class="pp-row"><span>' + label + '</span><label class="switch"><input type="checkbox" data-k="' + key + '" data-camel="' + camel + '"' + (on(key) ? ' checked' : '') + '><span class="slider"></span></label></div>'
       ).join('') +
       '<div class="pp-foot"><button class="link-btn" data-act="settings">全部通知设置</button></div></div>'
     );
   }
 
   function openBellPopover(row, f) {
-    closeBellPopover();
+    closeBellPopover(false);
     row.insertAdjacentHTML('beforeend', bellPopoverHtml(f));
     const pop = row.querySelector('.push-pop');
-    pop.addEventListener('click', (ev) => ev.stopPropagation());
+    pop.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      if (ev.target.closest('[data-act="settings"]')) { closeBellPopover(true); openSettings(); }
+    });
     pop.addEventListener('change', async (ev) => {
       const input = ev.target;
       const key = input && input.getAttribute && input.getAttribute('data-k');
+      const camel = input && input.getAttribute && input.getAttribute('data-camel');
       if (!key) return;
       try {
-        const r = await api('PUT', '/api/friends/' + encodeURIComponent(f.friend_vrchat_id) + '/config', { [key]: input.checked ? 1 : 0 });
+        // 接口要驼峰字段(notifyOnline...), GET /api/friends 返回的是下划线配置
+        const r = await api('PUT', '/api/friends/' + encodeURIComponent(f.friend_vrchat_id) + '/config', { [camel || key]: input.checked ? 1 : 0 });
         if (r.data && r.data.ok) {
           f.config = r.data.config || Object.assign({}, f.config, { [key]: input.checked ? 1 : 0 });
           row.querySelector('.push-bell').className = 'push-bell' + ({ off: '', warn: ' warn', 'warn-solid': ' warn-solid', bad: ' bad' }[window.VrcBellState.bellState(f.config)]);
@@ -425,13 +839,24 @@
       }
     });
   }
-  function closeBellPopover() {
-    $$('.push-pop').forEach((el) => el.remove());
+  function closeBellPopover(animate) {
+    $$('.push-pop').forEach((el) => {
+      if (!animate) { el.remove(); return; }
+      if (el.classList.contains('closing')) return;
+      el.classList.add('closing');
+      setTimeout(() => el.remove(), 180);
+    });
   }
 
+  function updateFavoriteIds() {
+    state.favorites = new Set(
+      state.friends.filter((f) => f.config && f.config.favorite === 1).map((f) => f.friend_vrchat_id)
+    );
+  }
   async function loadFriends() {
     const r = await api('GET', '/api/friends');
     state.friends = (r.data && r.data.friends) || [];
+    updateFavoriteIds();
     renderFriends();
     renderTop();
   }
@@ -524,11 +949,11 @@
       '<div class="feed-row">' +
       '<span class="fr-time">' + timeText(e.at) + '</span>' +
       '<span class="' + labelCls + '">' + escapeHtml(label) + '</span>' +
-      '<span class="fr-name">' + escapeHtml(e.friend_name || '') + '</span>' +
+      '<span class="fr-name">' + (window.VrcLinks ? window.VrcLinks.linkHtml('user', e.friend_vrchat_id, e.friend_name || '') : escapeHtml(e.friend_name || '')) + '</span>' +
       '<span class="fr-desc">' + summaryHtml(e) + '</span>' +
       '<svg class="fr-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"></path></svg>' +
       '</div>' +
-      (open ? '<div class="feed-detail">' + changeHtml(e) + '</div>' : '') +
+      '<div class="feed-detail"><div class="feed-detail-clip"><div class="feed-detail-inner">' + changeHtml(e) + '</div></div></div>' +
       '</div>'
     );
   }
@@ -551,6 +976,69 @@
   }
   function invalidateFeedOffsets() { state.feedOffsets = null; }
 
+  function makeFeedItemEl(e, enter) {
+    const tpl = document.createElement('template');
+    tpl.innerHTML = feedItemHtml(e).trim();
+    const el = tpl.content.firstElementChild;
+    if (enter) {
+      el.classList.add('feed-enter');
+      setTimeout(() => el.classList.remove('feed-enter'), 420);
+    }
+    return el;
+  }
+  function patchFeedRowEl(el, e) {
+    if (!el) return;
+    const desc = el.querySelector('.fr-desc');
+    if (desc) desc.innerHTML = summaryHtml(e);
+    const detail = el.querySelector('.feed-detail-inner');
+    if (detail) detail.innerHTML = changeHtml(e);
+  }
+
+  // 实时新动态: 只插入一行, 其他行用 FLIP 往下平移, 不重建整个窗口
+  function prependFeedEvent(item) {
+    const list = $('#feedList');
+    if (!list || !state.feedRange) return false;
+    if (state.events.some((ev) => ev.id === item.id)) return false;
+    const oldRects = [];
+    for (const el of list.querySelectorAll('.feed-item')) oldRects.push([el, el.getBoundingClientRect()]);
+    const merged = window.VrcFeedStore.mergeEvents(state.events, [item]);
+    state.events = merged.events;
+    state.feedDataVersion++;
+    state.total++;
+    const el = makeFeedItemEl(item, true);
+    const firstGap = list.querySelector('.vlist-gap');
+    if (firstGap) firstGap.after(el); else list.prepend(el);
+    // FLIP: 原有行只平移, 不重绘
+    for (const [oldEl, rect] of oldRects) {
+      const nr = oldEl.getBoundingClientRect();
+      const dy = rect.top - nr.top;
+      if (Math.abs(dy) < 0.5) continue;
+      try {
+        oldEl.animate([{ transform: 'translateY(' + dy + 'px)' }, { transform: 'none' }], { duration: 280, easing: 'cubic-bezier(.22,.8,.3,1)' });
+      } catch (e) { /* ignore */ }
+    }
+    const from = state.feedRange.from;
+    const to = Math.min(state.feedRange.to + (from === 0 ? 1 : 0), state.events.length - 1);
+    requestAnimationFrame(() => {
+      const h = Math.round(el.getBoundingClientRect().height * 100) / 100;
+      state.feedHeights.set(item.id, h);
+      invalidateFeedOffsets();
+      if (state.feedRange && from === 0) state.feedRange = { from: 0, to };
+      state.feedRenderedVersion = state.feedDataVersion;
+      const offsets = feedOffsets();
+      const rangeNow = state.feedRange || { from: 0, to: state.events.length - 1 };
+      const sp = window.VrcVList.spacersFor({ offsets, from: rangeNow.from, to: rangeNow.to });
+      const gaps = list.querySelectorAll('.vlist-gap');
+      if (gaps.length === 2) {
+        gaps[0].style.height = sp.before + 'px';
+        gaps[1].style.height = sp.after + 'px';
+      }
+      $('#feedTotal').textContent = state.total ? '共 ' + state.total.toLocaleString() + ' 条' : '';
+      updateFeedNew();
+    });
+    return true;
+  }
+
   function renderFeed() {
     const list = $('#feedList');
     $('#feedTotal').textContent = state.total ? '共 ' + state.total.toLocaleString() + ' 条' : '';
@@ -569,8 +1057,10 @@
     const win = window.VrcVList.renderRange({ inView, count: state.events.length, buffer: 6 });
     if (!win) { list.innerHTML = ''; state.feedRange = null; return; }
     const sp = window.VrcVList.spacersFor({ offsets, from: win.from, to: win.to });
-    // 区间没变: 只更新上下占位高度, 不动行 DOM(保住 hover/展开动画)
-    if (state.feedRange && window.VrcVList.sameRange(state.feedRange, win)) {
+    // 区间没变 + 数据没变: 只更新上下占位高度, 不动行 DOM(保住 hover/展开动画)。
+    // 数据变了(换筛选/搜索/新事件)必须重建, 否则会一直显示上一批数据的行。
+    const dataChanged = state.feedRenderedVersion !== state.feedDataVersion;
+    if (!dataChanged && state.feedRange && window.VrcVList.sameRange(state.feedRange, win)) {
       const gaps = list.querySelectorAll('.vlist-gap');
       if (gaps.length === 2) {
         gaps[0].style.height = sp.before + 'px';
@@ -582,7 +1072,32 @@
       state.events.slice(win.from, win.to + 1).map(feedItemHtml).join('') +
       '<div class="vlist-gap" style="height:' + sp.after + 'px"></div>';
     state.feedRange = win;
+    state.feedRenderedVersion = state.feedDataVersion;
     measureFeedRows();
+  }
+  let feedToggleTimer = 0;
+  function measureFeedRowEl(el) {
+    if (!el) return;
+    const id = Number(el.getAttribute('data-id'));
+    const h = Math.round(el.getBoundingClientRect().height * 100) / 100;
+    state.feedHeights.set(id, h);
+  }
+  // 展开/收起动画结束后统一量高并修正虚拟列表占位(不重建窗口 → 视口不跳)
+  function settleFeedToggle() {
+    const list = $('#feedList');
+    if (!list) return;
+    invalidateFeedOffsets();
+    for (const el of list.querySelectorAll('.feed-item')) measureFeedRowEl(el);
+    if (!state.feedRange) return;
+    const gaps = list.querySelectorAll('.vlist-gap');
+    if (gaps.length !== 2) return;
+    invalidateFeedOffsets();
+    const sp = window.VrcVList.spacersFor({ offsets: feedOffsets(), from: state.feedRange.from, to: state.feedRange.to });
+    // 若收起/展开的是窗口上方的行, 顶部占位变化会推挤视口: 用 scrollTop 补偿, 保持阅读位置不动
+    const beforeH = parseFloat(gaps[0].style.height) || 0;
+    if (Math.abs(sp.before - beforeH) > 0.5) list.scrollTop += sp.before - beforeH;
+    gaps[0].style.height = sp.before + 'px';
+    gaps[1].style.height = sp.after + 'px';
   }
   // 渲染后量真实行高(展开行/长公告会更高), 修正占位; 不重建窗口, 避免滚动时抖动
   function measureFeedRows() {
@@ -627,22 +1142,31 @@
     if (older && state.events.length) params.set('before', String(state.events[state.events.length - 1].id));
     return params.toString();
   }
-  async function loadFeed(older) {
-    // 只拦「加载更旧」的重复滚动请求; 筛选/搜索连续点击时以最后一次为准(请求序号防乱序)
+  async function loadFeed(older, opts) {
+    // 只拦「加载更旧」的重复滚动请求; 筛选/搜索连续点击时以最后一次为准(请求序号防乱序)。
+    // 关键: 翻页不能开启新一代请求序号 —— 否则会把正在返回的筛选响应误判成过时丢掉。
     if (older && state.loadingOlder) return;
     if (older) state.loadingOlder = true;
-    const reqId = ++state.feedReqId;
+    const reqId = older ? state.feedReqId : ++state.feedReqId;
     try {
       const r = await api('GET', '/api/friend-events?' + feedQuery(older));
-      if (reqId !== state.feedReqId) return; // 已有更新的筛选/搜索请求, 丢弃这次响应
+      if (reqId !== state.feedReqId) return; // 筛选已换代: 丢弃这次(可能是旧游标的)响应
       const d = r.data || {};
       if (older) {
         state.events = window.VrcFeedStore.mergeEvents(state.events, d.events || []).events;
       } else {
         state.events = d.events || [];
         state.total = d.total || state.events.length; // 翻旧页时后端 total 只是「更旧部分」的计数, 不能覆盖总数
+        if (!(opts && opts.keepScroll)) {
+          // 换筛选/搜索后回到最新: 清掉展开态与滚动位置, 让结果从顶部可见
+          state.expanded = null;
+          state.newCount = 0;
+          updateFeedNew();
+          $('#feedList').scrollTop = 0;
+        }
       }
       state.hasMore = !!d.hasMore;
+      state.feedDataVersion++;
       invalidateFeedOffsets();
       renderFeed();
     } catch (e) {
@@ -691,7 +1215,7 @@
   const LOG_TAIL = 120;
   const LOG_MORE = 100;
   const LOG_MAX_ROWS = 3000;
-  const logState = { oldestSeq: null, lastSeq: null, hasOlder: true, loading: false, ready: false };
+  const logState = { oldestSeq: null, lastSeq: null, hasOlder: true, loading: false, ready: false, reqId: 0, pendingReset: false };
 
   function logBox() { return $('#log'); }
   function logSelCsv(sel) {
@@ -732,9 +1256,17 @@
     body.textContent = p.body;
     div.append(tm, lv, cat, body);
   }
-  function trimLogRows() {
+  // 方向性裁剪(复用 logview 的纯策略): 直播从底部裁最老, 翻旧页从顶部裁最新;
+  // 否则翻页刚插入的旧日志会被立刻删掉, 游标却已前进 → 永久丢历史。
+  function trimLogRows(mode) {
     const box = logBox();
-    while (box.children.length > LOG_MAX_ROWS) box.removeChild(box.lastChild);
+    if (!box) return;
+    const plan = window.VrcLogView.plan({ totalRows: box.children.length, maxRows: LOG_MAX_ROWS, mode });
+    for (let i = 0; i < plan.count; i++) {
+      const child = plan.side === 'top' ? box.firstChild : box.lastChild;
+      if (!child) break;
+      box.removeChild(child);
+    }
   }
   function setLoadMore(show) {
     const box = logBox();
@@ -759,13 +1291,13 @@
       const more = box.querySelector('.log-more');
       if (more) box.insertBefore(div, more);
       else box.appendChild(div);
-      trimLogRows();
+      trimLogRows('older');
       if (seq != null && (logState.oldestSeq == null || seq < logState.oldestSeq)) logState.oldestSeq = seq;
     } else {
       const wasAtTop = box.scrollTop <= 2;
       const beforeH = box.scrollHeight;
       box.insertBefore(div, box.firstChild);
-      trimLogRows();
+      trimLogRows('live');
       if (wasAtTop) box.scrollTop = 0;
       else box.scrollTop += box.scrollHeight - beforeH; // 阅读旧日志时视口不跳动
       if (seq != null && (logState.lastSeq == null || seq > logState.lastSeq)) logState.lastSeq = seq;
@@ -774,13 +1306,20 @@
   }
   async function loadLogs(reset) {
     const box = logBox();
-    if (!box || logState.loading) return;
+    if (!box) return;
+    if (logState.loading) {
+      // 加载中改筛选: 记下待重载, 作废本轮响应, 等它结束后按新条件重拉
+      if (reset !== false) { logState.reqId++; logState.pendingReset = true; }
+      return;
+    }
     logState.loading = true;
+    const reqId = ++logState.reqId;
     try {
       const q = reset === false && logState.oldestSeq != null
         ? 'before=' + logState.oldestSeq + '&limit=' + LOG_MORE
         : 'tail=' + LOG_TAIL;
       const r = await api('GET', '/api/logs?' + q + logFilterQuery());
+      if (reqId !== logState.reqId) return; // 已被更新的筛选请求取代
       const logs = (r.data && r.data.logs) || [];
       if (reset !== false) {
         box.textContent = '';
@@ -798,6 +1337,25 @@
       logState.ready = true;
     } catch (e) { /* 保留已显示的日志 */ }
     logState.loading = false;
+    if (logState.pendingReset) { logState.pendingReset = false; loadLogs(true); }
+  }
+  // SSE 重连补缺口: after= 已展示的最新 seq
+  async function loadLogsGap() {
+    if (!logState.ready || logState.lastSeq == null) return;
+    try {
+      const r = await api('GET', '/api/logs?after=' + logState.lastSeq + logFilterQuery());
+      const logs = (r.data && r.data.logs) || [];
+      for (const entry of logs) if (logMatches(entry.line)) addLogLine(entry.line, entry.seq, false);
+    } catch (e) { /* ignore */ }
+  }
+  // 按 seq 替换一行(令牌打码后的行更新)
+  function replaceLogRecord(seq, line) {
+    const box = logBox();
+    if (!box) return;
+    const el = box.querySelector('div[data-seq="' + seq + '"]');
+    if (!el) return;
+    renderLogRow(el, line);
+    el.dataset.seq = seq;
   }
   function initLogPanel() {
     if (logState.inited) { loadLogs(true); return; }
@@ -842,7 +1400,7 @@
     state.settingsOpen = true;
     const el = $('#settingsView');
     el.classList.remove('hidden', 'closing');
-    closeBellPopover();
+    closeBellPopover(true);
     if (!state.settingsLoaded) loadSettings();
     initLogPanel();
   }
@@ -858,11 +1416,13 @@
   // ---------- 视图 / 门禁 / 登录 ----------
   function showView(name) {
     state.view = name;
+    try { sessionStorage.setItem('vrcn_lastView', name); } catch (e) { /* ignore */ }
     $('#gateView').classList.toggle('hidden', name !== 'gate');
     $('#loginView').classList.toggle('hidden', name !== 'login');
     $('#mainView').classList.toggle('hidden', name !== 'main');
     if (name === 'gate') fillGateForm();
     if (name === 'login' || name === 'main') loadHealth();
+    if (name === 'login' && accessToken()) connectEvents();
   }
   function setGateMsg(msg) { $('#gateMsg').textContent = msg || ''; }
   function splitBase(b) {
@@ -891,16 +1451,19 @@
     $('#gateTokenLabel').textContent = state.config.tokenRequired ? '访问令牌 *' : '访问令牌';
   }
   function switchLoginForm(name) {
-    const forms = { login: $('#loginForm'), twofa: $('#twofaForm') };
-    const to = forms[name];
+    // 登录卡片 / 2FA 卡片: 两张卡都居中, 切换时淡出淡入
+    const cards = { login: $('#loginCard'), twofa: $('#twofaCard') };
+    const to = cards[name];
     if (!to) return;
-    const from = Object.keys(forms).map((k) => forms[k])
+    const from = Object.keys(cards).map((k) => cards[k])
       .find((el) => el && el !== to && !el.classList.contains('hidden'));
     const show = () => {
       to.classList.remove('hidden');
       to.classList.remove('form-in');
       void to.offsetWidth;
       to.classList.add('form-in');
+      const focusEl = name === 'login' ? $('#loginUser') : $('#twofaCode');
+      if (focusEl) setTimeout(() => { try { focusEl.focus(); } catch (e) { /* ignore */ } }, 80);
     };
     if (!from) { show(); return; }
     from.classList.add('form-fade-out');
@@ -959,19 +1522,43 @@
         state.status = JSON.parse(e.data);
         renderTop();
         renderSelf();
+        // 后端重启等场景: 自动登录完成前可能短暂 401 切到登录页, 登录态恢复后自动回主界面
+        if (state.status.loggedIn && state.view === 'login' && !state.loginWaiting && !bootState.active) loadAll().catch(() => {});
       } catch (err) { /* ignore */ }
     });
     evt.addEventListener('friend-event', (e) => {
       try {
         const item = JSON.parse(e.data);
+        // 1) 好友对象实时更新: 侧栏状态/位置与顶栏人数不再等下一次快照
+        const idx = state.friends.findIndex((f) => f.friend_vrchat_id === item.friend_vrchat_id);
+        if (idx >= 0) {
+          const next = window.VrcEventModel.applyFriendEvent(state.friends[idx], item);
+          if (next) {
+            state.friends[idx] = next;
+            if (item.type_code === 'favorite') { /* noop */ }
+            updateFavoriteIds();
+            renderFriends();
+            renderTop();
+          }
+        }
+        // 2) 动态流: 只有命中当前筛选才插入/计数
+        const matched = window.VrcEventModel.eventMatchesFilters(item, {
+          codes: window.VrcEventModel.filterCodes(state.filters),
+          favoriteIds: state.favoriteOnly ? state.favorites : null,
+          friendId: state.friendId,
+          search: state.search
+        });
+        if (!matched) return;
+        const atTop = $('#feedList').scrollTop < 6;
+        if (atTop && prependFeedEvent(item)) return; // 已增量插入(其他行只平移)
         const merged = window.VrcFeedStore.mergeEvents(state.events, [item]);
         if (merged.added) {
           state.events = merged.events;
+          state.feedDataVersion++;
           state.total++;
           invalidateFeedOffsets();
-          const atTop = $('#feedList').scrollTop < 6;
-          if (atTop) renderFeed();
-          else { state.newCount += merged.added; updateFeedNew(); }
+          state.newCount += merged.added;
+          updateFeedNew();
         }
       } catch (err) { /* ignore */ }
     });
@@ -987,26 +1574,32 @@
           if (ev.world_id === d.worldId && ev.world_name !== d.worldName) { ev.world_name = d.worldName; feedChanged = true; }
           if (ev.old_world_id === d.worldId && ev.old_world_name !== d.worldName) { ev.old_world_name = d.worldName; feedChanged = true; }
         }
-        if (feedChanged) renderFeed();
+        if (feedChanged) {
+          state.feedDataVersion++;
+          let patched = 0;
+          for (const ev of state.events) {
+            if (ev.world_id !== d.worldId && ev.old_world_id !== d.worldId) continue;
+            const el = $('#feedList').querySelector('.feed-item[data-id="' + ev.id + '"]');
+            if (el) { patchFeedRowEl(el, ev); patched++; }
+          }
+          if (patched) state.feedRenderedVersion = state.feedDataVersion;
+          else renderFeed();
+        }
       } catch (err) { /* ignore */ }
     });
     evt.addEventListener('ws-stats', (e) => {
       try {
         const d = JSON.parse(e.data);
-        state.wsHistory = window.VrcWsChart.pushSample(state.wsHistory, d.n || 0);
+        // 服务端每秒补推最近 3 秒: 按 sec 幂等去重, 跳秒补 0
+        const r = window.VrcWsChart.ingestSample(state.wsHistory, d.sec, d.n || 0, state.wsSec);
+        state.wsHistory = r.history;
+        state.wsSec = r.lastSec;
         drawWsSpark();
         renderTop();
       } catch (err) { /* ignore */ }
     });
     evt.addEventListener('health', (e) => {
-      try {
-        const d = JSON.parse(e.data);
-        $('#stLatency').textContent = typeof d.latencyMs === 'number' ? d.latencyMs + ' ms' : '';
-        if (typeof d.status === 'string') {
-          setDot($('#stHealthDot'), d.status === 'ok');
-          $('#stHealth').textContent = d.status === 'ok' ? '正常' : '异常';
-        }
-      } catch (err) { /* ignore */ }
+      try { applyHealthUi(JSON.parse(e.data)); } catch (err) { /* ignore */ }
     });
     evt.addEventListener('log', (e) => {
       if (!state.settingsOpen || !logState.inited) return;
@@ -1015,8 +1608,227 @@
         if (d && d.line && logMatches(d.line)) addLogLine(d.line, d.seq, false);
       } catch (err) { /* ignore */ }
     });
+    evt.addEventListener('log-update', (e) => {
+      try { const d = JSON.parse(e.data); if (d && d.line && d.seq != null) replaceLogRecord(d.seq, d.line); } catch (err) { /* ignore */ }
+    });
+    evt.addEventListener('qq-status', (e) => {
+      try {
+        const d = JSON.parse(e.data);
+        state.status.qq = Object.assign({}, state.status.qq, d || {});
+        renderTop();
+      } catch (err) { /* ignore */ }
+    });
+    evt.addEventListener('notification', () => { loadFriends().catch(() => {}); });
+    evt.addEventListener('relogin-ok', () => location.reload());
+    evt.addEventListener('2fa-needed', () => openReloginModal());
+    evt.addEventListener('login-progress', (e) => {
+      try { bootProgress(JSON.parse(e.data)); } catch (err) { /* ignore */ }
+    });
     evt.addEventListener('session-expired', () => { state.status = {}; if (evt) { evt.close(); evt = null; } showView('login'); });
-    evt.onerror = () => { /* EventSource 自动重连 */ };
+    // EventSource 自动重连: 重连成功后补齐断线期间的数据(服务端不重放 friend-event)
+    evt.onopen = () => {
+      if (state.sseOpened) resyncAfterReconnect();
+      else state.sseOpened = true;
+    };
+    evt.onerror = () => { /* 由断线看门狗负责提示, EventSource 自己会重连 */ };
+  }
+
+  // 重连补齐: 重新拉一遍状态/好友/动态尾部/日志缺口/WS 历史
+  async function resyncAfterReconnect() {
+    if (state.resyncing) return;
+    state.resyncing = true;
+    try {
+      const statusRes = await api('GET', '/api/status');
+      await Promise.all([loadFriends(), loadFeed(false, { keepScroll: true }), loadHealth(), loadWsHistory()]);
+      state.status = statusRes.data || state.status;
+      renderTop();
+      renderSelf();
+      if (state.settingsOpen && logState.inited) await loadLogsGap();
+    } catch (e) { /* 下一次重连再试 */ }
+    state.resyncing = false;
+  }
+
+  // ---------- 鼠标跟随高光(旧前端同款: 事件委托 + rAF 补间, 只维护当前悬停元素) ----------
+  const SPOT_SELECTOR = '.friend, .group-title, .feed-row, .chip, .tb-btn, .mini, .card, .modal, .dd-item, .overview-item, .self-card';
+  let spotRow = null;
+  let spotTarget = null;
+  let spotCurrent = null;
+  let spotRaf = 0;
+  function spotTick() {
+    spotRaf = 0;
+    if (!spotRow || !spotTarget || !spotCurrent) return;
+    spotCurrent.x += (spotTarget.x - spotCurrent.x) * 0.24;
+    spotCurrent.y += (spotTarget.y - spotCurrent.y) * 0.24;
+    spotRow.style.setProperty('--mx', spotCurrent.x.toFixed(1) + 'px');
+    spotRow.style.setProperty('--my', spotCurrent.y.toFixed(1) + 'px');
+    if (Math.hypot(spotTarget.x - spotCurrent.x, spotTarget.y - spotCurrent.y) > 0.35) {
+      spotRaf = requestAnimationFrame(spotTick);
+    }
+  }
+  function startSpotlight() {
+    document.addEventListener('pointermove', (e) => {
+      const target = e.target && e.target.closest ? e.target.closest(SPOT_SELECTOR) : null;
+      if (!target) {
+        if (spotRow) spotRow.classList.remove('spot-on');
+        spotRow = null;
+        spotTarget = null;
+        spotCurrent = null;
+        return;
+      }
+      const rect = target.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      if (spotRow !== target) {
+        if (spotRow) spotRow.classList.remove('spot-on');
+        spotRow = target;
+        spotCurrent = { x, y };
+        target.classList.add('spot-on');
+        target.style.setProperty('--mx', x + 'px');
+        target.style.setProperty('--my', y + 'px');
+      }
+      spotTarget = { x, y };
+      if (!spotRaf) spotRaf = requestAnimationFrame(spotTick);
+    });
+    document.addEventListener('pointerleave', () => {
+      if (spotRow) spotRow.classList.remove('spot-on');
+      spotRow = null;
+      spotTarget = null;
+      spotCurrent = null;
+    });
+  }
+
+  // ---------- 登录等待页(四步进度, 动画复用 app.css 的 .boot-* ) ----------
+  const bootState = { active: false, timer: 0, finishing: false, doneCbs: [] };
+  function bootStepEl(i) { return document.getElementById('bootStep' + i); }
+  function bootReset() {
+    for (let i = 0; i < 4; i++) { const li = bootStepEl(i); if (li) li.classList.remove('on', 'ok'); }
+    const pct = $('#bootPct');
+    if (pct) pct.textContent = '';
+    const title = $('#bootTitle');
+    if (title) { title.textContent = '正在初始化'; title.classList.remove('done'); }
+  }
+  function bootShow() {
+    const el = $('#bootScreen');
+    if (!el || bootState.active) return;
+    bootState.active = true;
+    bootReset();
+    el.classList.remove('hidden', 'out');
+    void el.offsetWidth;
+    el.classList.add('show');
+  }
+  function bootProgress(d) {
+    if (!d || !d.stage) return;
+    if (d.stage === 'verified') { if (state.loginWaiting) bootShow(); return; }
+    if (!bootState.active) return;
+    if (d.stage === 'auth') {
+      const s0 = bootStepEl(0);
+      const s1 = bootStepEl(1);
+      if (s0) s0.classList.add('ok');
+      if (s1) s1.classList.add('on');
+    } else if (d.stage === 'roster') {
+      const s0 = bootStepEl(0);
+      const s1 = bootStepEl(1);
+      const s2 = bootStepEl(2);
+      if (s0) s0.classList.add('ok');
+      if (s1) { s1.classList.add('ok'); s1.classList.remove('on'); }
+      if (s2) s2.classList.add('on');
+    } else if (d.stage === 'friends') {
+      const s2 = bootStepEl(2);
+      if (s2) s2.classList.add('on');
+      const pct = $('#bootPct');
+      if (pct) pct.textContent = d.total ? (d.fetched + '/' + d.total) : (d.fetched != null ? String(d.fetched) : '');
+    }
+  }
+  function bootFlushDone() {
+    const cbs = bootState.doneCbs.splice(0);
+    for (const cb of cbs) { try { cb(); } catch (e) { /* ignore */ } }
+  }
+  // 收尾: 把还没亮的步骤按顺序补完, 再播"初始化完成 + 淡出"; 动画真正结束后才回调。
+  // 登录成功后必须等这里回调再刷新进主界面, 否则会看到动画没播完就切到主页。
+  function bootFinish(onDone) {
+    if (onDone) bootState.doneCbs.push(onDone);
+    if (!bootState.active) { bootFlushDone(); return; }
+    if (bootState.finishing) return;
+    bootState.finishing = true;
+    clearTimeout(bootState.timer);
+    const steps = [0, 1, 2, 3].map(bootStepEl);
+    let i = 0;
+    const step = () => {
+      while (i < steps.length && steps[i] && steps[i].classList.contains('ok')) i++;
+      if (i < steps.length) {
+        const li = steps[i];
+        if (li) { li.classList.remove('on'); li.classList.add('ok'); }
+        i++;
+        bootState.timer = setTimeout(step, 120);
+        return;
+      }
+      const title = $('#bootTitle');
+      if (title) { title.textContent = '初始化完成'; title.classList.add('done'); }
+      bootState.timer = setTimeout(() => {
+        const el = $('#bootScreen');
+        if (!el) {
+          bootState.finishing = false;
+          bootState.active = false;
+          bootFlushDone();
+          return;
+        }
+        el.classList.add('out');
+        el.classList.remove('show');
+        bootState.timer = setTimeout(() => {
+          el.classList.add('hidden');
+          el.classList.remove('out');
+          bootState.finishing = false;
+          bootState.active = false;
+          bootFlushDone();
+        }, 950);
+      }, 420);
+    };
+    step();
+  }
+  function bootHide() {
+    bootState.active = false;
+    bootState.finishing = false;
+    bootState.doneCbs = [];
+    clearTimeout(bootState.timer);
+    const el = $('#bootScreen');
+    if (el) { el.classList.add('hidden'); el.classList.remove('show', 'out'); }
+  }
+
+  // ---------- 自动重登 2FA 弹窗 ----------
+  function openReloginModal() {
+    const modal = $('#twofaReloginModal');
+    if (!modal) return;
+    $('#reloginCode').value = '';
+    $('#relogin2faMsg').textContent = '';
+    const btn = $('#relogin2faConfirm');
+    if (btn) btn.disabled = false;
+    modal.classList.remove('hidden');
+    setTimeout(() => { try { $('#reloginCode').focus(); } catch (e) { /* ignore */ } }, 60);
+  }
+  function closeReloginModal() { const m = $('#twofaReloginModal'); if (m) m.classList.add('hidden'); }
+
+  // ---------- 断线看门狗 + 断线弹窗(改地址/令牌) ----------
+  let connTimer = 0;
+  function fillConnModal() {
+    const sp = splitBase(baseUrl());
+    const cs = $('#connScheme');
+    cs.value = sp.scheme;
+    if (cs.syncDd) cs.syncDd();
+    $('#connHost').value = sp.host;
+    $('#connPort').value = sp.port;
+    $('#connToken').value = accessToken();
+  }
+  function showConnModal() { fillConnModal(); $('#connModal').classList.remove('hidden'); }
+  function hideConnModal() { $('#connModal').classList.add('hidden'); }
+  async function checkBackend() {
+    try {
+      const r = await fetch(baseUrl() + '/api/config', { cache: 'no-store', signal: AbortSignal.timeout(4000) });
+      if (r.ok) hideConnModal(); else showConnModal();
+    } catch (e) { showConnModal(); }
+  }
+  function startConnWatch() {
+    if (connTimer) return;
+    connTimer = setInterval(checkBackend, 15000);
   }
 
   // ---------- 事件绑定 ----------
@@ -1033,6 +1845,7 @@
     // 登出
     $('#logoutBtn').addEventListener('click', (e) => { e.stopPropagation(); $('#logoutPop').classList.toggle('open'); });
     document.addEventListener('click', (e) => { if (!e.target.closest('.tb-logout')) $('#logoutPop').classList.remove('open'); });
+    document.addEventListener('click', (e) => { if (!e.target.closest('.push-pop') && !e.target.closest('.push-bell')) closeBellPopover(true); });
     $('#logoutCancel').addEventListener('click', () => $('#logoutPop').classList.remove('open'));
     $('#logoutConfirm').addEventListener('click', async () => {
       const clearCache = $('#logoutClearCache').checked ? 1 : 0;
@@ -1048,9 +1861,13 @@
       if (!username || !password) { $('#loginMsg').textContent = '请输入用户名和密码'; return; }
       btn.disabled = true;
       $('#loginMsg').textContent = '登录中...';
+      state.loginWaiting = true;
+      bootShow(); // 先显示加载页, 再发登录请求
       try {
-        const r = await api('POST', '/api/login', { username, password, rememberMe: $('#rememberMe').checked });
+        const r = await api('POST', '/api/login', { username, password, rememberMe: true });
         if (r.data.requiresTwoFactorAuth) {
+          state.loginWaiting = false;
+          bootHide(); // 需要 2FA: 收起加载页, 显示 2FA 卡片
           state.tempSessionId = r.data.tempSessionId;
           state.twofaKind = r.data.requiresTwoFactorAuth[0] || 'emailOtp';
           $('#loginMsg').textContent = '';
@@ -1058,9 +1875,12 @@
           switchLoginForm('twofa');
           return;
         }
-        if (r.data.ok) location.reload();
-        else { $('#loginMsg').textContent = r.data.error || '登录失败'; btn.disabled = false; }
+        state.loginWaiting = false;
+        if (r.data.ok) { bootShow(); bootFinish(() => location.reload()); }
+        else { bootHide(); $('#loginMsg').textContent = r.data.error || '登录失败'; btn.disabled = false; }
       } catch (e) {
+        state.loginWaiting = false;
+        bootHide();
         $('#loginMsg').textContent = e.message || '登录失败';
         btn.disabled = false;
       }
@@ -1071,11 +1891,17 @@
       const btn = $('#twofaBtn');
       btn.disabled = true;
       $('#twofaMsg').textContent = '验证中...';
+      bootShow(); // 先显示加载页, 再发验证请求
       try {
         const r = await api('POST', '/api/login/2fa', { tempSessionId: state.tempSessionId, code, kind: state.twofaKind });
-        if (r.data.ok) location.reload();
-        else { btn.disabled = false; $('#twofaMsg').textContent = r.data.error || '验证失败'; }
+        if (r.data.ok) { bootShow(); bootFinish(() => location.reload()); }
+        else {
+          bootHide(); // 验证失败: 收起加载页, 回到 2FA 卡片
+          btn.disabled = false;
+          $('#twofaMsg').textContent = r.data.error || '验证失败';
+        }
       } catch (e) {
+        bootHide();
         btn.disabled = false;
         $('#twofaMsg').textContent = e.message || '验证失败';
       }
@@ -1085,9 +1911,73 @@
       $('#twofaMsg').textContent = '';
       switchLoginForm('login');
     });
+    // 自动重登 / 会话挂起时的 2FA 弹窗(SSE 2fa-needed 触发)
+    $('#relogin2faConfirm').addEventListener('click', async () => {
+      const code = $('#reloginCode').value.trim();
+      if (!/^(\d{6}|\d{4}[- ]\d{4})$/.test(code)) {
+        $('#relogin2faMsg').textContent = '请输入 6 位或 4-4 位验证码';
+        return;
+      }
+      const btn = $('#relogin2faConfirm');
+      btn.disabled = true;
+      $('#relogin2faMsg').textContent = '验证中...';
+      try {
+        const r = await api('POST', '/api/relogin/2fa', { code });
+        if (r.data.ok) {
+          $('#relogin2faMsg').textContent = '验证成功, 正在刷新...';
+          setTimeout(() => location.reload(), 400);
+        } else {
+          btn.disabled = false;
+          $('#relogin2faMsg').textContent = r.data.error || '验证失败, 请重试';
+        }
+      } catch (e) {
+        btn.disabled = false;
+        $('#relogin2faMsg').textContent = e.message || '验证失败, 请重试';
+      }
+    });
+    $('#relogin2faCancel').addEventListener('click', closeReloginModal);
+    // 断线弹窗: 改地址/令牌后重连
+    $('#connSave').addEventListener('click', () => {
+      localStorage.setItem(LS_BASE, composeBase($('#connScheme').value, $('#connHost').value, $('#connPort').value));
+      localStorage.setItem(LS_TOKEN, $('#connToken').value.trim());
+      location.reload();
+    });
+    $('#connCancel').addEventListener('click', hideConnModal);
+    // QQ 机器人: 「快速创建 QQBot」是按钮(不是链接), 点击新页面打开 QQ 开放平台
+    $('#createQqBot').addEventListener('click', () => {
+      window.open('https://q.qq.com/qqbot/openclaw/login.html', '_blank', 'noopener');
+    });
+    // 好友「强制刷新快照」
+    $('#snapshotBtn').addEventListener('click', async () => {
+      const btn = $('#snapshotBtn');
+      if (btn.disabled) return;
+      btn.disabled = true;
+      btn.classList.add('spinning');
+      try {
+        const r = await api('POST', '/api/monitor/snapshot', {});
+        const ok = r.status < 400 && (!r.data || r.data.ok !== false);
+        const n = r.data && (r.data.count != null ? r.data.count : (r.data.friends ? r.data.friends.length : null));
+        toast(ok ? '快照刷新完成' + (n != null ? '（好友 ' + n + ' 人）' : '') : '快照刷新失败');
+        if (ok) await loadFriends();
+      } catch (e) {
+        toast(e.message || '快照刷新失败');
+      } finally {
+        btn.disabled = false;
+        btn.classList.remove('spinning');
+      }
+    });
 
+    // VRChat 外链(昵称/世界名/头像): 统一走 window.open
+    document.addEventListener('click', (e) => {
+      const link = e.target.closest('.ext-link[data-href]');
+      if (!link) return;
+      e.preventDefault();
+      e.stopPropagation();
+      window.open(link.getAttribute('data-href'), '_blank', 'noopener');
+    });
     // 好友列表
     $('#friendsList').addEventListener('click', (e) => {
+      if (e.target.closest('.ext-link')) return; // 外链交给上面的全局委托
       const row = e.target.closest('.friend');
       const group = e.target.closest('.group-title');
       if (group) {
@@ -1095,6 +1985,7 @@
         if ($('#friendsList').classList.contains('virtual')) {
           const item = state.friendItems.find((it) => it.type === 'group' && it.key === key);
           collapsed[key] = item ? !item.collapsed : true;
+          saveCollapsed();
           renderFriends();
           return;
         }
@@ -1104,6 +1995,7 @@
         const now = body.classList.toggle('collapsed');
         group.classList.toggle('collapsed', now);
         collapsed[key] = now;
+        saveCollapsed();
         setTimeout(() => body.classList.remove('animating'), 340);
         return;
       }
@@ -1118,13 +2010,21 @@
           setTimeout(() => act.classList.remove('pop'), 320);
           return toggleFavorite(id);
         }
-        if (kind === 'bell') { closeBellPopover(); const f = findFriend(id); if (f) openBellPopover(row, f); return; }
-        if (kind === 'settings') { closeBellPopover(); openSettings(); return; }
+        if (kind === 'bell') {
+          e.stopPropagation();
+          // 再点同一个铃铛 = 关闭卡片；点其它铃铛 = 换成那一行
+          if (row.querySelector('.push-pop')) { closeBellPopover(true); return; }
+          closeBellPopover(false);
+          const f = findFriend(id);
+          if (f) openBellPopover(row, f);
+          return;
+        }
+        if (kind === 'settings') { closeBellPopover(true); openSettings(); return; }
         return;
       }
       const f = findFriend(id);
       if (!f) return;
-      closeBellPopover();
+      closeBellPopover(true);
       state.friendId = id;
       state.friendName = f.display_name || id;
       state.filters = [];
@@ -1174,10 +2074,22 @@
       const item = e.target.closest('.feed-item');
       if (!item) return;
       const id = Number(item.getAttribute('data-id'));
-      state.expanded = state.expanded === id ? null : id;
-      state.feedHeights.delete(id); // 展开/收起后重新量这一行
-      invalidateFeedOffsets();
-      renderFeed();
+      const prevId = state.expanded;
+      // 打开新的一条时先收起上一条(支持"已展开时再点别的行")
+      if (prevId != null && prevId !== id) {
+        const prevEl = $('#feedList .feed-item[data-id="' + prevId + '"]');
+        if (prevEl) prevEl.classList.remove('open');
+        else state.feedHeights.delete(prevId); // 已滚出窗口: 按收起态估算
+      }
+      if (prevId === id) {
+        state.expanded = null;
+        item.classList.remove('open');
+      } else {
+        state.expanded = id;
+        item.classList.add('open');
+      }
+      clearTimeout(feedToggleTimer);
+      feedToggleTimer = setTimeout(settleFeedToggle, 340);
     });
     $('#feedList').addEventListener('scroll', () => {
       $('#feedTop').classList.toggle('hidden', $('#feedList').scrollTop < 300);
@@ -1230,7 +2142,12 @@
       } catch (e) { flashSettings(e.message); }
     });
     $('#testQq').addEventListener('click', async () => {
-      try { await api('POST', '/api/test/qq', {}); flashSettings('已发送测试推送'); } catch (e) { flashSettings(e.message); }
+      try {
+        const r = await api('POST', '/api/test/qq', {});
+        const ok = r.status < 400 && (!r.data || r.data.ok !== false);
+        if (ok) flashSettings('已发送测试推送');
+        else flashSettings('测试推送失败: ' + ((r.data && r.data.error) || ('HTTP ' + r.status)));
+      } catch (e) { flashSettings(e.message || '测试推送失败'); }
     });
     for (const [id, key] of [['#sNotifyGroupAnnouncement', 'notify_group_announcement'], ['#sNotifyBoop', 'notify_boop'], ['#sNotifyInvite', 'notify_invite']]) {
       $(id).addEventListener('change', async () => {
@@ -1291,15 +2208,23 @@
   // ---------- 启动 ----------
   async function bootApp() {
     applyTheme(localStorage.getItem(LS_THEME) || 'dark');
-    // 没存过后端地址: 同源优先探测(容器/反代场景直接可用)
+    // 首屏按上次视图恢复, 避免已登录用户刷新时先闪一下门禁页
+    try {
+      const savedView = sessionStorage.getItem('vrcn_lastView');
+      if (savedView === 'main' && accessToken()) showView('main');
+      else if (savedView === 'login') showView('login');
+    } catch (e) { /* ignore */ }
+    // 没存过后端地址: 同源优先探测, 再试独立前端模式的默认后端(127.0.0.1:3000)
     if (!localStorage.getItem(LS_BASE)) {
-      try {
-        const r = await fetch(location.origin + '/api/config', { cache: 'no-store' });
-        if (r.ok) {
+      const candidates = [location.origin, 'http://127.0.0.1:3000'];
+      for (const c of candidates) {
+        try {
+          const r = await fetch(c + '/api/config', { cache: 'no-store', signal: AbortSignal.timeout(2500) });
+          if (!r.ok) continue;
           const b = await r.json();
-          if (b && b.ok) localStorage.setItem(LS_BASE, location.origin);
-        }
-      } catch (e) { /* 忽略: 用默认地址 */ }
+          if (b && b.ok) { localStorage.setItem(LS_BASE, c); break; }
+        } catch (e) { /* 试下一个候选 */ }
+      }
     }
     try {
       const cfg = await api('GET', '/api/config', undefined, { noAuth: true });
@@ -1314,6 +2239,11 @@
     }
   }
   bind();
-  if (window.VrcDropdown) window.VrcDropdown.makeDropdown($('#gateScheme'));
+  startSpotlight();
+  if (window.VrcDropdown) {
+    window.VrcDropdown.makeDropdown($('#gateScheme'));
+    window.VrcDropdown.makeDropdown($('#connScheme'));
+  }
+  startConnWatch();
   bootApp();
 })();

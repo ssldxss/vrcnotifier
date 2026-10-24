@@ -23,6 +23,29 @@
     return arr;
   }
 
+  // 服务端会每秒补推最近 3 秒(同一 sec 重复出现): 按 sec 幂等更新, 跳秒补 0。
+  // 返回新数组与 lastSec, 调用方保存 lastSec 供下一轮去重。
+  function ingestSample(history, sec, n, lastSec) {
+    const arr = (history || []).slice();
+    const s = Number(sec);
+    const len = HISTORY_LEN;
+    if (!Number.isFinite(s)) return { history: arr, lastSec: lastSec == null ? null : lastSec };
+    const prev = lastSec == null ? null : Number(lastSec);
+    if (prev != null && s <= prev) {
+      if (s === prev && arr.length) arr[arr.length - 1] = Number(n) || 0; // 同一秒迟到修正: 覆盖
+      return { history: arr, lastSec: prev };
+    }
+    if (prev == null) {
+      arr.push(Number(n) || 0);
+    } else {
+      const gap = Math.min(s - prev - 1, len - 1);
+      for (let i = 0; i < gap; i++) arr.push(0);
+      arr.push(Number(n) || 0);
+    }
+    while (arr.length > len) arr.shift();
+    return { history: arr, lastSec: s };
+  }
+
   // 最近一个窗口内的消息总数 = 每分钟平均次数
   function perMinute(history) {
     let sum = 0;
@@ -42,5 +65,5 @@
     }));
   }
 
-  return { HISTORY_LEN, emptyHistory, pushSample, perMinute, sparklinePoints };
+  return { HISTORY_LEN, emptyHistory, pushSample, perMinute, sparklinePoints, ingestSample };
 });

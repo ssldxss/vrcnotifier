@@ -43,21 +43,26 @@
 
 <!-- VRChat 登录 -->
 <div class="container hidden" id="loginView">
-  <div class="login-split">
-    <div class="card login-main">
+  <!-- 服务器状态: 复用主页顶栏的状态条样式, 显示在最右边 -->
+  <div class="status-strip login-strip">
+    <span class="tb-spacer"></span>
+    <span class="ss-item"><i class="ss-dot" id="lgHealthDot"></i>服务器 <b id="lgHealth">-</b><span class="ss-meta" id="lgLatency"></span></span>
+  </div>
+  <div class="login-center">
+    <div class="card login-main login-card" id="loginCard">
       <h2>登录 VRChat</h2>
       <div id="loginForm">
         <input type="text" id="loginUser" placeholder="用户名" autocomplete="username">
         <input type="password" id="loginPass" placeholder="密码" autocomplete="current-password">
-        <label class="row" style="justify-content:flex-start">
-          <input type="checkbox" id="rememberMe" checked> 记住我(保存会话, 自动恢复)
-        </label>
         <div class="row">
           <button id="loginBtn">登录</button>
           <span class="muted" id="loginMsg"></span>
         </div>
       </div>
-      <div id="twofaForm" class="hidden">
+    </div>
+    <div class="card login-main login-card hidden" id="twofaCard">
+      <h2>两步验证</h2>
+      <div id="twofaForm">
         <p class="muted">账号已开启两步验证, 请输入验证码:</p>
         <input type="text" id="twofaCode" placeholder="6 位验证码">
         <div class="row">
@@ -65,15 +70,6 @@
           <button id="twofaCancel" class="secondary">取消</button>
           <span class="muted" id="twofaMsg"></span>
         </div>
-      </div>
-    </div>
-    <div class="login-status">
-      <div class="overview-item">
-        <span class="ov-label">
-          <span class="ov-label-text">服务器状态</span>
-          <span id="lgHealthLatency" class="ov-meta">-</span>
-        </span>
-        <span id="lgHealth" class="badge">-</span>
       </div>
     </div>
   </div>
@@ -87,7 +83,7 @@
   <span class="ss-item"><i class="ss-dot accent"></i>好友 <b id="stFriends">-</b></span>
   <span class="ss-item">在线 <b id="stOnline">-</b><span class="ss-meta">·</span>网页 <b id="stWeb">-</b><span class="ss-meta">·</span>离线 <b id="stOffline">-</b></span>
   <span class="ss-sep"></span>
-  <span class="ss-item"><i class="ss-dot" id="stQqDot"></i>QQ 机器人 <b id="stQq">-</b></span>
+  <span class="ss-item" id="stQqItem"><i class="ss-dot" id="stQqDot"></i>QQ 机器人 <b id="stQq">-</b></span>
   <span class="ss-item"><i class="ss-dot" id="stWsDot"></i>WS <b id="stWs">-</b><span class="ss-meta" id="stWsRate"></span></span>
   <canvas class="ss-spark" id="wsSpark" width="96" height="16" title="WebSocket 消息速率（最近 60 秒）" aria-label="WebSocket 消息速率图"></canvas>
   <span class="ss-sep"></span>
@@ -165,7 +161,11 @@
     <aside class="card panel side">
       <div class="side-head">
         <div class="side-head-row">
-          <h2>好友 <span class="muted" id="friendsCount">-</span></h2>
+          <h2>好友 <span class="muted" id="friendsCount">-</span>
+            <button class="mini" id="snapshotBtn" title="强制刷新快照" aria-label="强制刷新快照">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-.9 4.2"></path><path d="M20 5v6h-6"></path></svg>
+            </button>
+          </h2>
         </div>
         <input class="side-search" id="friendSearch" type="text" placeholder="搜索好友...">
       </div>
@@ -201,6 +201,9 @@
               <div class="field"><label>AppID</label><input type="text" id="sQqAppId" placeholder="QQ开放平台管理端 AppID"></div>
               <div class="field"><label>AppSecret</label><input type="password" id="sQqAppSecret" placeholder="未配置"></div>
             </div>
+            <p class="qq-create">
+              <button class="link-btn" type="button" id="createQqBot" title="在新页面打开 QQ 开放平台">快速创建 QQBot</button>
+            </p>
             <div class="row actions">
               <button id="saveSettings">保存设置</button>
               <button class="secondary" id="testQq">发送测试推送</button>
@@ -265,6 +268,65 @@
   </div>
 </div>
 
+
+<!-- 登录等待页: 四步进度, 淡入时机由后端 SSE(验证通过)决定 -->
+<div class="boot-screen hidden" id="bootScreen" aria-live="polite">
+  <div class="boot-card">
+    <div class="boot-title" id="bootTitleWrap"><span class="roll-wrap center"><span class="roll-in" id="bootTitle">正在初始化</span></span></div>
+    <ul class="boot-steps">
+      <li id="bootStep0"><span class="boot-dot"><i class="boot-halo"></i></span><span class="boot-label"><span class="roll-wrap"><span class="roll-in">验证信息</span></span></span><span class="boot-val"></span></li>
+      <li id="bootStep1"><span class="boot-dot"><i class="boot-halo"></i></span><span class="boot-label"><span class="roll-wrap"><span class="roll-in">获取用户信息</span></span></span><span class="boot-val"></span></li>
+      <li id="bootStep2"><span class="boot-dot"><i class="boot-halo"></i></span><span class="boot-label"><span class="roll-wrap"><span class="roll-in">获取好友信息</span></span></span><span class="boot-val"><span class="pct" id="bootPct"></span></span></li>
+      <li id="bootStep3"><span class="boot-dot"><i class="boot-halo"></i></span><span class="boot-label"><span class="roll-wrap"><span class="roll-in">等待前端就绪</span></span></span><span class="boot-val"></span></li>
+    </ul>
+  </div>
+</div>
+
+<!-- 后端连接断开弹窗(可改地址/令牌) -->
+<div class="modal-overlay hidden" id="connModal">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="connModalTitle">
+    <h2 id="connModalTitle">后端连接已断开</h2>
+    <p class="muted">无法连接后端, 请检查地址与令牌</p>
+    <div class="modal-body">
+      <div class="field">
+        <label>后端地址</label>
+        <div class="url-row">
+          <select id="connScheme" title="协议" aria-label="协议">
+            <option value="http://">http://</option>
+            <option value="https://">https://</option>
+          </select>
+          <input type="text" id="connHost" class="gate-host" placeholder="IP / 域名" autocomplete="off" spellcheck="false">
+          <input type="text" id="connPort" class="gate-port" placeholder="端口" inputmode="numeric" autocomplete="off">
+        </div>
+      </div>
+      <div class="field">
+        <label>访问令牌</label>
+        <input type="password" id="connToken" placeholder="访问令牌" autocomplete="off">
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button id="connCancel" class="secondary">取消</button>
+      <button id="connSave">连接</button>
+    </div>
+  </div>
+</div>
+
+<!-- 自动重登 / 会话挂起时的两步验证弹窗 -->
+<div class="modal-overlay hidden" id="twofaReloginModal">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="twofaReloginTitle">
+    <h2 id="twofaReloginTitle">需要两步验证</h2>
+    <p class="muted">VRChat 要求两步验证, 请输入验证码(也可在 QQ 回复: 验证码 xxxxxx)</p>
+    <div class="modal-body">
+      <div class="field"><label>验证码</label><input type="text" id="reloginCode" placeholder="6 位数字" inputmode="numeric" autocomplete="off"></div>
+    </div>
+    <p class="muted" id="relogin2faMsg"></p>
+    <div class="modal-actions">
+      <button id="relogin2faCancel" class="secondary">取消</button>
+      <button id="relogin2faConfirm">确定</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast hidden" id="toast"></div>
 
 <script src="instance.js"></script>
@@ -277,6 +339,9 @@
 <script src="vlist.js"></script>
 <script src="wschart.js"></script>
 <script src="logparse.js"></script>
+<script src="logview.js"></script>
+<script src="statusmodel.js"></script>
+<script src="vrclinks.js"></script>
 <script src="dropdown.js"></script>
 <script src="dashboard.js"></script>
 </body>

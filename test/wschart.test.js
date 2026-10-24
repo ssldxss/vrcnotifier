@@ -35,3 +35,27 @@ test('sparklinePoints: 全 0 时最大值按 1 处理, 画成底部直线', () =
   ]);
   assert.deepStrictEqual(ws.sparklinePoints([], 10, 12), []);
 });
+
+test('ingestSample: 服务端每秒补推最近 3 秒, 按 sec 幂等去重', () => {
+  let st = { history: ws.emptyHistory(60), lastSec: null };
+  for (const [sec, n] of [[99, 1], [100, 2], [101, 3]]) {
+    st = ws.ingestSample(st.history, sec, n, st.lastSec);
+  }
+  assert.equal(st.lastSec, 101);
+  assert.deepStrictEqual(st.history.slice(-3), [1, 2, 3]);
+  for (const [sec, n] of [[100, 2], [101, 3], [102, 4]]) {
+    st = ws.ingestSample(st.history, sec, n, st.lastSec);
+  }
+  assert.equal(st.lastSec, 102);
+  assert.deepStrictEqual(st.history.slice(-4), [1, 2, 3, 4], '重复推送不应被当成新的一秒');
+  st = ws.ingestSample(st.history, 102, 9, st.lastSec);
+  assert.deepStrictEqual(st.history.slice(-4), [1, 2, 3, 9]);
+  assert.equal(st.lastSec, 102);
+});
+
+test('ingestSample: 跳秒时补 0, 丢 tick 图表也不失真', () => {
+  const st = ws.ingestSample(ws.emptyHistory(60), 100, 5, 100);
+  const next = ws.ingestSample(st.history, 104, 7, st.lastSec);
+  assert.equal(next.lastSec, 104);
+  assert.deepStrictEqual(next.history.slice(-5), [5, 0, 0, 0, 7]);
+});

@@ -90,6 +90,56 @@
     return TYPE_KEYS.every((key) => list.includes(key)) ? [] : list;
   }
 
+  // 实时事件是否命中当前筛选(与服务端 query 条件同口径); 用于 SSE 增量插入前判断
+  function eventMatchesFilters(row, opts) {
+    const o = opts || {};
+    if (!row) return false;
+    if (o.codes && !o.codes.includes(typeCode(row))) return false;
+    if (o.favoriteIds && !o.favoriteIds.has(row.friend_vrchat_id)) return false;
+    if (o.friendId && row.friend_vrchat_id !== o.friendId) return false;
+    if (o.search) {
+      const q = String(o.search).toLowerCase();
+      const hay = [row.friend_name, row.friend_vrchat_id, row.world_name, row.old_world_name,
+        row.title, row.body, row.group_id].filter(Boolean).join('\n').toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  }
+
+  // 好友实时变化 → 更新好友对象(侧栏/顶部人数不等到下一次快照); 没变化返回 null
+  function applyFriendEvent(friend, event) {
+    if (!friend || !event) return null;
+    const code = typeCode(event);
+    const patch = {};
+    if (code === 'friend_online') {
+      patch.state = event.new_state || 'online';
+    } else if (code === 'friend_web_online') {
+      patch.state = event.new_state || 'active';
+    } else if (code === 'friend_offline') {
+      patch.state = event.new_state || 'offline';
+    } else if (code === 'friend_web_offline') {
+      const cur = friend.display_state || friend.state;
+      if (cur === 'active') patch.state = 'offline';
+    } else if (code === 'status_change') {
+      if (event.new_status) patch.status = event.new_status;
+    } else if (code === 'status_description_change') {
+      patch.status_description = event.new_desc == null ? '' : event.new_desc;
+    } else if (code === 'location_change' || code === 'friend_online' || code === 'friend_web_online') {
+      // 位置变化(上线事件也带目的地)
+    }
+    if (code === 'location_change' || code === 'friend_online' || code === 'friend_web_online') {
+      if (event.world_id !== undefined) {
+        patch.world_id = event.world_id || null;
+        patch.instance_id = event.instance_id || null;
+        patch.world_name = event.world_id === 'private' ? '私密世界' : (event.world_name || null);
+      }
+    }
+    if (event.friend_name && event.friend_name !== friend.display_name) patch.display_name = event.friend_name;
+    const changed = Object.keys(patch).some((k) => !Object.is(friend[k], patch[k]));
+    if (!changed) return null;
+    return Object.assign({}, friend, patch);
+  }
+
   function filterCodes(chip) {
     if (Array.isArray(chip)) {
       const out = [];
@@ -192,6 +242,8 @@
     eventKind,
     filterCodes,
     normalizeFilters,
+    eventMatchesFilters,
+    applyFriendEvent,
     statusDotClass,
     presenceDotClass,
     changeOf,

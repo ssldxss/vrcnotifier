@@ -193,3 +193,52 @@ test('normalizeFilters: 手动选满所有类型时自动归一化为空(=全部
   // 特别关注不是类型筛选, 不参与归一化
   assert.deepStrictEqual(em.normalizeFilters(['favorite', 'location']), ['favorite', 'location']);
 });
+
+test('eventMatchesFilters: 与服务端筛选同口径(类型/特别关注/好友/搜索)', () => {
+  const ev = { type_code: 'friend_offline', friend_vrchat_id: 'usr_p1', friend_name: 'Alice', world_name: 'World' };
+  assert.equal(em.eventMatchesFilters(ev, {}), true);
+  assert.equal(em.eventMatchesFilters(ev, { codes: ['friend_online'] }), false);
+  assert.equal(em.eventMatchesFilters(ev, { codes: ['friend_offline'] }), true);
+  assert.equal(em.eventMatchesFilters(ev, { favoriteIds: new Set(['usr_p2']) }), false);
+  assert.equal(em.eventMatchesFilters(ev, { favoriteIds: new Set(['usr_p1']) }), true);
+  assert.equal(em.eventMatchesFilters(ev, { friendId: 'usr_p2' }), false);
+  assert.equal(em.eventMatchesFilters(ev, { friendId: 'usr_p1' }), true);
+  assert.equal(em.eventMatchesFilters(ev, { search: 'ALICE' }), true);
+  assert.equal(em.eventMatchesFilters(ev, { search: 'world' }), true);
+  assert.equal(em.eventMatchesFilters(ev, { search: 'nope' }), false);
+  // 通知类按标题/正文搜索
+  const notice = { type_code: 'group_announcement', friend_vrchat_id: 'grp_1', title: '晚安', body: '活动开始' };
+  assert.equal(em.eventMatchesFilters(notice, { search: '活动' }), true);
+  assert.equal(em.eventMatchesFilters(notice, { search: '晚安' }), true);
+});
+
+test('applyFriendEvent: 实时事件更新好友对象(状态/社交状态/位置/签名)', () => {
+  const base = {
+    friend_vrchat_id: 'usr_p1', display_name: 'Alice', state: 'offline', status: 'active',
+    status_description: '', world_id: 'wrld_a', instance_id: '1', world_name: 'A',
+    config: { favorite: 1, notify_online: 1 }
+  };
+  assert.deepStrictEqual(
+    em.applyFriendEvent(base, { type_code: 'friend_online', new_state: 'online', world_id: 'wrld_b', instance_id: '2', world_name: 'B' }),
+    Object.assign({}, base, { state: 'online', world_id: 'wrld_b', instance_id: '2', world_name: 'B' })
+  );
+  assert.deepStrictEqual(
+    em.applyFriendEvent(base, { type_code: 'friend_web_online', new_state: 'active' }),
+    Object.assign({}, base, { state: 'active' })
+  );
+  assert.deepStrictEqual(
+    em.applyFriendEvent(base, { type_code: 'status_change', new_status: 'busy' }),
+    Object.assign({}, base, { status: 'busy' })
+  );
+  assert.deepStrictEqual(
+    em.applyFriendEvent(base, { type_code: 'status_description_change', new_desc: '睡觉喵' }),
+    Object.assign({}, base, { status_description: '睡觉喵' })
+  );
+  assert.deepStrictEqual(
+    em.applyFriendEvent(base, { type_code: 'location_change', world_id: 'private', instance_id: null, world_name: '私密世界' }),
+    Object.assign({}, base, { world_id: 'private', instance_id: null, world_name: '私密世界' })
+  );
+  // 无关事件 / 值没变 → null
+  assert.equal(em.applyFriendEvent(base, { type_code: 'group_announcement' }), null);
+  assert.equal(em.applyFriendEvent(base, { type_code: 'status_change', new_status: 'active' }), null);
+});

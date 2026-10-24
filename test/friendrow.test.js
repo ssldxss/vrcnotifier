@@ -54,11 +54,11 @@ test('rowModel: 网页在线/离线/私密世界/无信任等级', () => {
   );
 });
 
-test('selfStateText: 自己的状态文案 = 自定义状态 + 在线状态 + 非常规社交状态', () => {
+test('selfStateText: 自己的状态文案 = 自定义状态 + 在线状态(社交状态只靠圆点颜色)', () => {
   assert.equal(friendrow.selfStateText({ state: 'online', status: 'active', status_description: '' }), '游戏中');
-  assert.equal(friendrow.selfStateText({ state: 'active', status: 'ask me', status_description: '睡觉喵' }), '睡觉喵 · 网页在线 · 询问我');
-  assert.equal(friendrow.selfStateText({ state: 'online', status: 'join me' }), '游戏中 · 加入我');
-  assert.equal(friendrow.selfStateText({ state: 'online', status: 'busy', status_description: '工作中' }), '工作中 · 游戏中 · 请勿打扰');
+  assert.equal(friendrow.selfStateText({ state: 'active', status: 'ask me', status_description: '睡觉喵' }), '睡觉喵 · 网页在线');
+  assert.equal(friendrow.selfStateText({ state: 'online', status: 'join me' }), '游戏中');
+  assert.equal(friendrow.selfStateText({ state: 'online', status: 'busy', status_description: '工作中' }), '工作中 · 游戏中');
   assert.equal(friendrow.selfStateText({ state: 'offline', status: 'active' }), '离线');
   assert.equal(friendrow.selfStateText({}), '离线');
 });

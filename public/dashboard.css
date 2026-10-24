@@ -11,6 +11,8 @@ body {
   overflow: hidden;
   height: 100vh;
 }
+/* 主界面容器: 必须继续 flex 链路(状态条 + 两栏), 否则 feed 列表不再被视口约束、整页无法滚动 */
+#mainView { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; width: 100%; }
 
 /* ---------- 顶栏: 沿用现有 header, 只加一个「设置」入口 ---------- */
 header { flex: 0 0 auto; }
@@ -165,7 +167,7 @@ body.variant-a .status-strip { display: none; }
   padding: 6px 10px;
 }
 
-.feed-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 4px 8px 10px; }
+.feed-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 4px 8px 10px; overflow-anchor: none; }
 .feed-day {
   position: sticky;
   top: 0;
@@ -293,7 +295,16 @@ body.variant-a .status-strip { display: none; }
 .sdots .arrow svg { width: 12px; height: 12px; vertical-align: -2px; }
 
 /* 展开详情 */
+/* 展开详情: grid-rows 0fr↔1fr 过渡, 平滑展开/收起且不影响行内点击 */
 .feed-detail {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows .3s cubic-bezier(.22,.8,.3,1);
+}
+.feed-item.open .feed-detail { grid-template-rows: 1fr; }
+/* 裁剪层不带 padding/margin: 0fr 时才能真正收成 0 高 */
+.feed-detail-clip { overflow: hidden; min-height: 0; }
+.feed-detail-inner {
   margin: 0 10px 9px 84px;
   padding: 8px 12px;
   display: flex;
@@ -305,8 +316,11 @@ body.variant-a .status-strip { display: none; }
   background: var(--input-bg);
   border-left: 2px solid var(--accent);
   border-radius: 0 var(--r-sm) var(--r-sm) 0;
-  animation: riseIn .26s cubic-bezier(.22,.8,.3,1) backwards;
+  opacity: 0;
+  transform: translateY(-2px);
+  transition: opacity .22s ease .04s, transform .22s cubic-bezier(.22,.8,.3,1);
 }
+.feed-item.open .feed-detail-inner { opacity: 1; transform: none; }
 /* 变化: 状态变化/上下线一行; 位置/自定义状态/公告用多行完整展示 */
 .feed-change {
   display: flex;
@@ -652,11 +666,10 @@ body.variant-a .status-strip { display: none; }
 .lp-state { font-size: 10.5px; color: var(--text-3); }
 .lp-hint { margin: 9px 0 0; font-size: 11px; line-height: 1.5; color: var(--text-3); }
 .lp-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
-.lp-actions button { font-size: 12px; height: 30px; padding: 0 12px; border-radius: 8px; box-shadow: none; }
-.lp-cancel { color: var(--text-2); background: var(--btn-sec); border: 1px solid var(--line); }
-.lp-cancel:hover { background: var(--btn-sec-hover); filter: none; transform: none; }
-.lp-confirm { color: #fff; background: linear-gradient(135deg, var(--bad), #c93c35); }
-.lp-confirm:hover { filter: brightness(1.06); transform: none; }
+.lp-actions button { font-size: 12px; height: 30px; padding: 0 12px; border-radius: 8px; }
+/* 登出气泡按钮: 与旧前端登出弹窗一致(取消=次要按钮, 确认=默认主按钮) */
+.lp-cancel { color: var(--text-1); background: var(--btn-sec); border: 1px solid var(--line); box-shadow: none; }
+.lp-cancel:hover { background: var(--btn-sec-hover); filter: none; }
 
 /* ================= 右侧栏: 自己的卡片 + 好友列表(同宽同列) ================= */
 .side-col { display: flex; flex-direction: column; gap: 14px; min-height: 0; min-width: 0; }
@@ -882,7 +895,6 @@ body.variant-a .status-strip { display: none; }
 .settings-view .card { padding: 12px 14px; margin-bottom: 0; flex: 0 0 auto; }
 .settings-view .card h2 { font-size: 14px; margin: 0 0 8px; }
 .settings-view .settings-row { padding: 3px 0; }
-.settings-view .settings-row .switch { transform: scale(.95); transform-origin: left center; }
 .settings-view .field { margin: 0 0 6px; }
 .settings-view .grid2 { gap: 10px; }
 .settings-view input[type='text'],
@@ -900,3 +912,178 @@ body.variant-a .status-strip { display: none; }
   .settings-col { overflow: visible; }
   .settings-view #log { min-height: 320px; }
 }
+
+/* 好友卡「强制刷新快照」加载态 */
+@keyframes snapSpin { to { transform: rotate(360deg); } }
+.mini.spinning svg { animation: snapSpin .9s linear infinite; }
+.mini:disabled { opacity: .6; cursor: default; }
+
+/* 铃铛推送设置卡片: 关闭动画(与 riseIn 打开对应) */
+@keyframes popOut {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to { opacity: 0; transform: translateY(-4px) scale(.985); }
+}
+.push-pop.closing { animation: popOut .16s cubic-bezier(.4, 0, .6, 1) forwards; pointer-events: none; }
+
+/* 实时新插入的动态行: 只这一行做入场, 其它行用 FLIP 平移 */
+.feed-enter { animation: riseIn .3s cubic-bezier(.22,.8,.3,1) backwards; }
+
+/* ================= 鼠标跟随高光(新组件, 与旧前端同款补间) ================= */
+.card { position: relative; isolation: isolate; }
+.card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(640px circle at var(--mx, 50%) var(--my, 50%),
+    color-mix(in srgb, var(--accent) 13%, transparent), transparent 68%);
+  opacity: 0;
+  transition: opacity .28s ease-out;
+  pointer-events: none;
+  z-index: -1;
+}
+/* 普通卡片: hover 即亮(门禁/登录/设置/弹窗等) */
+.card:hover::before { opacity: 1; }
+
+/* 只有动态流与好友列表: 外圈光只在鼠标停在卡片本体(没进入列表项)时亮;
+   进入行内只亮该行自己的高光 */
+.feed.card:hover::before,
+.side.card:hover::before { opacity: 0; }
+.feed.card.spot-on::before,
+.side.card.spot-on::before { opacity: 1; }
+
+.chip, .tb-btn, .mini { position: relative; isolation: isolate; }
+.chip::before, .tb-btn::before, .mini::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(150px circle at var(--mx, 50%) var(--my, 50%),
+    color-mix(in srgb, var(--accent) 22%, transparent), transparent 70%);
+  opacity: 0;
+  transition: opacity .22s ease-out;
+  pointer-events: none;
+  z-index: -1;
+}
+.chip:hover::before, .tb-btn:hover::before, .mini:hover::before { opacity: 1; }
+
+.group-title { position: relative; isolation: isolate; }
+.group-title::before {
+  content: '';
+  position: absolute;
+  inset: -2px -4px;
+  border-radius: var(--r-sm);
+  background: radial-gradient(260px circle at var(--mx, 50%) var(--my, 50%),
+    color-mix(in srgb, var(--accent) 16%, transparent), transparent 70%);
+  opacity: 0;
+  transition: opacity .24s ease-out;
+  pointer-events: none;
+  z-index: -1;
+}
+.group-title:hover::before { opacity: 1; }
+
+/* 动态行: 高光直接叠进已有的 hover 底色层, 不被下层盖住 */
+.feed-row::after {
+  background: radial-gradient(320px circle at var(--mx, 50%) var(--my, 50%),
+    color-mix(in srgb, var(--accent) 16%, transparent), transparent 70%), var(--card-bg-hover);
+}
+
+
+/* 登出气泡勾选框: 直接沿用旧前端「登出弹窗勾选框」的自绘样式 */
+.lp-check input[type='checkbox'] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 15px; height: 15px;
+  margin: 0;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 4px;
+  background: var(--input-bg);
+  cursor: pointer;
+  display: inline-grid;
+  place-content: center;
+  flex: 0 0 auto;
+  transition: background var(--t-fast), border-color var(--t-fast), transform var(--t-fast);
+}
+.lp-check input[type='checkbox']:hover { transform: scale(1.1); }
+.lp-check input[type='checkbox']::before {
+  content: '';
+  width: 9px; height: 9px;
+  clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
+  background: var(--accent-contrast);
+  transform: scale(0);
+  transition: transform .12s ease;
+}
+.lp-check input[type='checkbox']:checked { background: var(--accent); border-color: var(--accent); }
+.lp-check input[type='checkbox']:checked::before { transform: scale(1); }
+
+
+/* ================= 登录页: 右上角服务器状态条 + 卡片居中放大 ================= */
+#loginView.container {
+  max-width: none;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+/* 复用主页顶栏 .status-strip 的样式, 只保留服务器状态并靠最右 */
+#loginView .login-strip {
+  flex: 0 0 auto;
+  justify-content: flex-end;
+  padding: 8px 20px;
+  border-bottom: 1px solid var(--line);
+}
+#loginView .login-center {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 28px 20px;
+  min-height: 0;
+}
+#loginView .login-main {
+  flex: 0 0 auto; /* 旧样式是 flex-basis:480px, 在竖排容器里会把卡片撑得过高 */
+  width: min(560px, calc(100vw - 40px));
+  max-width: 560px;
+  padding: 30px 34px 28px;
+}
+#loginView .login-main h2 {
+  font-size: 21px;
+  margin: 0 0 18px;
+}
+#loginView .login-main input[type='text'],
+#loginView .login-main input[type='password'] {
+  font-size: 15px;
+  padding: 12px 14px;
+}
+#loginView .login-main .row { gap: 12px; flex-wrap: wrap; margin-top: 14px; }
+#loginView .login-main .row button { font-size: 15px; padding: 11px 24px; min-height: 42px; }
+#loginView .login-main #twofaForm { display: flex; flex-direction: column; gap: 10px; }
+/* 登录卡 / 2FA 卡切换动画 */
+#loginView .login-card.form-fade-out { animation: pageOut .12s ease forwards; }
+#loginView .login-card.form-in { animation: riseIn .34s cubic-bezier(.22,.8,.3,1) backwards; }
+
+/* QQ 机器人卡片: 「快速创建 QQBot」外观像蓝色链接, 实际是按钮(点击新页面打开) */
+.qq-create { margin: 2px 0 0; }
+.qq-create .link-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12.5px;
+  font-weight: 500;
+}
+/* hover 不要下划线: 用轻微变暗表示可点 */
+.qq-create .link-btn:hover {
+  text-decoration: none;
+  filter: none;
+  opacity: .82;
+}
+
+/* QQ 机器人未绑定(已连接): 状态栏黄色圆点 + 文字, hover 有提示 */
+.ss-dot.warn { background: var(--warn); box-shadow: 0 0 6px color-mix(in srgb, var(--warn) 55%, transparent); }
+.ss-item.qq-warn { cursor: help; }
+.ss-item.qq-warn #stQq { color: var(--warn); }
