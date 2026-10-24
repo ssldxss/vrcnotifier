@@ -282,12 +282,7 @@
   }
 
   // ---------- 好友列表 ----------
-  const TRUST_GROUPS = [
-    ['fav', '⭐ 特别关注', false],
-    ['online', '在线', false],
-    ['active', '网页在线', false],
-    ['offline', '离线', true]
-  ];
+  const TRUST_GROUPS = window.VrcFriendLayout.GROUPS;
   const COLLAPSE_KEY = 'vrcn_groupCollapsed';
   const collapsed = { offline: true };
   try {
@@ -327,13 +322,7 @@
   const STAR_OFF = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 3.5l2.7 5.5 6 .9-4.35 4.2 1.03 6L12 17.3l-5.38 2.8 1.03-6L3.3 9.9l6-.9L12 3.5z"></path></svg>';
   const BELL_HOLLOW = '<svg class="bh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 8-3 8h18s-3-1-3-8"></path><path d="M13.7 20a2 2 0 0 1-3.4 0"></path></svg>';
   const BELL_SOLID = '<svg class="bs" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 2a6 6 0 0 0-6 6c0 5.2-2.1 6.7-2.8 7.2-.4.3-.2 1 .4 1h16.8c.6 0 .8-.7.4-1C20.1 14.7 18 13.2 18 8a6 6 0 0 0-6-6z"></path><path d="M9.8 19.6a2.4 2.4 0 0 0 4.4 0z"></path></svg>';
-  const BELL_LABELS = [
-    ['notify_online', 'notifyOnline', '上线'],
-    ['notify_web_online', 'notifyWebOnline', '网页上线'],
-    ['notify_offline', 'notifyOffline', '下线'],
-    ['notify_status_change', 'notifyStatusChange', '状态变化'],
-    ['notify_world_change', 'notifyWorldChange', '世界变化']
-  ];
+  const BELL_LABELS = window.VrcContracts.FRIEND_CONFIG.filter(([key]) => key !== 'favorite');
 
   function avatarInnerHtml(f, m) {
     const initial = escapeHtml((m.name || '?').charAt(0).toUpperCase());
@@ -830,11 +819,10 @@
     pop.addEventListener('change', async (ev) => {
       const input = ev.target;
       const key = input && input.getAttribute && input.getAttribute('data-k');
-      const camel = input && input.getAttribute && input.getAttribute('data-camel');
       if (!key) return;
       try {
-        // 接口要驼峰字段(notifyOnline...), GET /api/friends 返回的是下划线配置
-        const r = await api('PUT', '/api/friends/' + encodeURIComponent(f.friend_vrchat_id) + '/config', { [camel || key]: input.checked ? 1 : 0 });
+        // 请求和响应统一使用 snake_case
+        const r = await api('PUT', '/api/friends/' + encodeURIComponent(f.friend_vrchat_id) + '/config', { [key]: input.checked ? 1 : 0 });
         if (r.data && r.data.ok) {
           f.config = r.data.config || Object.assign({}, f.config, { [key]: input.checked ? 1 : 0 });
           row.querySelector('.push-bell').className = 'push-bell' + ({ off: '', warn: ' warn', 'warn-solid': ' warn-solid', bad: ' bad' }[window.VrcBellState.bellState(f.config)]);

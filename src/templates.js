@@ -18,10 +18,7 @@ function statusLabel(status) {
 }
 
 // 在线状态(state): offline/active(网页在线)/online(游戏在线)
-const STATE_LABELS = { offline: '离线', active: '网页在线', online: '在线', web: '网页在线', unknown: '未知' };
-function stateLabel(state) {
-  return STATE_LABELS[state] || String(state);
-}
+const { stateLabelOf: stateLabel } = require('./presence');
 
 /** 转义 markdown 特殊字符(昵称/世界名等动态内容插入前使用) */
 function escapeMd(s) {

@@ -31,36 +31,16 @@ CREATE TABLE IF NOT EXISTS friend_log_location (
   old_location TEXT, location TEXT
 );`;
 
-function locationOf(worldId, instanceId) {
-  return worldId ? (instanceId ? `${worldId}:${instanceId}` : worldId) : null;
-}
-function splitLocation(location) {
-  if (!location) return { worldId: null, instanceId: null };
-  const i = location.indexOf(':');
-  return i < 0 ? { worldId: location, instanceId: null }
-    : { worldId: location.slice(0, i), instanceId: location.slice(i + 1) };
-}
-// 入库标识与展示文案分离；仓储接口暂保留原有中文展示，筛选同时接受英文代码。
-const TYPE_LABELS = {
-  friend_online: '上线', friend_offline: '下线',
-  friend_web_online: '网页上线', friend_web_offline: '网页下线',
-  status_change: '状态变化', status_description_change: '自定义状态',
-  location_change: '切换世界', group_announcement: '群组公告',
-  boop: '戳一戳', invite: '世界邀请', request_invite: '请求邀请',
-  // 只用于保留历史记录；当前采集范围不再产生这些事件。
-  name_change: '改名', trust_level_change: '信任等级变化',
-  friend_added: '新增好友', friend_removed: '好友移除'
-};
-const TYPE_CODES = new Map(Object.entries(TYPE_LABELS).map(([code, label]) => [label, code]));
-TYPE_CODES.set('web端上线', 'friend_web_online');
-TYPE_CODES.set('web端下线', 'friend_web_offline');
+const { splitLocation, locationOf } = require('../public/locationmodel');
+const { EVENT_LABELS: TYPE_LABELS, EVENT_CODES, eventCodesOf } = require('../public/contracts');
+const TYPE_CODES = new Map(Object.entries(EVENT_CODES));
 function typeCode(value) {
   const type = String(value ?? '');
   return TYPE_CODES.get(type) || type;
 }
-const PRESENCE = new Set(['friend_online', 'friend_offline', 'friend_web_online', 'friend_web_offline']);
-const STATUS = new Set(['status_change', 'status_description_change']);
-const NOTIFICATIONS = new Set(['group_announcement', 'boop', 'invite', 'request_invite']);
+const PRESENCE = new Set(eventCodesOf('presence'));
+const STATUS = new Set(eventCodesOf('status'));
+const NOTIFICATIONS = new Set(eventCodesOf('notification'));
 
 function createFriendEventStore(db) {
   db.exec('PRAGMA foreign_keys = ON');

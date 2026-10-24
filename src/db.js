@@ -5,6 +5,7 @@ const { DatabaseSync } = require('node:sqlite');
 const fs = require('node:fs');
 const path = require('node:path');
 const { createFriendEventStore } = require('./friend-events');
+const { FRIEND_CONFIG, SETTINGS } = require('../public/contracts');
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS users (
@@ -73,13 +74,7 @@ CREATE TABLE IF NOT EXISTS group_cache (
 `;
 
 /** 设置字段白名单: 列名 -> 类型(int|str); 当前仅 QQ 通知渠道 */
-const SETTING_COLUMNS = {
-  qq_enabled: 'int', qq_app_id: 'str', qq_app_secret: 'str',
-  // 站内通知类型开关(0=关, 缺省/1=开): 群组公告 / 戳一戳(boop) / 世界邀请
-  notify_group_announcement: 'int', notify_boop: 'int', notify_invite: 'int',
-  // 好友动态保留条数(0/缺省 → 不限制, 永不自动清理; >0 → 只保留最新 N 条)
-  friend_event_limit: 'int'
-};
+const SETTING_COLUMNS = Object.fromEntries(SETTINGS.map(([key, , type]) => [key, type === 'string' ? 'str' : 'int']));
 
 // 已移除渠道的历史通知列(仅旧库 users 表迁移/删除用, 与当前白名单分离)
 const LEGACY_NOTIFY_COLUMNS = [
@@ -96,7 +91,7 @@ const MAX_DEDUPE_ROWS = 100000;
 
 // 逐好友的通知配置列(原 monitor_config 表的内容, 现在直接挂在 friends 行上)。
 // notify_web_online 是后加的独立开关: 只挂网页 = 网页上线, 与"进游戏"的上线分开。
-const FRIEND_CONFIG_COLS = ['favorite', 'notify_online', 'notify_web_online', 'notify_offline', 'notify_status_change', 'notify_world_change'];
+const FRIEND_CONFIG_COLS = FRIEND_CONFIG.map(([key]) => key);
 
 function createDb(location = ':memory:', opts = {}) {
   // 数据库文件路径的父目录不存在时先创建(如删除 data/ 后重启)
@@ -282,10 +277,7 @@ function createDb(location = ':memory:', opts = {}) {
         state = ?, status = ?, world_id = ?, instance_id = ?, status_description = ?, platform = ?,
         pending_state = ?, pending_at = ?, last_seen = ?, updated_at = datetime('now')
       WHERE id = ?`),
-    setFriendConfig: db.prepare(`UPDATE friends SET
-        favorite = ?, notify_online = ?, notify_web_online = ?, notify_offline = ?, notify_status_change = ?, notify_world_change = ?,
-        updated_at = datetime('now')
-      WHERE friend_vrchat_id = ?`),
+    setFriendConfig: db.prepare(`UPDATE friends SET ${FRIEND_CONFIG_COLS.map((key) => key + ' = ?').join(', ')}, updated_at = datetime('now') WHERE friend_vrchat_id = ?`),
     getSetting: db.prepare('SELECT value FROM settings WHERE key = ?'),
     setSetting: db.prepare(`INSERT INTO settings (key, value) VALUES (?, ?)
       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')`),
@@ -491,8 +483,8 @@ function createDb(location = ':memory:', opts = {}) {
       );
     },
     // 逐好友通知配置(存在 friends 行上)。不传的字段按 false 处理 —— 整组覆盖写。
-    setFriendConfig(friendVrcId, { favorite = false, notifyOnline = false, notifyWebOnline = false, notifyOffline = false, notifyStatusChange = false, notifyWorldChange = false } = {}) {
-      stmt.setFriendConfig.run(favorite ? 1 : 0, notifyOnline ? 1 : 0, notifyWebOnline ? 1 : 0, notifyOffline ? 1 : 0, notifyStatusChange ? 1 : 0, notifyWorldChange ? 1 : 0, friendVrcId);
+    setFriendConfig(friendVrcId, fields = {}) {
+      stmt.setFriendConfig.run(...FRIEND_CONFIG.map(([key, alias]) => (fields[key] ?? fields[alias]) ? 1 : 0), friendVrcId);
     },
     ...friendEvents,
     // 登出必清: 好友(含逐好友配置)/好友动态/通知去重/用户 —— 都跟着账号走, 换个账号就没有意义了。

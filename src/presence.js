@@ -3,7 +3,7 @@
 // pending_state 是待确认的目标态, state 是已确认(起始)态 —— 面板分组、QQ 在线列表都走这里,
 // 不在各自的地方散判, 免得两边口径漂移。
 
-const STATE_LABELS = { offline: '离线', active: '网页在线', online: '在线', web: '网页在线', unknown: '未知' };
+const { STATE_LABELS } = require('../public/contracts');
 
 /** 读层展示用的状态: 有 pending 就呈现目标态, 否则用已确认态 */
 function displayState(row) {

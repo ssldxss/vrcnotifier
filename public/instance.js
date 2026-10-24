@@ -5,11 +5,11 @@
 // Node 用 require 引入(单测)。
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
-    module.exports = factory();
+    module.exports = factory(require('./locationmodel'));
   } else {
-    root.VrcInstance = factory();
+    root.VrcInstance = factory(root.VrcLocationModel);
   }
-})(typeof globalThis !== 'undefined' ? globalThis : this, function () {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (LocationModel) {
   function parseInstance(instanceId) {
     const tags = String(instanceId == null ? '' : instanceId).split('~').slice(1);
     let access = 'public';
@@ -31,13 +31,7 @@
     return { access, groupId, groupAccess, region, ageGate };
   }
 
-  function parseLocation(location) {
-    const raw = location == null ? '' : String(location);
-    if (!raw) return { worldId: null, instanceId: null };
-    const i = raw.indexOf(':');
-    if (i < 0) return { worldId: raw, instanceId: null };
-    return { worldId: raw.slice(0, i), instanceId: raw.slice(i + 1) || null };
-  }
+  const parseLocation = LocationModel.splitLocation;
 
   const ACCESS_LABELS = {
     public: '公开',

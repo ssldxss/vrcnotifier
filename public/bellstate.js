@@ -4,18 +4,12 @@
 // 浏览器用 <script src="bellstate.js"> 引入(挂 window.VrcBellState); Node 用 require 引入(单测)。
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
-    module.exports = factory();
+    module.exports = factory(require('./contracts'));
   } else {
-    root.VrcBellState = factory();
+    root.VrcBellState = factory(root.VrcContracts);
   }
-})(typeof globalThis !== 'undefined' ? globalThis : this, function () {
-  const ALL_FIELDS = [
-    'notify_online',
-    'notify_web_online',
-    'notify_offline',
-    'notify_status_change',
-    'notify_world_change'
-  ];
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Contracts) {
+  const ALL_FIELDS = Contracts.FRIEND_CONFIG.filter(([key]) => key !== 'favorite').map(([key]) => key);
   // 优先级: 红实心 > 黄实心 > 黄空心 > 灰空心
   const RED_FIELDS = ['notify_world_change', 'notify_web_online'];
   const AMBER_SOLID_FIELDS = ['notify_offline', 'notify_status_change'];

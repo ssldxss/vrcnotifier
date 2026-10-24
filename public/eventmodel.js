@@ -4,48 +4,14 @@
 // 浏览器用 <script src="eventmodel.js"> 引入(挂 window.VrcEventModel); Node 用 require 引入(单测)。
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
-    module.exports = factory(require('./instance'));
+    module.exports = factory(require('./instance'), require('./contracts'));
   } else {
-    root.VrcEventModel = factory(root.VrcInstance);
+    root.VrcEventModel = factory(root.VrcInstance, root.VrcContracts);
   }
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (VrcInstance) {
-  const LABEL_TO_CODE = {
-    上线: 'friend_online',
-    下线: 'friend_offline',
-    网页上线: 'friend_web_online',
-    网页下线: 'friend_web_offline',
-    状态变化: 'status_change',
-    自定义状态: 'status_description_change',
-    切换世界: 'location_change',
-    位置变动: 'location_change',
-    群组公告: 'group_announcement',
-    戳一戳: 'boop',
-    世界邀请: 'invite',
-    请求邀请: 'request_invite',
-    改名: 'name_change',
-    信任等级变化: 'trust_level_change',
-    新增好友: 'friend_added',
-    好友移除: 'friend_removed'
-  };
-
-  // 界面展示用词(与后端中文标签解耦, 例如 location_change 显示「位置变动」)
-  const CODE_LABELS = {
-    friend_online: '上线',
-    friend_offline: '下线',
-    friend_web_online: '网页上线',
-    friend_web_offline: '网页下线',
-    status_change: '状态变化',
-    status_description_change: '自定义状态',
-    location_change: '位置变动',
-    group_announcement: '群组公告',
-    boop: '戳一戳',
-    invite: '世界邀请',
-    request_invite: '请求邀请',
-    name_change: '改名',
-    trust_level_change: '信任等级变化',
-    friend_added: '新增好友',
-    friend_removed: '好友移除'
-  };
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (VrcInstance, Contracts) {
+  const LABEL_TO_CODE = Contracts.EVENT_CODES;
+  // Product wording may differ while the stable event code is shared.
+  const CODE_LABELS = { ...Contracts.EVENT_LABELS, location_change: '位置变动' };
 
   function typeCode(row) {
     const code = row && (row.type_code || LABEL_TO_CODE[row.type]);
@@ -56,9 +22,9 @@
     return CODE_LABELS[code] || code;
   }
 
-  const PRESENCE_CODES = ['friend_online', 'friend_offline', 'friend_web_online', 'friend_web_offline'];
-  const STATUS_CODES = ['status_change', 'status_description_change'];
-  const NOTIFICATION_CODES = ['group_announcement', 'boop', 'invite', 'request_invite'];
+  const PRESENCE_CODES = Contracts.eventCodesOf('presence');
+  const STATUS_CODES = Contracts.eventCodesOf('status');
+  const NOTIFICATION_CODES = Contracts.eventCodesOf('notification');
 
   function eventKind(code) {
     if (PRESENCE_CODES.includes(code)) return 'presence';
@@ -149,7 +115,7 @@
     });
   }
 
-  const STATE_LABELS = { online: '在线', active: '网页在线', offline: '离线' };
+  const STATE_LABELS = Contracts.STATE_LABELS;
   function statePart(state) {
     return { dot: presenceDotClass(state), label: STATE_LABELS[state] || '未知' };
   }
