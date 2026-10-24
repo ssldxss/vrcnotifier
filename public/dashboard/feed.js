@@ -210,13 +210,33 @@ window.VrcDashboardFeed = {
       const list = $('#feedList');
       if (!state.events.length || list.scrollTop < 6) return null;
       const offsets = feedOffsets();
-      const index = window.VrcVList.indexAt(offsets, list.scrollTop);
-      return { id: state.events[index].id, delta: list.scrollTop - offsets[index] };
+      const listTop = list.getBoundingClientRect().top;
+      const row = [...list.querySelectorAll('.feed-item')].find((el) => el.getBoundingClientRect().bottom > listTop + 4);
+      const index = row ? state.events.findIndex((event) => event.id === Number(row.dataset.id))
+        : window.VrcVList.indexAt(offsets, list.scrollTop);
+      if (index < 0) return null;
+      return { id: state.events[index].id, delta: list.scrollTop - offsets[index],
+        y: row ? row.getBoundingClientRect().top - listTop : null };
+    }
+    function restoreVisibleAnchor(anchor) {
+      if (!anchor || anchor.y == null) return;
+      const list = $('#feedList');
+      const row = list.querySelector('.feed-item[data-id="' + anchor.id + '"]');
+      if (row) list.scrollTop += row.getBoundingClientRect().top - list.getBoundingClientRect().top - anchor.y;
     }
     function restoreFeedAnchor(anchor) {
       if (!anchor) return;
       const index = state.events.findIndex((event) => event.id === anchor.id);
-      if (index >= 0) $('#feedList').scrollTop = feedOffsets()[index] + anchor.delta;
+      if (index < 0) return;
+      const list = $('#feedList');
+      const top = feedOffsets()[index] + anchor.delta;
+      // Near the bottom, the old DOM is too short for the new scroll position.
+      // Refresh its spacers first, otherwise the browser clamps scrollTop and
+      // the anchor moves before the normal render has a chance to run.
+      if (top > list.scrollHeight - list.clientHeight) renderFeed();
+      list.scrollTop = top;
+      renderFeed();
+      restoreVisibleAnchor(anchor);
     }
 
     function prependFeedEvent(item) {
@@ -295,6 +315,7 @@ window.VrcDashboardFeed = {
     function settleFeedToggle() {
       const list = $('#feedList');
       if (!list) return;
+      const anchor = captureFeedAnchor();
       invalidateFeedOffsets();
       for (const el of list.querySelectorAll('.feed-item')) measureFeedRowEl(el);
       if (!state.feedRange) return;
@@ -303,10 +324,9 @@ window.VrcDashboardFeed = {
       invalidateFeedOffsets();
       const sp = window.VrcVList.spacersFor({ offsets: feedOffsets(), from: state.feedRange.from, to: state.feedRange.to });
       // 若收起/展开的是窗口上方的行, 顶部占位变化会推挤视口: 用 scrollTop 补偿, 保持阅读位置不动
-      const beforeH = parseFloat(gaps[0].style.height) || 0;
-      if (Math.abs(sp.before - beforeH) > 0.5) list.scrollTop += sp.before - beforeH;
       gaps[0].style.height = sp.before + 'px';
       gaps[1].style.height = sp.after + 'px';
+      restoreVisibleAnchor(anchor);
     }
     // 渲染后量真实行高(展开行/长公告会更高), 修正占位; 不重建窗口, 避免滚动时抖动
     function measureFeedRows() {
@@ -315,6 +335,7 @@ window.VrcDashboardFeed = {
         feedMeasureRaf = 0;
         const list = $('#feedList');
         if (!list) return;
+        const anchor = captureFeedAnchor();
         let changed = false;
         for (const el of list.querySelectorAll('.feed-item')) {
           const id = Number(el.getAttribute('data-id'));
@@ -332,6 +353,7 @@ window.VrcDashboardFeed = {
         const sp = window.VrcVList.spacersFor({ offsets: feedOffsets(), from: state.feedRange.from, to: state.feedRange.to });
         gaps[0].style.height = sp.before + 'px';
         gaps[1].style.height = sp.after + 'px';
+        restoreVisibleAnchor(anchor);
       });
     }
     function updateFeedNew() {

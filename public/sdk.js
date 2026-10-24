@@ -82,7 +82,7 @@
 
     /**
      * 核心请求: 自动携带 Bearer token; 非 2xx 抛 ApiError。
-     * @returns {Promise<object>} 解析后的 JSON
+     * @returns {Promise<{status: number, data: object}>} HTTP 状态与解析后的 JSON
      */
     async requestResponse(method, path, opts = {}) {
       const { body, query, noAuth = false, signal } = opts;
