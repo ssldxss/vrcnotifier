@@ -48,12 +48,29 @@ test('logging in again restores the saved QQ configuration and reconnects its ga
   await app.login('A');
   await app.request('PUT', '/api/settings', { qq_enabled: 1, qq_app_id: 'mock-app', qq_app_secret: 'mock-secret' });
   await waitFor(() => app.request('GET', '/api/status'), (r) => r.data.qq.connected);
+  qqPlatform.connections[0].send(JSON.stringify({ op: 0, s: 2, t: 'C2C_MSG_RECEIVE', d: { author: { user_openid: 'bound-user' } } }));
+  await waitFor(() => app.request('GET', '/api/status'), (r) => r.data.qq.bound?.openid === 'bound-user');
   await app.request('POST', '/api/logout', {});
   await app.login('A');
   const saved = (await app.request('GET', '/api/settings')).data.settings;
   const status = (await app.request('GET', '/api/status')).data;
   assert.deepEqual({ enabled: saved.qq_enabled, configured: status.qq.configured }, { enabled: 1, configured: true });
   await waitFor(() => app.request('GET', '/api/status'), (r) => r.data.qq.connected);
+  const sent = await app.request('POST', '/api/test/qq', {});
+  assert.equal(sent.status, 200);
+  assert.ok(qqPlatform.messages.some((m) => m.markdown?.content.includes('测试好友')), 'restored bot delivers a notification to the QQ peer');
+});
+
+test('switching accounts directly retires the old QQ gateway before restoring the saved configuration', async (t) => {
+  const qqPlatform = await startQqPlatform(t);
+  const app = await startApplication(t, { qqPlatform });
+  await app.login('A');
+  await app.request('PUT', '/api/settings', { qq_enabled: 1, qq_app_id: 'mock-app', qq_app_secret: 'mock-secret' });
+  await waitFor(() => app.request('GET', '/api/status'), (r) => r.data.qq.connected);
+  const closed = once(qqPlatform.connections[0], 'close').then(() => true);
+  await app.login('B');
+  await waitFor(() => app.request('GET', '/api/status'), (r) => r.data.qq.connected);
+  assert.equal(await Promise.race([closed, sleep(150).then(() => false)]), true);
 });
 
 test('logout stays effective when an in-flight automatic password login succeeds', async (t) => {

@@ -133,6 +133,8 @@ function createApp({
   }
 
   async function finalizeLogin(vrcapi, currentUser, { rememberMe, username, password }) {
+    // 登录可能直接切换账号；同步新 dbId 前撤销上一会话的机器人。
+    if (qq) qq.stopAll();
     sessionExpiredNotified = false;
     autoLogin401Streak = 0;
     autoLogin401Notified = false;
