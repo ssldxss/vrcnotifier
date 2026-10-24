@@ -7,7 +7,8 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
-    "test": "node --test --test-timeout=30000"
+    "test": "node --test --test-timeout=30000 test/*.test.js",
+    "test:browser": "node --test --test-timeout=60000 e2e/*.test.js"
   },
   "engines": {
     "node": ">=22.13.0"
@@ -16,5 +17,8 @@
   "dependencies": {
     "express": "^5.2.1",
     "ws": "^8.21.1"
+  },
+  "devDependencies": {
+    "playwright": "^1.64.1"
   }
 }
