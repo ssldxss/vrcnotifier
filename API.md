@@ -4,6 +4,12 @@
 
 成功响应保留现有 `{ ok: true, ... }` 形状，错误响应为 `{ error: "说明" }`，使用相应 HTTP 状态码。浏览器面板与 Node 客户端共用 `public/sdk.js`；SDK 非 2xx 抛 `ApiError`（`status`、`data`）。
 
+## 登录与登出
+
+`POST /api/logout` 使此前发起的登录、2FA、Cookie 恢复和自动重登失效，并取消后台认证重试；没有活动会话时也会清除保存的账号数据。新的 `POST /api/login` 同样会替代此前的认证请求。失效的 `/api/login`、`/api/login/2fa` 在途请求返回 409，响应为 `{ error: "登录请求已失效，请重新登录" }`；已经移除的 2FA 临时会话仍按过期会话返回 400。
+
+登出和成功切换会话时会停止旧 QQ 机器人。普通登出保留全局 QQ 设置与绑定，下次登录会恢复连接和推送；`clearSettings: true` 同时清除 QQ 设置与绑定。
+
 ## 配置补丁
 
 `PUT /api/friends/:friendId/config` 和 `PUT /api/settings` 都采用补丁语义：未传字段保持原值。字段以 snake_case 为标准，兼容 `public/contracts.js` 中列出的 camelCase 别名；响应只使用 snake_case。未知字段、冲突别名、非法类型返回 400，整个补丁不写入。
