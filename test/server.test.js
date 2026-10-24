@@ -1964,3 +1964,37 @@ test('event cursor pagination keeps filtered total and exposes the next cursor i
   assert.equal((await get(ctx, '/api/friend-events?before=2&page=1')).status, 400);
   assert.equal((await get(ctx, '/api/friend-events?page=1.5')).status, 400);
 });
+
+test('realtime friend state matches HTTP DTO through pending, confirmation and deletion', async (t) => {
+  let at = 1000000;
+  const ctx = setup({ offlineFriends: [{ id: 'usr_f', displayName: 'Friend' }], now: () => at });
+  t.after(async () => { ctx.server.closeAllConnections?.(); await close(ctx); ctx.monitor.deactivateUser('usr_me'); });
+  await post(ctx, '/api/login', { username: 'me', password: 'pw' });
+  ctx.db.setFriendConfig('usr_f', { notifyOnline: true });
+  const sse = await sseCollect(ctx, 'friend-state');
+  try {
+    await ctx.monitor.handlePipelineEvent('usr_me', '', { type: 'friend-online', content: {
+      location: 'private', user: { id: 'usr_f', displayName: 'Renamed', status: 'busy', statusDescription: 'new description' }
+    } });
+    await sse.until((events) => events.length >= 1);
+    const current = sse.events.at(-1).friend;
+    const http = (await get(ctx, '/api/friends')).data.friends.find((f) => f.friend_vrchat_id === 'usr_f');
+    assert.deepEqual(current, http);
+    assert.equal(current.status, 'busy');
+    assert.equal(current.status_description, 'new description');
+    assert.equal(current.display_name, 'Renamed');
+    assert.equal(current.state, 'offline');
+    assert.equal(current.display_state, 'online');
+    assert.equal(current.pending, true);
+    assert.equal(current.pending_label, '可能在线');
+    const historical = ctx.db.listFriendEvents().events.find((e) => e.type_code === 'friend_online');
+    assert.equal(historical.new_status, null, 'history keeps only its own event dimension');
+    at += 30001;
+    await ctx.monitor.handlePipelineEvent('usr_me', '', { type: 'friend-online', content: { userId: 'usr_f', location: 'private' } });
+    await sse.until((events) => events.some((e) => e.friend && e.friend.pending === false));
+    assert.equal(sse.events.at(-1).friend.state, 'online');
+    await ctx.monitor.handlePipelineEvent('usr_me', '', { type: 'friend-delete', content: { userId: 'usr_f' } });
+    await sse.until((events) => events.some((e) => e.friend === null));
+    assert.deepEqual(sse.events.at(-1), { friend_vrchat_id: 'usr_f', friend: null });
+  } finally { sse.stop(); }
+});

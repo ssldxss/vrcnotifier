@@ -592,6 +592,7 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
       if (isDeleted(id)) {
         const f = db.getFriend(id);
         db.deleteFriend(id);
+        emitFriendState(id);
         clearPendingCheck(user, id);
         log.info(`[monitor] pending 验证 ${id}${f && f.display_name ? `(${f.display_name})` : ''}: 不在好友名册, 视为已删除好友, 已移除记录`);
         continue;
@@ -654,6 +655,10 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
     });
   }
 
+  function emitFriendState(friendId) {
+    events.emit('friend-state', { friendId });
+  }
+
   async function applyFriendInput(user, friendVrcId, input, opts = {}) {
     // 头像只有一个地址(avatarFields 是全项目唯一的取值规则), 不再有第二份缩略图字段
     const existed = db.getFriend(friendVrcId);
@@ -668,6 +673,7 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
         trustLevel: input.trustLevel || null,
         lastSeen: now()
       });
+      if (!opts.silent) emitFriendState(friendVrcId);
       return;
     }
     // 仅更新资料字段, 状态由状态机接管
@@ -694,6 +700,7 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
     }
     // instance_id 不参与状态机: 显式传入则更新, 未传入(undefined)保留旧值
     db.updateFriendState(cur.id, { ...result.dbUpdate, instance_id: input.instanceId !== undefined ? input.instanceId : (existed.instance_id ?? null), last_seen: now() });
+    if (!opts.silent) emitFriendState(friendVrcId);
     if (opts.silent) {
       clearPendingCheck(user, friendVrcId);
     } else if (result.dbUpdate.pending_state) {
@@ -899,6 +906,7 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
           const id = content.userId;
           const f = db.getFriend(id);
           db.deleteFriend(id);
+          emitFriendState(id);
           clearPendingCheck(user, id); // 已删好友不再参与 pending 到期验证
           log.info(`[monitor] 好友 ${f && f.display_name ? `${f.display_name}(${id})` : id} 已删除, 已移除记录`);
           break;
@@ -1153,6 +1161,7 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
           if (known.has(f.friend_vrchat_id)) continue;
           if (rosterOk) {
             db.deleteFriend(f.friend_vrchat_id);
+            emitFriendState(f.friend_vrchat_id);
             clearPendingCheck(user, f.friend_vrchat_id);
             log.info(`[monitor] 快照对账 ${f.friend_vrchat_id}${f.display_name ? `(${f.display_name})` : ''} 不在好友名册, 视为已删除好友, 已移除记录`);
           } else {

@@ -6,11 +6,11 @@ const path = require('node:path');
 const { randomBytes, timingSafeEqual } = require('node:crypto');
 const { CookieJar } = require('./cookiejar');
 const { parseLocation } = require('./location');
-const { detectImageType, toThumbUrl } = require('./avatar');
+const { detectImageType } = require('./avatar');
 const { isMissingCredentials, isUnauthorized } = require('./vrcapi');
 const { formatLocalTime, getLogStream, avatarFields } = require('./util');
 const { currentVersion } = require('./version');
-const { displayState, isPending, pendingLabel } = require('./presence');
+const { createClientDtos } = require('./client-dto');
 
 const { FRIEND_CONFIG } = require('../public/contracts');
 const { parseFriendConfig, parseSettings, configOf } = require('./api-contract');
@@ -71,12 +71,7 @@ function createApp({
   const reloginRetryMaxMs = config.reloginRetryMaxMs ?? autoLoginRetryMaxMs;
   const reloginRetryJitterMs = config.reloginRetryJitterMs ?? autoLoginRetryJitterMs;
 
-  // 世界名按需查询: 库里只存 world_id, 名字由世界名模块同步提供(peek, 不发请求)。
-  // private 等哨兵值由前端自行显示, 这里只补真实世界编号。
-  function worldNameOf(row) {
-    if (!row || !row.world_id || row.world_id === 'private') return null;
-    return worldNameSvc ? worldNameSvc.peek(row.world_id) : null;
-  }
+  const { friendRow, selfUserForClient, eventRow } = createClientDtos({ worldName: worldNameSvc, avatarCache });
 
   // "需要显示"的触发点: 让世界名模块去补缺的名字, 不阻塞本次响应。
   // 命中缓存时立即返回; 缺失/过期则后台查, 查到走 world-name SSE 推给前端定点更新。
@@ -90,54 +85,6 @@ function createApp({
       }
     }
     for (const id of ids) worldNameSvc.get(id).catch(() => {}); // get 保证不抛出, 这里只是兜底
-  }
-
-  // 好友动态行 -> 客户端形状(与 friendRow 同一套口径):
-  // world_name 存的是"写日志那一刻"的快照, 缺的先用世界名缓存同步补(peek 不发请求);
-  // 缓存也没有的由 kickWorldNames 后台查完, 经 world-name 事件推给前端定点补上。
-  function eventRow(e) {
-    const out = { ...e };
-    const nameOf = (id) => (id && id !== 'private' && worldNameSvc ? worldNameSvc.peek(id) : null);
-    if (!out.world_name && out.world_id) out.world_name = out.world_id === 'private' ? '私密世界' : nameOf(out.world_id);
-    if (!out.old_world_name && out.old_world_id) out.old_world_name = out.old_world_id === 'private' ? '私密世界' : nameOf(out.old_world_id);
-    const thumbUrl = toThumbUrl(out.friend_avatar);
-    out.avatarKey = thumbUrl && avatarCache ? avatarCache.thumbKeyFromUrl(thumbUrl) : null;
-    return out;
-  }
-
-  // 好友行附带头像 key 与通知配置(前端零解析)
-  function friendRow(f) {
-    const out = { ...f };
-    out.world_name = worldNameOf(f);
-    // 待确认(pending)时对外呈现"目标态 + 可能X": 面板据此分组与标注。
-    // state 仍是已确认的起始态、pending_state 是目标态, 两个原始字段都保留给需要区分逻辑的调用方。
-    out.display_state = displayState(f);
-    out.pending = isPending(f);
-    out.pending_label = pendingLabel(f);
-    // 头像只有一个地址: 由 avatarFields 写库(util.js), 这里按缓存尺寸换算成 key。
-    // toThumbUrl 对 /image/…/{尺寸} 与 /file/…/file 两种形态都有效, 拿不到地址就给 null。
-    const thumbUrl = toThumbUrl(f.avatar_url);
-    out.avatarKey = thumbUrl && avatarCache ? avatarCache.thumbKeyFromUrl(thumbUrl) : null;
-    out.config = configOf(f);
-    return out;
-  }
-
-  function maskUser(row) {
-    if (!row) return null;
-    const out = { ...row };
-    delete out.cookie_data;
-    delete out.password; // 密码绝不出现在任何 API 响应(加密后同样不外泄)
-    return out;
-  }
-
-  // 当前用户返回体: 附带头像缓存 key(与 friendRow 同口径)
-  function selfUserForClient(row) {
-    const out = maskUser(row);
-    if (!out) return null;
-    out.world_name = worldNameOf(out);
-    const thumbUrl = toThumbUrl(out.avatar_url);
-    out.avatarKey = thumbUrl && avatarCache ? avatarCache.thumbKeyFromUrl(thumbUrl) : null;
-    return out;
   }
 
   // 恒时比较访问令牌, 避免时序侧信道(本地单用户场景也统一使用)
@@ -644,6 +591,9 @@ function createApp({
     broadcast('status', statusPayload());
   });
   bus.on('notification', (e) => broadcast('notification', e));
+  bus.on('friend-state', ({ friendId }) => {
+    broadcast('friend-state', { friend_vrchat_id: friendId, friend: friendRow(db.getFriend(friendId)) });
+  });
   bus.on('friend-event', (e) => broadcast('friend-event', eventRow(e)));
   // 世界名按需查到名字 → 推给前端定点更新那一行(前端从不等待世界名)
   bus.on('world-name', (e) => broadcast('world-name', e));
@@ -978,6 +928,7 @@ function createApp({
       FRIEND_CONFIG.map(([key, alias]) => [alias, patch[key] === undefined ? cur[key] === 1 : patch[key] === 1])
     ));
     const cfg = db.getFriend(req.params.friendId);
+    broadcast('friend-state', { friend_vrchat_id: req.params.friendId, friend: friendRow(cfg) });
     log.debug(`[server] 更新监控配置: 好友=${(cfg && cfg.display_name) || req.params.friendId}, 特别关注=${cfg ? (cfg.favorite ? '开' : '关') : '?'}, 上线=${cfg ? cfg.notify_online : '?'}, 网页上线=${cfg ? cfg.notify_web_online : '?'}, 下线=${cfg ? cfg.notify_offline : '?'}, 状态=${cfg ? cfg.notify_status_change : '?'}, 世界=${cfg ? cfg.notify_world_change : '?'}`);
     return res.json({ ok: true, config: configOf(cfg) });
   });

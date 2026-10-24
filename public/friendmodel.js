@@ -97,10 +97,23 @@
     return out;
   }
 
+  // A state event replaces a complete friend DTO. Historical events never enter here.
+  function applyFriendState(friends, update) {
+    if (!update || !update.friend_vrchat_id) return friends;
+    const id = update.friend_vrchat_id;
+    const index = friends.findIndex((f) => f.friend_vrchat_id === id);
+    if (!update.friend) return index < 0 ? friends : friends.filter((f) => f.friend_vrchat_id !== id);
+    if (update.friend.friend_vrchat_id !== id) return friends;
+    if (index < 0) return [...friends, update.friend];
+    const next = friends.slice();
+    next[index] = update.friend;
+    return next;
+  }
+
   /** 渲染指纹: 搜索词 + 折叠状态 + 好友数据, 三者任一变化都会变 */
   function renderSignature(friends, query, collapsed) {
     return normalizeQuery(query) + '\u0001' + JSON.stringify(collapsed || {}) + '\u0001' + JSON.stringify(friends || []);
   }
 
-  return { STATE_RANK, CONFIG_FIELDS, stateOf, normalizeQuery, filterPool, splitGroups, groupOf, renderSignature, normalizeConfig, patchConfig };
+  return { applyFriendState, STATE_RANK, CONFIG_FIELDS, stateOf, normalizeQuery, filterPool, splitGroups, groupOf, renderSignature, normalizeConfig, patchConfig };
 });

@@ -181,3 +181,17 @@ test('patchConfig: 空请求体等于原样归一化(前端每次都会发全量
   assert.deepEqual(fm.patchConfig({ favorite: 1, notify_online: 1, notify_web_online: 1 }, {}),
     { favorite: 1, notify_online: 1, notify_web_online: 1, notify_offline: 0, notify_status_change: 0, notify_world_change: 0 });
 });
+
+test('state DTO replaces all state/profile fields, inserts new friends and removes deleted ones', () => {
+  const model = require('../public/friendmodel');
+  const old = { friend_vrchat_id: 'usr_a', status: 'active', status_description: 'old' };
+  const current = { friend_vrchat_id: 'usr_a', state: 'offline', display_state: 'online',
+    pending_state: 'online', pending: true, pending_label: '可能在线', status: 'busy',
+    status_description: 'new', world_id: 'private', instance_id: null, avatarKey: 'new-avatar' };
+  const updated = model.applyFriendState([old], { friend_vrchat_id: 'usr_a', friend: current });
+  assert.deepStrictEqual(updated, [current]);
+  assert.equal(old.status, 'active', 'old data is not mutated');
+  const added = model.applyFriendState(updated, { friend_vrchat_id: 'usr_b', friend: { friend_vrchat_id: 'usr_b' } });
+  assert.equal(added.length, 2);
+  assert.deepStrictEqual(model.applyFriendState(added, { friend_vrchat_id: 'usr_a', friend: null }), [{ friend_vrchat_id: 'usr_b' }]);
+});

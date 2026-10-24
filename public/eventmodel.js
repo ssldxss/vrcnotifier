@@ -109,59 +109,6 @@
     return true;
   }
 
-  // 好友实时变化 → 更新好友对象(侧栏/顶部人数不等到下一次快照); 没变化返回 null
-  function applyFriendEvent(friend, event) {
-    if (!friend || !event) return null;
-    const code = typeCode(event);
-    const patch = {};
-    // 注意: /api/friends 返回的 display_state 优先级最高(分组/状态点/人数都读它),
-    // 实时事件如果只写 state, 界面会一直显示旧的 display_state 直到下次快照。
-    // 已确认的状态事件: 结束待确认窗口(state/display_state 之外, pending 标记也要清掉)
-    function clearPending() {
-      if (friend.pending_state == null) return;
-      patch.pending_state = null;
-      if (friend.pending != null) patch.pending = false;
-      if (friend.pending_label != null) patch.pending_label = null;
-    }
-    if (code === 'friend_online') {
-      patch.state = event.new_state || 'online';
-      patch.display_state = patch.state;
-      clearPending();
-    } else if (code === 'friend_web_online') {
-      patch.state = event.new_state || 'active';
-      patch.display_state = patch.state;
-      clearPending();
-    } else if (code === 'friend_offline') {
-      patch.state = event.new_state || 'offline';
-      patch.display_state = patch.state;
-      clearPending();
-    } else if (code === 'friend_web_offline') {
-      const cur = friend.display_state || friend.state;
-      if (cur === 'active') {
-        patch.state = 'offline';
-        patch.display_state = 'offline';
-        clearPending();
-      }
-    } else if (code === 'status_change') {
-      if (event.new_status) patch.status = event.new_status;
-    } else if (code === 'status_description_change') {
-      patch.status_description = event.new_desc == null ? '' : event.new_desc;
-    } else if (code === 'location_change' || code === 'friend_online' || code === 'friend_web_online') {
-      // 位置变化(上线事件也带目的地)
-    }
-    if (code === 'location_change' || code === 'friend_online' || code === 'friend_web_online') {
-      if (event.world_id !== undefined) {
-        patch.world_id = event.world_id || null;
-        patch.instance_id = event.instance_id || null;
-        patch.world_name = event.world_id === 'private' ? '私密世界' : (event.world_name || null);
-      }
-    }
-    if (event.friend_name && event.friend_name !== friend.display_name) patch.display_name = event.friend_name;
-    const changed = Object.keys(patch).some((k) => !Object.is(friend[k], patch[k]));
-    if (!changed) return null;
-    return Object.assign({}, friend, patch);
-  }
-
   function filterCodes(chip) {
     if (Array.isArray(chip)) {
       const out = [];
@@ -265,7 +212,6 @@
     filterCodes,
     normalizeFilters,
     eventMatchesFilters,
-    applyFriendEvent,
     statusDotClass,
     presenceDotClass,
     changeOf,

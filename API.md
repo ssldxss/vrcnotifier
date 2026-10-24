@@ -24,6 +24,6 @@
 
 ## 事件与数据保留
 
-`GET /api/events` 为 SSE，事件名称由 `public/contracts.js` 定义。它不支持历史重放；客户端首次连接和重新连接后需要通过 HTTP 补拉。`friend-event` 只表示历史动态，不能作为当前好友状态的完整来源。
+`GET /api/events` 为 SSE，事件名称由 `public/contracts.js` 定义。它不支持历史重放；客户端首次连接和重新连接后需要通过 HTTP 补拉。`friend-event` 只表示历史动态；`friend-state` 的 `{ friend_vrchat_id, friend }` 携带与 `GET /api/friends` 相同的完整好友 DTO，删除好友时 `friend: null`。当前状态以该 DTO 为准，保留已确认 state、pending_state、display_state 和全部资料字段。通知配置只存在于嵌套 `config`，不在好友顶层重复返回。
 
 登出或更换 VRChat 账号会清理该账号的好友、好友动态、通知去重和用户信息；QQ 设置与绑定为全局数据，除非选择彻底重置。历史设计文稿不代表当前接口契约。

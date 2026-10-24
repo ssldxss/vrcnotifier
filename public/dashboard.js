@@ -16,6 +16,8 @@
 
   const state = {
     friends: [],
+    friendLoadId: 0,
+    friendBackfill: null,
     events: [],
     total: 0,
     hasMore: false,
@@ -862,14 +864,23 @@
     );
   }
   async function loadFriends() {
-    const r = await api('GET', '/api/friends');
-    state.friends = (r.data && r.data.friends) || [];
-    updateFavoriteIds();
-    renderFriends();
-    renderTop();
+    const reqId = ++state.friendLoadId;
+    const updates = [];
+    state.friendBackfill = updates;
+    try {
+      const r = await api('GET', '/api/friends');
+      if (reqId !== state.friendLoadId || !r.data || !r.data.ok) return;
+      let friends = r.data.friends || [];
+      for (const update of updates) friends = FM.applyFriendState(friends, update);
+      state.friends = friends;
+      updateFavoriteIds();
+      renderFriends();
+      renderTop();
+    } finally {
+      if (reqId === state.friendLoadId) state.friendBackfill = null;
+    }
   }
 
-  // ---------- 好友动态 ----------
   const FEED_KIND_CLASS = {
     friend_online: 't-online',
     friend_offline: 't-offline',
@@ -1589,21 +1600,19 @@
         if (state.status.loggedIn && state.view === 'login' && !state.loginWaiting && !bootState.active) loadAll().catch(() => {});
       } catch (err) { /* ignore */ }
     });
+    evt.addEventListener('friend-state', (e) => {
+      try {
+        const update = JSON.parse(e.data);
+        if (state.friendBackfill) state.friendBackfill.push(update);
+        state.friends = FM.applyFriendState(state.friends, update);
+        updateFavoriteIds();
+        renderFriends();
+        renderTop();
+      } catch (err) { /* ignore */ }
+    });
     evt.addEventListener('friend-event', (e) => {
       try {
         const item = JSON.parse(e.data);
-        // 1) 好友对象实时更新: 侧栏状态/位置与顶栏人数不再等下一次快照
-        const idx = state.friends.findIndex((f) => f.friend_vrchat_id === item.friend_vrchat_id);
-        if (idx >= 0) {
-          const next = window.VrcEventModel.applyFriendEvent(state.friends[idx], item);
-          if (next) {
-            state.friends[idx] = next;
-            if (item.type_code === 'favorite') { /* noop */ }
-            updateFavoriteIds();
-            renderFriends();
-            renderTop();
-          }
-        }
         // 2) 动态流: 只有命中当前筛选才插入/计数
         const matched = window.VrcEventModel.eventMatchesFilters(item, {
           codes: window.VrcEventModel.filterCodes(state.filters),
