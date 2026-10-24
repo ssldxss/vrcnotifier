@@ -5,9 +5,9 @@ const { createPipelineManager } = require('../src/pipeline');
 
 const cfg = { pingIntervalMs: 50, reconnectBaseMs: 20, reconnectMaxMs: 200, jitterMs: 5, failNotifyMs: 200 };
 
-function startMockPipeline() {
+function startMockPipeline({ autoPong = true } = {}) {
   const state = { connections: [], tokens: [], messages: [] };
-  const wss = new WebSocketServer({ port: 0, host: '127.0.0.1' });
+  const wss = new WebSocketServer({ port: 0, host: '127.0.0.1', autoPong });
   const ready = new Promise((resolve) => {
     wss.on('connection', (ws, req) => {
       state.connections.push({ ws, req });
@@ -26,6 +26,32 @@ function startMockPipeline() {
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+test('a silent peer is reconnected on the pong deadline and a responsive peer stays connected', async () => {
+  const { wss, state, url, close } = await startMockPipeline({ autoPong: false });
+  let pongs = 0;
+  wss.on('connection', (ws) => {
+    if (state.connections.length > 1) ws.on('ping', (data) => { pongs++; ws.pong(data); });
+  });
+  const pm = createPipelineManager({
+    getToken: async () => ({ status: 'ok', token: 't' }),
+    onMessage: () => {}, wsUrl: () => url, userAgent: 'vrcnotifier-test/1.0',
+    config: { ...cfg, pingIntervalMs: 50, pongTimeoutMs: 150, jitterMs: 0 }
+  });
+  try {
+    pm.connect('u1', '我');
+    const deadline = Date.now() + 1500;
+    while (state.connections.length < 2 && Date.now() < deadline) await sleep(10);
+    assert.ok(state.connections.length >= 1, 'local gateway should accept the initial connection');
+    assert.ok(state.connections.length >= 2, 'silent peer should be reconnected after the first pong deadline');
+    await sleep(450);
+    assert.ok(pongs >= 3, 'reconnected peer responds across multiple pong deadlines');
+    assert.equal(state.connections.length, 2, 'responsive peer should keep its connection');
+    assert.equal(pm.isConnected('u1'), true);
+  } finally {
+    pm.disconnect('u1'); await close();
+  }
+});
 
 test('connects with authToken and UA; parses double-encoded message; dedupes identical frames', async () => {
   const { state, url, close } = await startMockPipeline();

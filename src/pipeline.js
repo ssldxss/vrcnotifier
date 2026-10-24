@@ -139,13 +139,14 @@ function createPipelineManager(opts) {
     const ws = conn.ws;
     conn.pingTimer = setInterval(() => {
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
-      try { ws.ping(); } catch (e) { return; }
-      if (conn.pongTimer) clearTimeout(conn.pongTimer);
-      conn.pongTimer = setTimeout(() => {
-        // 多次 ping 无 pong: 判定为僵尸连接, 强制断开走重连
-        log.warn(`[ws] pong 超时, 强制断开`);
-        try { ws.terminate(); } catch (e) { /* ignore */ }
-      }, pongTimeoutMs);
+      // 等待首个未获回应的 ping，后续 ping 不能延后其截止时间。
+      if (!conn.pongTimer) {
+        conn.pongTimer = setTimeout(() => {
+          log.warn(`[ws] pong 超时, 强制断开`);
+          try { ws.terminate(); } catch (e) { /* ignore */ }
+        }, pongTimeoutMs);
+      }
+      try { ws.ping(); } catch (e) { /* 等待超时后断开 */ }
     }, pingIntervalMs);
   }
 
