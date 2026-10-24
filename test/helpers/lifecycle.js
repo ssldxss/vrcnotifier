@@ -31,6 +31,8 @@ async function waitFor(read, predicate, timeoutMs = 3000) {
 async function startApplication(t, { qqPlatform = null } = {}) {
   const holds = [];
   const expired = new Set();
+  const invalidSessions = new Set();
+  const twoFactor = new Set();
   const sockets = new Set();
   const friendOf = (name) => ({ id: 'usr_friend_' + name, displayName: 'Friend ' + name, location: 'offline', status: 'active' });
   const currentOf = (name) => ({ id: 'usr_' + name, displayName: name, friends: [friendOf(name).id],
@@ -47,10 +49,15 @@ async function startApplication(t, { qqPlatform = null } = {}) {
       if (!res.destroyed) { res.writeHead(status, { 'Content-Type': 'application/json', ...headers }); res.end(JSON.stringify(data)); }
     };
     if (url.pathname === '/api/1/auth/user') {
+      if (!basic && invalidSessions.delete(name)) return send({ error: { message: 'Session invalid' } }, 401);
       if (!name || (!basic && expired.has(name))) return send({ error: { message: 'Missing Credentials' } }, 401);
-      if (basic) expired.delete(name);
+      if (basic) {
+        expired.delete(name);
+        if (twoFactor.has(name)) return send({ requiresTwoFactorAuth: ['emailOtp'] }, 200, { 'Set-Cookie': 'auth=' + name + '; Path=/' });
+      }
       return send(currentOf(name), 200, { 'Set-Cookie': 'auth=' + name + '; Path=/' });
     }
+    if (url.pathname.endsWith('/verify')) return send({ verified: true });
     if (url.pathname === '/api/1/auth/user/friends') return send(url.searchParams.get('offline') === 'true' ? [friendOf(name)] : []);
     if (url.pathname === '/api/1/auth') return send({ token: name || 'mock' });
     if (url.pathname === '/api/1/config') return send({ clientApiKey: 'mock' });
@@ -91,7 +98,9 @@ async function startApplication(t, { qqPlatform = null } = {}) {
       const hold = { matches, used: false, started: deferred(), resume: deferred() }; holds.push(hold);
       return { started: hold.started.promise, release: () => hold.resume.resolve() };
     },
-    expireCookie: (name) => expired.add(name)
+    expireCookie: (name) => expired.add(name),
+    invalidateSession: (name) => invalidSessions.add(name),
+    requireTwoFactor: (name) => twoFactor.add(name)
   };
 }
 async function startQqPlatform(t) {

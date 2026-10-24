@@ -52,6 +52,7 @@ function createApp({
   const pending2faTtlMs = config.pending2faTtlMs ?? 5 * 60 * 1000;
 
   let current = null;        // { userId, dbId, vrcapi }
+  let authGeneration = 0;    // 登出使此前发出的认证请求失效，即使上游已经接受了凭据
   const pending2fa = new Map();
   let lastSnapshotAt = null;
   let sessionExpiredNotified = false; // 自动登录 401 通知只推一次, 登录成功后重置
@@ -204,17 +205,20 @@ function createApp({
   }
 
   // 单次自动登录尝试; 401/网络/5xx/429 失败后调度后台退避重试, 直到成功
-  async function attemptAutoLogin(saved) {
+  async function attemptAutoLogin(saved, generation = authGeneration) {
     const jar = CookieJar.deserialize(saved.cookie_data);
     const vrcapi = vrcapiFactory(jar);
     try {
       const user = await vrcapi.me({ noRetry: true, purpose: '自动登录探测' });
+      if (generation !== authGeneration) return;
       if (user && user.id) {
         await finalizeLogin(vrcapi, user, { rememberMe: true, username: saved.saved_username || null });
+        if (generation !== authGeneration) return;
         log.info(`[server] 自动登录成功: ${user.displayName || user.id}`);
         return;
       }
     } catch (e) {
+      if (generation !== authGeneration) return;
       const retryable = e && (e.status === 401 || e.status === 429 || e.status === 0 || e.status === -1 || (e.status >= 500 && e.status < 600));
       log.warn(`[server] 自动登录失败(${e.message})${retryable ? ', 按退避重试' : ''}`);
       if (retryable && !autoLoginFailingSince) autoLoginFailingSince = now();
@@ -228,6 +232,7 @@ function createApp({
         // 第一次 401 即检查 cookie 是否过期: 已过期 -> 推送"登录过期"并清除登录信息, 停止重试
         if (autoLogin401Streak === 0 && cookieJarExpired(jar, now())) {
           await notifySessionExpired(saved, 'expired');
+          if (generation !== authGeneration) return;
           db.clearCookies(saved.id);
           autoLoginFailingSince = 0;
           log.info(`[server] cookie 已过期, 清除登录信息并停止重试`);
@@ -240,19 +245,19 @@ function createApp({
           await notifySessionExpired(saved, 'ip_changed');
         }
       }
-      if (retryable) scheduleAutoLoginRetry(saved);
+      if (retryable) scheduleAutoLoginRetry(saved, generation);
     }
   }
 
-  function scheduleAutoLoginRetry(saved) {
-    if (autoLoginRetryTimer || current) return;
+  function scheduleAutoLoginRetry(saved, generation) {
+    if (generation !== authGeneration || autoLoginRetryTimer || current) return;
     const delay = Math.min(autoLoginRetryBaseMs * Math.pow(2, autoLoginRetryAttempt), autoLoginRetryMaxMs) + Math.floor(Math.random() * autoLoginRetryJitterMs);
     autoLoginRetryAttempt++;
     log.warn(`[server] 自动登录 ${delay}ms 后重试(第 ${autoLoginRetryAttempt} 次)`);
     autoLoginRetryTimer = setTimeout(() => {
       autoLoginRetryTimer = null;
-      if (current) return;
-      attemptAutoLogin(saved).catch((e) => log.warn(`[server] 自动登录重试异常: ${e.message}`));
+      if (generation !== authGeneration || current) return;
+      attemptAutoLogin(saved, generation).catch((e) => log.warn(`[server] 自动登录重试异常: ${e.message}`));
     }, delay);
     if (autoLoginRetryTimer.unref) autoLoginRetryTimer.unref();
   }
@@ -332,6 +337,19 @@ function createApp({
     if (st.retryTimer) { clearTimeout(st.retryTimer); st.retryTimer = null; }
   }
 
+  function invalidateAuthWork() {
+    authGeneration++;
+    pending2fa.clear();
+    if (autoLoginRetryTimer) { clearTimeout(autoLoginRetryTimer); autoLoginRetryTimer = null; }
+    for (const st of relogin.values()) clearReloginTimers(st);
+    relogin.clear();
+    return authGeneration;
+  }
+
+  function cancelledLogin(res) {
+    return res.status(409).json({ error: '登录请求已失效，请重新登录' });
+  }
+
   async function notifyRelogin(user, body, title = 'vrcnotifier') {
     const change = {
       changeType: '系统通知',
@@ -392,6 +410,7 @@ function createApp({
 
   // 单次重登: 携带旧 cookies + 密码登录(VRCX 同款, 换 IP 免 2FA)
   async function runRelogin(userId, reason, savedJar, { countAttempt = true } = {}) {
+    const generation = authGeneration;
     const user = db.getUserByVrcId(userId);
     if (!user || !user.password) { giveUpRelogin(userId); return; }
     const st = reloginState(userId);
@@ -412,6 +431,7 @@ function createApp({
     const username = user.saved_username || user.username || '';
     try {
       const result = await vrcapi.login(username, user.password);
+      if (generation !== authGeneration) return;
       if (result && Array.isArray(result.requiresTwoFactorAuth)) {
         const kind = result.requiresTwoFactorAuth.includes('emailOtp') ? 'emailOtp' : result.requiresTwoFactorAuth[0];
         st.pending = { vrcapi, username, password: user.password, kind, createdAt: now() };
@@ -422,10 +442,12 @@ function createApp({
       }
       if (!result || !result.id) throw new Error('relogin response missing user');
       await finalizeLogin(vrcapi, result, { rememberMe: true, username, password: user.password });
+      if (generation !== authGeneration) return;
       log.info(`[server] 自动重新登录成功: ${userId} (${reason})`);
       finishReloginSuccess(userId, st);
       broadcast('relogin-ok', { userId });
     } catch (e) {
+      if (generation !== authGeneration) return;
       log.warn(`[server] 自动重新登录失败(${userId}): ${e.message}`);
       if (e && e.status === 401) {
         giveUpRelogin(userId); // 密码错误等凭证问题: 立即放弃, 不退避
@@ -483,11 +505,14 @@ function createApp({
   // 验证码核心(QQ 与前端共用): 先判码, 再单独取身份落地。
   // 码通过后取身份失败只算会话/网络问题: 待验证会话保留(verified 标记), 重试不必再要一次码。
   async function verifyPendingCode(userId, code) {
+    const generation = authGeneration;
+    const cancelled = { ok: false, error: '登录请求已失效，请重新登录' };
     const st = relogin.get(userId);
     const pending = st && st.pending;
     if (!pending) return { ok: false, error: '没有待验证的登录会话' };
     if (!pending.verified) {
       const verdict = await verify2faCode(pending.vrcapi, pending.kind, code);
+      if (generation !== authGeneration) return cancelled;
       if (!verdict.ok) {
         if (verdict.kind === 'code') return { ok: false, error: '验证码错误或已过期' };
         if (verdict.kind === 'session') {
@@ -502,15 +527,19 @@ function createApp({
     let me;
     try {
       me = await pending.vrcapi.me({ purpose: '登录取身份' });
+      if (generation !== authGeneration) return cancelled;
       if (!me || !me.id) throw new Error('2fa verify missing user');
     } catch (e) {
+      if (generation !== authGeneration) return cancelled;
       log.warn(`[server] 2FA 已验证通过但取账号信息失败(${userId}): ${e.message}`);
       return { ok: false, error: '验证码已通过, 但获取账号信息失败, 请重试' };
     }
     st.pending = null;
     try {
       await finalizeLogin(pending.vrcapi, me, { rememberMe: true, username: pending.username, password: pending.password });
+      if (generation !== authGeneration) return cancelled;
     } catch (e) {
+      if (generation !== authGeneration) return cancelled;
       log.warn(`[server] 2FA 已验证通过但落地失败(${userId}): ${e.message}`);
       return { ok: false, error: '验证码已通过, 但同步数据失败, 请重试' };
     }
@@ -702,6 +731,7 @@ function createApp({
   app.post('/api/login', async (req, res) => {
     const { username, password, rememberMe } = req.body || {};
     if (!username || !password) return res.status(400).json({ error: '缺少用户名或密码' });
+    const generation = invalidateAuthWork();
     for (const [id, p] of pending2fa) {
       if (now() - p.createdAt > pending2faTtlMs) pending2fa.delete(id);
     }
@@ -709,14 +739,16 @@ function createApp({
     let result;
     try {
       result = await vrcapi.login(String(username), String(password));
+      if (generation !== authGeneration) return cancelledLogin(res);
       if (result && Array.isArray(result.requiresTwoFactorAuth)) {
         const tempSessionId = randomBytes(8).toString('hex');
-        pending2fa.set(tempSessionId, { vrcapi, username: String(username), password: String(password), rememberMe: !!rememberMe, createdAt: now() });
+        pending2fa.set(tempSessionId, { vrcapi, username: String(username), password: String(password), rememberMe: !!rememberMe, createdAt: now(), generation });
         log.info(`[server] 登录需要 2FA: username=${username}, kinds=${result.requiresTwoFactorAuth.join(',')}`);
         return res.json({ ok: true, requiresTwoFactorAuth: result.requiresTwoFactorAuth, tempSessionId });
       }
       if (!result || !result.id) throw new Error('login response missing user');
     } catch (e) {
+      if (generation !== authGeneration) return cancelledLogin(res);
       if (e.status === 401) {
         log.warn('[server] 登录失败: 用户名或密码错误');
         return res.status(401).json({ error: '用户名或密码错误' });
@@ -735,9 +767,11 @@ function createApp({
     bus.emit('sync-progress', { userId: result.id, stage: 'verified', at: now() });
     try {
       const user = await finalizeLogin(vrcapi, result, { rememberMe: !!rememberMe, username: String(username), password: String(password) });
+      if (generation !== authGeneration) return cancelledLogin(res);
       kickWorldNames([user]);
       return res.json({ ok: true, user: selfUserForClient(user) });
     } catch (e) {
+      if (generation !== authGeneration) return cancelledLogin(res);
       log.error(`[server] 登录已通过但落地失败: ${e.message}`);
       return res.status(500).json({ error: '登录已通过, 但同步数据失败, 请重试' });
     }
@@ -748,10 +782,12 @@ function createApp({
     if (!tempSessionId || !code) return res.status(400).json({ error: '缺少参数' });
     const pending = pending2fa.get(tempSessionId);
     if (!pending) return res.status(400).json({ error: '登录会话已过期, 请重新登录' });
+    const { generation } = pending;
     // ① 验证码裁决: 以 POST 返回体的 verified 为准(不再拿 me() 的成败当判据)。
     //    已经通过过(取身份失败后的重试)则跳过 —— TOTP 码会轮换, 不能逼用户重新过一遍。
     if (!pending.verified) {
       const verdict = await verify2faCode(pending.vrcapi, String(kind || 'emailOtp').toLowerCase(), code);
+      if (generation !== authGeneration) return cancelledLogin(res);
       if (!verdict.ok) {
         if (verdict.kind === 'code') {
           log.warn('[server] 2FA 验证失败: 验证码错误或已过期');
@@ -777,8 +813,10 @@ function createApp({
     let currentUser;
     try {
       currentUser = await pending.vrcapi.me({ purpose: '登录取身份' });
+      if (generation !== authGeneration) return cancelledLogin(res);
       if (!currentUser || !currentUser.id) throw new Error('2fa verify missing user');
     } catch (e) {
+      if (generation !== authGeneration) return cancelledLogin(res);
       log.warn(`[server] 2FA 已验证通过但取账号信息失败: ${e.message}`);
       return res.status(503).json({ error: '验证码已通过, 但获取账号信息失败, 请重试' });
     }
@@ -789,9 +827,11 @@ function createApp({
     bus.emit('sync-progress', { userId: currentUser.id, stage: 'verified', at: now() });
     try {
       const user = await finalizeLogin(pending.vrcapi, currentUser, { rememberMe: pending.rememberMe, username: pending.username, password: pending.password });
+      if (generation !== authGeneration) return cancelledLogin(res);
       kickWorldNames([user]);
       return res.json({ ok: true, user: selfUserForClient(user) });
     } catch (e) {
+      if (generation !== authGeneration) return cancelledLogin(res);
       log.error(`[server] 2FA 已通过但落地失败: ${e.message}`);
       return res.status(500).json({ error: '验证码正确, 但同步数据失败, 请重试' });
     }
@@ -815,22 +855,24 @@ function createApp({
     const body = req.body || {};
     const clearCache = !!body.clearCache;
     const clearSettings = !!body.clearSettings;
+    invalidateAuthWork();
     // 机器人按旧 dbId 持有连接和凭据；删除账号/设置前先撤销其收发能力。
     if (qq) qq.stopAll();
-    if (!current) return res.json({ ok: true });
     if (autoLoginRetryTimer) { clearTimeout(autoLoginRetryTimer); autoLoginRetryTimer = null; }
     autoLoginRetryAttempt = 0;
     autoLogin401Streak = 0;
     autoLogin401Notified = false;
     autoLoginFailingSince = 0;
-    const { userId, dbId } = current;
-    if (current.cookieCtx) {
+    const { userId, dbId } = current || {};
+    if (current && current.cookieCtx) {
       current.cookieCtx.cancelled = true;
       if (current.cookieCtx.timer) clearTimeout(current.cookieCtx.timer);
     }
-    try { monitor.deactivateUser(userId); } catch (e) { log.warn(`[server] 停用失败: ${e.message}`); }
-    sessionStore.delete(userId);
-    db.clearCookies(dbId);
+    if (userId) {
+      try { monitor.deactivateUser(userId); } catch (e) { log.warn(`[server] 停用失败: ${e.message}`); }
+    }
+    sessionStore.clear();
+    if (dbId) db.clearCookies(dbId);
     // 账号数据一律清掉(不需要勾选): 好友(含逐好友配置)/通知去重/用户 —— 对下一个账号都没有意义。
     // QQ 绑定是全局的(一个 QQ 应用一份), 不在这里清。
     const r = db.clearAccountData();
@@ -846,7 +888,7 @@ function createApp({
       const c = db.clearSettings();
       log.info(`[server] 登出彻底重置: 设置 ${c.settings} 项, QQ 绑定 ${c.bindings} 条(访问令牌保留)`);
     }
-    log.info(`[server] 登出: ${userId}`);
+    log.info(`[server] 登出: ${userId || '无活动会话'}`);
     current = null;
     return res.json({ ok: true });
   });
