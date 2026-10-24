@@ -214,7 +214,6 @@ function createFriendEventStore(db) {
     listFriendEvents({ limit = 50, before, offset, page, types, friendId, q, order, favorite } = {}) {
       const lim = Math.max(1, Math.min(500, Math.trunc(Number(limit) || 50)));
       const where = [], params = [];
-      if (before != null && before !== '' && Number.isFinite(Number(before))) { where.push('e.id < ?'); params.push(Math.trunc(Number(before))); }
       if (Array.isArray(types)) {
         if (!types.length) return { events: [], hasMore: false, total: 0 };
         where.push(`e.type IN (${types.map(() => '?').join(',')})`); params.push(...types.map(typeCode));
@@ -230,9 +229,14 @@ function createFriendEventStore(db) {
       }
       const filter = where.length ? ' WHERE ' + where.join(' AND ') : '';
       const total = prepare('SELECT COUNT(*) AS c' + from + filter).get(...params).c;
-      const skip = page != null && page !== '' ? Math.max(0,(Math.trunc(Number(page)) || 1)-1)*lim : Math.max(0,Math.trunc(Number(offset)) || 0);
       const sort = String(order || 'desc').toLowerCase() === 'asc' ? 'ASC' : 'DESC';
-      const rows = prepare(select + from + filter + ` ORDER BY e.id ${sort} LIMIT ? OFFSET ?`).all(...params,lim+1,skip);
+      if (before != null && before !== '' && Number.isFinite(Number(before))) {
+        where.push(`e.id ${sort === 'ASC' ? '>' : '<'} ?`);
+        params.push(Math.trunc(Number(before)));
+      }
+      const rowFilter = where.length ? ' WHERE ' + where.join(' AND ') : '';
+      const skip = page != null && page !== '' ? Math.max(0,(Math.trunc(Number(page)) || 1)-1)*lim : Math.max(0,Math.trunc(Number(offset)) || 0);
+      const rows = prepare(select + from + rowFilter + ` ORDER BY e.id ${sort} LIMIT ? OFFSET ?`).all(...params,lim+1,skip);
       return { events: rows.slice(0,lim).map(project), hasMore: rows.length>lim, total };
     }
   };

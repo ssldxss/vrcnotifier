@@ -72,37 +72,27 @@
   function avatarUrl(key) {
     return baseUrl() + '/api/avatar/' + encodeURIComponent(key) + '?token=' + encodeURIComponent(accessToken());
   }
+  const client = new window.VrcNotifier.Client({ baseUrl: baseUrl(), token: accessToken() });
+  function syncClient() {
+    client.baseUrl = baseUrl();
+    client.token = accessToken();
+    return client;
+  }
   async function api(method, path, body, opts) {
-    const o = opts || {};
-    const headers = {};
-    if (body !== undefined) headers['Content-Type'] = 'application/json';
-    if (!o.noAuth && accessToken()) headers.Authorization = 'Bearer ' + accessToken();
-    let res;
     try {
-      res = await fetch(baseUrl() + path, {
-        method,
-        headers,
-        body: body === undefined ? undefined : JSON.stringify(body),
-        cache: 'no-store'
-      });
+      const data = await syncClient().request(method, path, { ...opts, body });
+      return { status: 200, data };
     } catch (e) {
-      throw new Error('无法连接后端');
+      if (!(e instanceof window.VrcNotifier.ApiError) || !e.status) throw e;
+      if (e.status === 401 && !(opts && opts.noAuth)) {
+        const msg = e.message;
+        if (String(path).startsWith('/api/login')) throw e;
+        if (msg.includes('未登录')) showView('login');
+        else { showView('gate'); setGateMsg('访问令牌无效, 请重新填写'); }
+        throw e;
+      }
+      return { status: e.status, data: e.data || { error: e.message } };
     }
-    let data = null;
-    try {
-      data = await res.json();
-    } catch (e) {
-      throw new Error('后端响应不是 JSON');
-    }
-    if (res.status === 401 && !o.noAuth) {
-      const msg = String((data && data.error) || '');
-      // 登录类接口的 401 是业务错误(VRChat 用户名/密码错误): 抛给表单处理, 不能跳门禁
-      if (String(path).startsWith('/api/login')) throw new Error(msg || '用户名或密码错误');
-      if (msg.includes('未登录')) showView('login');
-      else { showView('gate'); setGateMsg('访问令牌无效, 请重新填写'); }
-      throw new Error(msg || '访问被拒绝');
-    }
-    return { status: res.status, data };
   }
   let toastTimer = null;
   function toast(text) {

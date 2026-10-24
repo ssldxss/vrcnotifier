@@ -12,14 +12,11 @@ const { formatLocalTime, getLogStream, avatarFields } = require('./util');
 const { currentVersion } = require('./version');
 const { displayState, isPending, pendingLabel } = require('./presence');
 
+const { FRIEND_CONFIG } = require('../public/contracts');
+const { parseFriendConfig, parseSettings, configOf } = require('./api-contract');
+
 const MASK = '••••••••';
 const SECRET_FIELDS = new Set(['qq_app_secret']);
-const SETTING_MAP = {
-  qqEnabled: 'qq_enabled', qqAppId: 'qq_app_id', qqAppSecret: 'qq_app_secret',
-  notifyGroupAnnouncement: 'notify_group_announcement', notifyBoop: 'notify_boop', notifyInvite: 'notify_invite',
-  friendEventLimit: 'friend_event_limit'
-};
-
 // 日志筛选(服务端): 多选集合语义 — 选中集合=匹配集合(选一个只显示一个);
 // null=参数省略, 该维度不过滤; 空数组=不匹配任何行; 无法解析的行恒匹配(前端强制显示, 不受任何筛选)。
 function logLineMatches(line, levelSel, catSel) {
@@ -106,21 +103,6 @@ function createApp({
     const thumbUrl = toThumbUrl(out.friend_avatar);
     out.avatarKey = thumbUrl && avatarCache ? avatarCache.thumbKeyFromUrl(thumbUrl) : null;
     return out;
-  }
-
-  // 逐好友通知配置: 原先存在独立的 monitor_config 表, 现在直接挂在 friends 行上。
-  // 保持 config 嵌套形状不变(前端按 f.config.x 读), 好友不存在时返回 null。
-  function configOf(f) {
-    if (!f) return null;
-    return {
-      friend_vrchat_id: f.friend_vrchat_id,
-      favorite: f.favorite,
-      notify_online: f.notify_online,
-      notify_web_online: f.notify_web_online,
-      notify_offline: f.notify_offline,
-      notify_status_change: f.notify_status_change,
-      notify_world_change: f.notify_world_change
-    };
   }
 
   // 好友行附带头像 key 与通知配置(前端零解析)
@@ -981,7 +963,7 @@ function createApp({
     app.use('/api/avatar', (req, res) => res.status(404).json({ error: '头像不存在' }));
   }
 
-    app.put('/api/friends/:friendId/config', (req, res) => {
+  app.put('/api/friends/:friendId/config', (req, res) => {
     if (!current) return res.status(401).json({ error: '未登录' });
     const body = req.body || {};
     const cur = db.getFriend(req.params.friendId);
@@ -989,18 +971,12 @@ function createApp({
       log.warn(`[server] 更新监控配置失败: 好友不存在 id=${req.params.friendId}`);
       return res.status(404).json({ error: '好友不存在' });
     }
-    // 语义是补丁不是整体覆盖: 只改显式传了的字段, 没传的保持原值。
-    // (旧行为是"没传的 notify* 一律视为开" —— 任何只传部分字段的调用方都会静默打开全部通知,
-    //  而新好友默认全关, 两边正好相反。)
-    const pick = (col, camel) => (body[camel] !== undefined ? !!body[camel] : cur[col] === 1);
-    db.setFriendConfig(req.params.friendId, {
-      favorite: pick('favorite', 'favorite'),
-      notifyOnline: pick('notify_online', 'notifyOnline'),
-      notifyWebOnline: pick('notify_web_online', 'notifyWebOnline'),
-      notifyOffline: pick('notify_offline', 'notifyOffline'),
-      notifyStatusChange: pick('notify_status_change', 'notifyStatusChange'),
-      notifyWorldChange: pick('notify_world_change', 'notifyWorldChange')
-    });
+    let patch;
+    try { patch = parseFriendConfig(body); }
+    catch (e) { return res.status(400).json({ error: e.message }); }
+    db.setFriendConfig(req.params.friendId, Object.fromEntries(
+      FRIEND_CONFIG.map(([key, alias]) => [alias, patch[key] === undefined ? cur[key] === 1 : patch[key] === 1])
+    ));
     const cfg = db.getFriend(req.params.friendId);
     log.debug(`[server] 更新监控配置: 好友=${(cfg && cfg.display_name) || req.params.friendId}, 特别关注=${cfg ? (cfg.favorite ? '开' : '关') : '?'}, 上线=${cfg ? cfg.notify_online : '?'}, 网页上线=${cfg ? cfg.notify_web_online : '?'}, 下线=${cfg ? cfg.notify_offline : '?'}, 状态=${cfg ? cfg.notify_status_change : '?'}, 世界=${cfg ? cfg.notify_world_change : '?'}`);
     return res.json({ ok: true, config: configOf(cfg) });
@@ -1010,6 +986,14 @@ function createApp({
   app.get('/api/friend-events', (req, res) => {
     if (!current) return res.status(401).json({ error: '未登录' });
     const query = req.query || {};
+    if (query.before !== undefined && query.page !== undefined) {
+      return res.status(400).json({ error: 'before 与 page 不能同时使用' });
+    }
+    for (const key of ['before', 'page']) {
+      if (query[key] !== undefined && (!/^\d+$/.test(query[key]) || !Number.isSafeInteger(Number(query[key])) || Number(query[key]) < 1)) {
+        return res.status(400).json({ error: `${key} 必须是正整数` });
+      }
+    }
     let limit = 50;
     if (query.limit !== undefined && query.limit !== '') {
       const n = Number(query.limit);
@@ -1041,7 +1025,9 @@ function createApp({
     });
     kickWorldNames(events);
     // total 是同一套筛选下的总条数, 分页栏的"共 N 条 / 第 K 页"都要它
-    return res.json({ ok: true, events: events.map(eventRow), hasMore, total, page, pageSize: limit });
+    return res.json({ ok: true, events: events.map(eventRow), hasMore, total,
+      pagination: useCursor ? 'cursor' : 'page', page: useCursor ? null : page,
+      nextBefore: hasMore && events.length ? events[events.length - 1].id : null, pageSize: limit });
   });
 
   app.delete('/api/friend-events', (req, res) => {
@@ -1060,16 +1046,11 @@ function createApp({
     if (!current) return res.status(401).json({ error: '未登录' });
     const body = req.body || {};
     const prev = db.getGlobalSettings();
-    const fields = {};
-    for (const [camel, snake] of Object.entries(SETTING_MAP)) {
-      const raw = body[camel] !== undefined ? body[camel] : body[snake];
-      if (raw === undefined) continue;
-      if (SECRET_FIELDS.has(snake)) {
-        if (raw === MASK) { fields[snake] = prev[snake] || null; continue; }
-        fields[snake] = (raw === '' || raw === null) ? null : String(raw);
-      } else {
-        fields[snake] = raw;
-      }
+    let fields;
+    try { fields = parseSettings(body); }
+    catch (e) { return res.status(400).json({ error: e.message }); }
+    for (const key of SECRET_FIELDS) {
+      if (fields[key] === MASK) fields[key] = prev[key] || null;
     }
     db.updateGlobalSettings(fields);
     if (qq) qq.sync(current.dbId, db.getGlobalSettings());

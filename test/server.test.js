@@ -1121,7 +1121,7 @@ test('settings put stores notification type toggles', async (t) => {
   assert.equal(s.notify_boop, 0);
   assert.equal(s.notify_invite, 1);
   // 白名单外的 key 不落库
-  await put(ctx, '/api/settings', { notify_hack: 1 });
+  assert.equal((await put(ctx, '/api/settings', { notify_hack: 1 })).status, 400);
   assert.equal(ctx.db.getGlobalSettings().notify_hack, undefined);
 });
 
@@ -1874,9 +1874,9 @@ test('GET /api/friend-events: page 翻页 + total(日志页那条分页栏要的
   assert.equal(p9.data.total, 12);
 
   const bad = await get(ctx, '/api/friend-events?limit=5&page=abc');
-  assert.equal(bad.data.page, 1, '非法 page 回第 1 页');
+  assert.equal(bad.status, 400, '非法 page 明确拒绝');
   const zero = await get(ctx, '/api/friend-events?limit=5&page=0');
-  assert.equal(zero.data.page, 1, 'page 下限 1');
+  assert.equal(zero.status, 400, 'page 必须从 1 开始');
 });
 
 test('GET /api/friend-events: order=asc 最早在前(表头点一下反转)', async (t) => {
@@ -1927,4 +1927,40 @@ test('托管静态目录时 GET / 返回新概览页', async (t) => {
   assert.ok(html.includes('id="mainView"'), '应由新版概览页提供 #mainView');
   assert.ok(html.includes('dashboard.js'), '应加载新前端脚本');
   assert.ok(!html.includes("id='mainView'"), '不应再返回经典前端(单引号标记)');
+});
+
+test('SDK and HTTP share authenticated login, config patch and settings contracts', async (t) => {
+  const ctx = setup({ accessToken: 'contract-token' });
+  t.after(() => close(ctx));
+  const { Client } = require('../public/sdk');
+  const client = new Client({ baseUrl: ctx.base, token: 'contract-token' });
+  assert.equal((await client.login('me', 'pw')).ok, true);
+  ctx.db.upsertFriend('usr_contract', { displayName: 'Contract' });
+  await client.updateFriendConfig('usr_contract', { notifyOnline: true });
+  const saved = await client.updateFriendConfig('usr_contract', { notify_online: 0 });
+  assert.equal(saved.config.notify_online, 0);
+  await assert.rejects(client.updateFriendConfig('usr_contract', { favorite: 1, notifyOnline: 'false' }), { status: 400 });
+  assert.equal(ctx.db.getFriend('usr_contract').favorite, 0, 'invalid patches are atomic');
+  await assert.rejects(client.updateSettings({ qq_app_id: 'changed', qq_enabled: 2 }), { status: 400 });
+  assert.equal(ctx.db.getGlobalSettings().qq_app_id, undefined);
+  await client.updateSettings({ friend_event_limit: 100000 });
+  assert.equal((await client.getSettings()).settings.friend_event_limit, 100000);
+});
+
+test('event cursor pagination keeps filtered total and exposes the next cursor in both orders', async (t) => {
+  const ctx = setup();
+  t.after(() => close(ctx));
+  await post(ctx, '/api/login', { username: 'me', password: 'pw' });
+  for (let i = 0; i < 6; i++) ctx.db.addFriendEvent({ type: 'boop', at: i });
+  const first = (await get(ctx, '/api/friend-events?limit=2')).data;
+  const next = (await get(ctx, '/api/friend-events?limit=2&before=' + first.nextBefore)).data;
+  assert.equal(next.total, 6);
+  assert.equal(next.pagination, 'cursor');
+  assert.equal(next.page, null);
+  assert.deepEqual(next.events.map((e) => e.id), [4, 3]);
+  const asc = (await get(ctx, '/api/friend-events?order=asc&limit=2&before=2')).data;
+  assert.deepEqual(asc.events.map((e) => e.id), [3, 4]);
+  assert.equal(asc.nextBefore, 4);
+  assert.equal((await get(ctx, '/api/friend-events?before=2&page=1')).status, 400);
+  assert.equal((await get(ctx, '/api/friend-events?page=1.5')).status, 400);
 });

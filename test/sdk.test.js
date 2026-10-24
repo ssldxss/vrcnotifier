@@ -184,3 +184,23 @@ test('subscribeEvents registers log event for backend log lines', () => {
   es.emit('log', { seq: 1, line: '[info] 后端日志' });
   assert.deepEqual(seen, [{ type: 'log', data: { seq: 1, line: '[info] 后端日志' } }]);
 });
+test('login and 2FA carry the configured access token', async () => {
+  const fetch = makeFetch(() => ({ data: { ok: true } }));
+  const c = new VrcNotifierClient({ token: 'access-token', fetchImpl: fetch });
+  await c.login('u', 'p');
+  await c.login2fa('sid', '123456');
+  assert.ok(fetch.calls.every((call) => call.headers.Authorization === 'Bearer access-token'));
+});
+
+test('SSE subscription covers every shared event and forwards opens', () => {
+  const ES = makeEventSourceClass();
+  const c = new VrcNotifierClient({ EventSourceImpl: ES });
+  const got = [];
+  let opens = 0;
+  c.subscribeEvents({ onEvent: (name, data) => got.push([name, data]), onOpen: () => opens++ });
+  const es = ES.instances[0];
+  for (const name of require('../public/contracts').SSE_EVENTS) es.emit(name, { name });
+  es.onopen({});
+  assert.deepEqual(got.map(([name]) => name), require('../public/contracts').SSE_EVENTS);
+  assert.equal(opens, 1);
+});
