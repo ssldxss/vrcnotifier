@@ -185,6 +185,7 @@ function createApp({
     const user = db.getUserByDbId(dbId);
     current = { userId, dbId, vrcapi, cookieCtx };
     sessionStore.set(userId, vrcapi);
+    if (qq) qq.sync(dbId, db.getGlobalSettings());
     // currentUser 就是刚落地用的那份 GET /auth/user 响应: 交给首轮对账当种子, 不再重复请求一次。
     await monitor.activateUser(user, vrcapi, { currentUser });
     return db.getUserByDbId(dbId);
@@ -814,6 +815,8 @@ function createApp({
     const body = req.body || {};
     const clearCache = !!body.clearCache;
     const clearSettings = !!body.clearSettings;
+    // 机器人按旧 dbId 持有连接和凭据；删除账号/设置前先撤销其收发能力。
+    if (qq) qq.stopAll();
     if (!current) return res.json({ ok: true });
     if (autoLoginRetryTimer) { clearTimeout(autoLoginRetryTimer); autoLoginRetryTimer = null; }
     autoLoginRetryAttempt = 0;

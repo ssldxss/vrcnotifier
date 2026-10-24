@@ -28,7 +28,7 @@ async function waitFor(read, predicate, timeoutMs = 3000) {
   assert.fail('condition not reached: ' + JSON.stringify(value));
 }
 
-async function startApplication(t) {
+async function startApplication(t, { qqPlatform = null } = {}) {
   const holds = [];
   const expired = new Set();
   const sockets = new Set();
@@ -66,7 +66,8 @@ async function startApplication(t) {
   const avatarDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vrcn-lifecycle-'));
   const runtime = buildApplication({ dbPath: ':memory:', avatarDir, logger: silent,
     apiBaseUrl: base + '/api/1', wsBaseUrl: base, vrcStatusUrl: base + '/status',
-    accessToken: 'lifecycle-token', reconnectBaseMs: 20, jitterMs: 0 });
+    accessToken: 'lifecycle-token', reconnectBaseMs: 20, jitterMs: 0,
+    ...(qqPlatform ? { qqTokenUrl: qqPlatform.base + '/app/getAppAccessToken', qqApiBase: qqPlatform.base, qqWsUrl: qqPlatform.wsUrl } : {}) });
   const server = runtime.app.listen(0, '127.0.0.1'); await once(server, 'listening');
   t.after(async () => {
     for (const hold of holds) hold.resume.resolve();
@@ -93,4 +94,36 @@ async function startApplication(t) {
     expireCookie: (name) => expired.add(name)
   };
 }
-module.exports = { startApplication, deferred, waitFor, sleep };
+async function startQqPlatform(t) {
+  const messages = [];
+  const sockets = new Set();
+  const connections = [];
+  const server = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      if (req.url.includes('/v2/users/')) messages.push(JSON.parse(body));
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(req.url.includes('getAppAccessToken') ? { access_token: 'mock-qq-token', expires_in: 7200 } : { id: 'message-ok' }));
+    });
+  });
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  const wss = new WebSocketServer({ server });
+  wss.on('connection', (ws) => {
+    sockets.add(ws); connections.push(ws);
+    ws.on('close', () => sockets.delete(ws));
+    ws.on('message', (data) => {
+      const frame = JSON.parse(String(data));
+      if (frame.op === 2) ws.send(JSON.stringify({ op: 0, s: 1, t: 'READY', d: {} }));
+      if (frame.op === 1) ws.send(JSON.stringify({ op: 11 }));
+    });
+    ws.send(JSON.stringify({ op: 10, d: { heartbeat_interval: 1000 } }));
+  });
+  t.after(async () => {
+    for (const ws of sockets) ws.terminate();
+    await new Promise((r) => wss.close(r)); server.closeAllConnections(); await new Promise((r) => server.close(r));
+  });
+  const base = 'http://127.0.0.1:' + server.address().port;
+  return { base, wsUrl: base.replace('http:', 'ws:'), connections, messages };
+}
+module.exports = { startApplication, startQqPlatform, deferred, waitFor, sleep };
