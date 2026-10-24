@@ -43,8 +43,8 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
   let autoTimer = null;
   let autoAt = 0; // 下一次自动对账的计划时间(用于日志/测试)
   let watchdogTimer = null;
-  const running = new Set();          // userId: 快照进行中(并发触发直接忽略)
-  const awaitingSnapshot = new Set(); // userId: ws 重连成功后等待全量对账, 期间忽略 WS 消息
+  const running = new Map();          // userId -> session: 仅阻止同一会话的并发快照
+  const awaitingSnapshot = new Map(); // userId -> session: 重连对账期间忽略该会话的 WS 消息
   const pendingStatus = new Map();     // friendId: 状态变化合并中(待 friend-location 执行)
   const pendingBuckets = new Map();    // userId: { timer, friends:Set<friendId> } 上下线 pending 到期验证(多好友共享一次 me())
   const connState = new Map();         // userId -> { open, snapshotDone, startupSent, recovering, apiOk, faultSince, faultNotified, faultTimer }
@@ -760,9 +760,10 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
 
   // ws 重连成功: 先全量对账, 对账完成前忽略 WS 消息
   async function handleWsReconnect(userId) {
-    if (!sessions.has(userId)) return;
+    const session = sessions.get(userId);
+    if (!session) return;
     log.info(`[monitor] ws 重连成功 userId=${userId}, 先全量对账再处理消息`);
-    awaitingSnapshot.add(userId);
+    awaitingSnapshot.set(userId, session);
     await runSnapshot(userId);
   }
 
@@ -770,7 +771,7 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
   async function handlePipelineEvent(userId, raw, parsed) {
     const session = sessions.get(userId);
     if (!session) return;
-    if (awaitingSnapshot.has(userId)) {
+    if (awaitingSnapshot.get(userId) === session) {
       log.info(`[monitor] 对账完成前忽略消息 userId=${userId}: ${(parsed && parsed.type) || '?'}`);
       return;
     }
@@ -974,8 +975,10 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
     if (!session) return { ok: false, error: '无活动会话' };
     // 对账是"用户主动关心"的时刻(前端点刷新、整点自动对账都走这里), 顺手确认实时通道还在册。
     ensurePipelineAlive(session.user, '对账');
-    if (running.has(userId)) return { ok: false, error: '快照进行中' };
-    running.add(userId);
+    if (running.get(userId) === session) return { ok: false, error: '快照进行中' };
+    running.set(userId, session);
+    const isCurrent = () => sessions.get(userId) === session;
+    const cancelled = { ok: false, error: '会话已变更' };
     const user = db.getUserByVrcId(userId);
     try {
       if (!user) return { ok: false, error: '用户不存在' };
@@ -996,10 +999,13 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
         try {
           currentUser = await vrcapi.me({ noRetry: opts.noRetry, purpose: opts.initial ? '首轮对账' : '对账' });
         } catch (e) {
+          if (!isCurrent()) return cancelled;
           if (!handleAuth401(e, userId)) log.error(`[monitor] 快照失败 userId=${userId}: ${e.message}`);
           return { ok: false, error: e.message };
         }
       }
+
+      if (!isCurrent()) return cancelled;
 
       // 自己的信息: 直接从 me() 的 presence 取(不再单独请求 users/{id})
       try {
@@ -1028,6 +1034,8 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
       } catch (e) {
         log.warn(`[monitor] 自己信息落地失败 userId=${userId}: ${e.message}`);
       }
+
+      if (!isCurrent()) return cancelled;
 
       // ② 状态判定: 以 me() 的三个状态数组为准(比好友列表的 location 字段更准)
       const arraysOk = Array.isArray(currentUser.onlineFriends)
@@ -1071,12 +1079,14 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
             offline: false,
             noRetry: opts.noRetry,
             onPage: opts.initial
-              ? (n) => emitProgress(userId, { stage: 'friends', fetched: Math.min(friendTotal, n), total: friendTotal })
+              ? (n) => isCurrent() && emitProgress(userId, { stage: 'friends', fetched: Math.min(friendTotal, n), total: friendTotal })
               : undefined
           });
+          if (!isCurrent()) return cancelled;
           onlineFetched = list.length;
           for (const f of list) if (f && f.id) onlineMap.set(f.id, f);
         } catch (e) {
+          if (!isCurrent()) return cancelled;
           if (!handleAuth401(e, userId)) log.error(`[monitor] 在线列表获取失败 userId=${userId}: ${e.message}`);
           return { ok: false, error: e.message };
         }
@@ -1090,11 +1100,13 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
           const list = await vrcapi.friends({
             offline: true,
             noRetry: opts.noRetry,
-            onPage: (n) => emitProgress(userId, { stage: 'friends', fetched: Math.min(friendTotal, onlineFetched + n), total: friendTotal })
+            onPage: (n) => isCurrent() && emitProgress(userId, { stage: 'friends', fetched: Math.min(friendTotal, onlineFetched + n), total: friendTotal })
           });
+          if (!isCurrent()) return cancelled;
           for (const f of list) if (f && f.id) offlineSeed.set(f.id, f);
           log.info(`[monitor] 首次对账好友资料: 名册 ${friendTotal} 人 = 在线 ${onlineFetched} + 离线 ${list.length}`);
         } catch (e) {
+          if (!isCurrent()) return cancelled;
           if (handleAuth401(e, userId)) return { ok: false, error: e.message };
           log.warn(`[monitor] 首次快照离线名册获取失败, 跳过离线好友资料补全: ${e.message}`);
         }
@@ -1108,6 +1120,7 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
       let processed = 0;
 
       for (const id of friendIds) {
+        if (!isCurrent()) return cancelled;
         if (!arraysOk) break;
         const state = stateOfFriend(id);
         if (state === null) {
@@ -1151,6 +1164,8 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
         processed++;
       }
 
+      if (!isCurrent()) return cancelled;
+
       // 已入库但不在本轮名单中的好友:
       // 名册(me().friends)可用 → 确定已不是好友, 直接移除记录(区分"下线"与"已删除", 不再误推下线);
       // 名册缺失(名单为三个状态数组并集) → 沿用旧逻辑置离线(数据不全不判删); 状态判定不可用时不翻转。
@@ -1158,6 +1173,7 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
         const known = new Set(friendIds);
         const rosterOk = Array.isArray(currentUser.friends);
         for (const f of db.listFriends()) {
+          if (!isCurrent()) return cancelled;
           if (known.has(f.friend_vrchat_id)) continue;
           if (rosterOk) {
             db.deleteFriend(f.friend_vrchat_id);
@@ -1171,16 +1187,19 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
         }
       }
 
+      if (!isCurrent()) return cancelled;
       events.emit('snapshot', { userId, count: processed, at: now() }); // snapshot 监听器负责 apiOk/恢复判定/说明推送
       log.info(`[monitor] 快照完成 userId=${userId}, 好友 ${processed} 人`);
       return { ok: true, count: processed };
     } catch (e) {
+      if (!isCurrent()) return cancelled;
       // 兜底: 任何未预期异常(字段缺失/内部错误)都不允许穿透到调用者
       log.error(`[monitor] 快照执行异常 userId=${userId}: ${e.message}`);
       return { ok: false, error: e.message };
     } finally {
-      running.delete(userId);
-      awaitingSnapshot.delete(userId); // 对账完成: 解除重连后的消息拦截
+      // 旧请求完成时只能释放自己的标记，不能解除新会话的对账保护。
+      if (running.get(userId) === session) running.delete(userId);
+      if (awaitingSnapshot.get(userId) === session) awaitingSnapshot.delete(userId);
     }
   }
 
