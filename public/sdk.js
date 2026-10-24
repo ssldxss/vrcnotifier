@@ -55,7 +55,7 @@
      */
     constructor(opts = {}) {
       this.storage = resolveStorage(opts.storage);
-      this.fetchImpl = opts.fetchImpl || (typeof fetch !== 'undefined' ? fetch : null);
+      this.fetchImpl = opts.fetchImpl || (typeof fetch !== 'undefined' ? fetch.bind(globalThis) : null);
       this.EventSourceImpl = opts.EventSourceImpl || (typeof EventSource !== 'undefined' ? EventSource : null);
       this.baseUrl = (opts.baseUrl || this.storage.getItem(LS_BASE_KEY) || DEFAULT_BASE).replace(/\/+$/, '');
       this.token = opts.token !== undefined ? opts.token : (this.storage.getItem(LS_TOKEN_KEY) || '');
@@ -84,8 +84,8 @@
      * 核心请求: 自动携带 Bearer token; 非 2xx 抛 ApiError。
      * @returns {Promise<object>} 解析后的 JSON
      */
-    async request(method, path, opts = {}) {
-      const { body, query, noAuth = false } = opts;
+    async requestResponse(method, path, opts = {}) {
+      const { body, query, noAuth = false, signal } = opts;
       if (!this.fetchImpl) throw new ApiError(0, '当前环境不支持 fetch');
       const params = new URLSearchParams(Object.entries(query || {}).filter(([, v]) => v !== undefined && v !== null));
       const url = this.baseUrl + path + (params.size ? '?' + params : '');
@@ -98,7 +98,8 @@
           method,
           headers,
           body: body === undefined ? undefined : JSON.stringify(body),
-          cache: 'no-store'
+          cache: 'no-store',
+          signal
         });
       } catch (e) {
         throw new ApiError(0, '网络错误: ' + e.message);
@@ -109,7 +110,11 @@
         const msg = (data && (data.error || data.message)) || ('HTTP ' + res.status);
         throw new ApiError(res.status, msg, data);
       }
-      return data;
+      return { status: res.status, data };
+    }
+
+    async request(method, path, opts = {}) {
+      return (await this.requestResponse(method, path, opts)).data;
     }
 
     // ---------- 公开(无需 token) ----------
@@ -150,6 +155,10 @@
       return this.baseUrl + '/api/avatar/' + encodeURIComponent(key) + '?token=' + encodeURIComponent(this.token);
     }
 
+    eventsUrl() {
+      return this.baseUrl + '/api/events?token=' + encodeURIComponent(this.token);
+    }
+
     /**
      * 订阅后端 SSE 事件。
      * @param {object} handlers { onEvent(type,data), onError(err) }
@@ -159,7 +168,7 @@
       const { onEvent, onError, onOpen } = handlers;
       const ES = this.EventSourceImpl;
       if (!ES) throw new ApiError(0, '当前环境不支持 EventSource');
-      const es = new ES(this.baseUrl + '/api/events?token=' + encodeURIComponent(this.token));
+      const es = new ES(this.eventsUrl());
       const dispatch = (type, e) => {
         if (!onEvent) return;
         let data = null;

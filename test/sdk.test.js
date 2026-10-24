@@ -204,3 +204,10 @@ test('SSE subscription covers every shared event and forwards opens', () => {
   assert.deepEqual(got.map(([name]) => name), require('../public/contracts').SSE_EVENTS);
   assert.equal(opens, 1);
 });
+
+test('shared transport preserves successful HTTP statuses and rejects non-JSON responses', async () => {
+  const c = new VrcNotifierClient({ fetchImpl: async () => new Response('{"ok":true}', { status: 201 }) });
+  assert.deepEqual(await c.requestResponse('POST', '/api/example'), { status: 201, data: { ok: true } });
+  const bad = new VrcNotifierClient({ fetchImpl: async () => new Response('<html>gateway error</html>', { status: 502 }) });
+  await assert.rejects(bad.getConfig(), (e) => e instanceof ApiError && e.status === 502 && e.message.includes('JSON'));
+});
