@@ -7,13 +7,6 @@ const test = require('node:test');
 const assert = require('node:assert');
 const ws = require('../public/wschart');
 
-test('pushSample: 滑动窗口, 挤掉最旧的一条, 不修改原数组', () => {
-  const before = [1, 2, 3];
-  const after = ws.pushSample(before, 9);
-  assert.deepStrictEqual(after, [2, 3, 9]);
-  assert.deepStrictEqual(before, [1, 2, 3]);
-});
-
 test('perMinute: 窗口内消息数求和 = 每分钟平均次数', () => {
   assert.equal(ws.perMinute([0, 2, 1, 4]), 7);
   assert.equal(ws.perMinute([]), 0);

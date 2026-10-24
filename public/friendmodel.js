@@ -4,11 +4,11 @@
 // 浏览器用 <script src="friendmodel.js"> 引入(挂 window.VrcFriendModel); Node 用 require 引入(单测)。
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
-    module.exports = factory(require('./contracts'));
+    module.exports = factory();
   } else {
-    root.VrcFriendModel = factory(root.VrcContracts);
+    root.VrcFriendModel = factory();
   }
-})(typeof globalThis !== 'undefined' ? globalThis : this, function (Contracts) {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   // 特别关注组内排序: 在线 → 网页在线 → 离线(未知状态排最后)
   const STATE_RANK = { online: 0, active: 1, offline: 2 };
 
@@ -65,32 +65,6 @@
     return s === 'online' ? 'online' : (s === 'active' ? 'active' : 'offline');
   }
 
-  // ---- 逐好友通知配置 ----
-  // 存库形态固定是 0/1(渲染与分组都按 === 1 判), 前端拿到布尔或旧数据都要先归一化。
-  const CONFIG_FIELDS = Object.fromEntries(Contracts.FRIEND_CONFIG.map(([key, alias]) => [alias, key]));
-
-  /** 配置归一化成 0/1 的五个字段; 缺字段按 0。用于回滚基线 */
-  function normalizeConfig(c) {
-    const src = c || {};
-    const out = {};
-    for (const [camel, snake] of Object.entries(CONFIG_FIELDS)) out[snake] = (src[snake] === true || src[snake] === 1) ? 1 : 0;
-    return out;
-  }
-
-  /**
-   * 乐观更新: 按请求体覆盖配置, 只覆盖显式传了的字段(与后端 PUT 的"不传不动"一致)。
-   * 返回新对象, 不改入参 —— 调用方要留一份 prev 用于失败回滚。
-   */
-  function patchConfig(cur, patch) {
-    const out = normalizeConfig(cur);
-    const p = patch || {};
-    for (const [camel, snake] of Object.entries(CONFIG_FIELDS)) {
-      const value = p[snake] !== undefined ? p[snake] : p[camel];
-      if (value !== undefined) out[snake] = value === true || value === 1 ? 1 : 0;
-    }
-    return out;
-  }
-
   // A state event replaces a complete friend DTO. Historical events never enter here.
   function applyFriendState(friends, update) {
     if (!update || !update.friend_vrchat_id) return friends;
@@ -109,5 +83,5 @@
     return normalizeQuery(query) + '\u0001' + JSON.stringify(collapsed || {}) + '\u0001' + JSON.stringify(friends || []);
   }
 
-  return { applyFriendState, STATE_RANK, CONFIG_FIELDS, stateOf, normalizeQuery, filterPool, splitGroups, groupOf, renderSignature, normalizeConfig, patchConfig };
+  return { applyFriendState, STATE_RANK, stateOf, normalizeQuery, filterPool, splitGroups, groupOf, renderSignature };
 });

@@ -15,14 +15,6 @@
     return new Array(len === undefined ? HISTORY_LEN : len).fill(0);
   }
 
-  // 滑动窗口: 每秒推进一格; 返回新数组, 不改调用方数据
-  function pushSample(history, n) {
-    const arr = (history || []).slice();
-    arr.shift();
-    arr.push(Number(n) || 0);
-    return arr;
-  }
-
   // 服务端会每秒补推最近 3 秒(同一 sec 重复出现): 按 sec 幂等更新, 跳秒补 0。
   // 返回新数组与 lastSec, 调用方保存 lastSec 供下一轮去重。
   function ingestSample(history, sec, n, lastSec) {
@@ -65,5 +57,5 @@
     }));
   }
 
-  return { HISTORY_LEN, emptyHistory, pushSample, perMinute, sparklinePoints, ingestSample };
+  return { HISTORY_LEN, emptyHistory, perMinute, sparklinePoints, ingestSample };
 });
