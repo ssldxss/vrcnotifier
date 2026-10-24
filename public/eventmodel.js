@@ -91,6 +91,8 @@
   }
 
   // 实时事件是否命中当前筛选(与服务端 query 条件同口径); 用于 SSE 增量插入前判断
+  // 与服务端 friend-events 搜索列对齐: display_name/friend_id/world_name/位置(含世界 ID 与实例)/
+  // group_name/group_id/title/body; 服务端不搜旧世界名, 这里也不能搜, 否则「实时匹配、刷新消失」。
   function eventMatchesFilters(row, opts) {
     const o = opts || {};
     if (!row) return false;
@@ -99,8 +101,9 @@
     if (o.friendId && row.friend_vrchat_id !== o.friendId) return false;
     if (o.search) {
       const q = String(o.search).toLowerCase();
-      const hay = [row.friend_name, row.friend_vrchat_id, row.world_name, row.old_world_name,
-        row.title, row.body, row.group_id].filter(Boolean).join('\n').toLowerCase();
+      const hay = [row.friend_name, row.friend_vrchat_id, row.world_name, row.world_id,
+        row.instance_id, row.location, row.group_name, row.group_id, row.title, row.body]
+        .filter(Boolean).join('\n').toLowerCase();
       if (!hay.includes(q)) return false;
     }
     return true;
@@ -111,15 +114,34 @@
     if (!friend || !event) return null;
     const code = typeCode(event);
     const patch = {};
+    // 注意: /api/friends 返回的 display_state 优先级最高(分组/状态点/人数都读它),
+    // 实时事件如果只写 state, 界面会一直显示旧的 display_state 直到下次快照。
+    // 已确认的状态事件: 结束待确认窗口(state/display_state 之外, pending 标记也要清掉)
+    function clearPending() {
+      if (friend.pending_state == null) return;
+      patch.pending_state = null;
+      if (friend.pending != null) patch.pending = false;
+      if (friend.pending_label != null) patch.pending_label = null;
+    }
     if (code === 'friend_online') {
       patch.state = event.new_state || 'online';
+      patch.display_state = patch.state;
+      clearPending();
     } else if (code === 'friend_web_online') {
       patch.state = event.new_state || 'active';
+      patch.display_state = patch.state;
+      clearPending();
     } else if (code === 'friend_offline') {
       patch.state = event.new_state || 'offline';
+      patch.display_state = patch.state;
+      clearPending();
     } else if (code === 'friend_web_offline') {
       const cur = friend.display_state || friend.state;
-      if (cur === 'active') patch.state = 'offline';
+      if (cur === 'active') {
+        patch.state = 'offline';
+        patch.display_state = 'offline';
+        clearPending();
+      }
     } else if (code === 'status_change') {
       if (event.new_status) patch.status = event.new_status;
     } else if (code === 'status_description_change') {

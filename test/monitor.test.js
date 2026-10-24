@@ -970,6 +970,26 @@ test('世界名按需查询: 快照不查, WS 事件查一次后进缓存', asyn
   assert.equal(t.monitor.worldName.peek('wrld_a'), '世界_wrld_a', '名字落在世界名缓存里');
 });
 
+test('世界名按需查询: WS friend-update 的新世界也要解析(通知/动态里不能是空名)', async () => {
+  let worldCalls = 0;
+  const t = setup({ onlineFriends: [onlineFriend('usr_f1')] });
+  t.vrcapi.world = async (id) => { worldCalls++; return { id, name: '世界_' + id }; };
+  const user = addUser(t.db);
+  addConfig(t, 'usr_f1');
+  await t.monitor.activateUser(user, t.vrcapi);
+  t.notifications.length = 0;
+  worldCalls = 0;
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'fu', {
+    type: 'friend-update',
+    content: { userId: 'usr_f1', user: { id: 'usr_f1', displayName: 'F1', status: 'active', location: 'wrld_new:1~region(us)' } }
+  });
+  assert.equal(worldCalls, 1, 'friend-update 也应触发一次世界名查询');
+  assert.equal(t.db.getFriend('usr_f1').world_id, 'wrld_new');
+  assert.equal(t.monitor.worldName.peek('wrld_new'), '世界_wrld_new', '名字写进世界名缓存');
+  assert.equal(t.notifications.length, 1, '切换世界通知照常发出');
+  assert.equal(t.notifications[0].change.newWorld, '世界_wrld_new', '通知里带解析出的世界名');
+});
+
 test('snapshot keeps social/custom status when friend offline via API list', async () => {
   const t = setup({ onlineFriends: [onlineFriend('usr_f1')] });
   const user = addUser(t.db);

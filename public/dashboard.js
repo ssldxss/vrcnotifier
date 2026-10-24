@@ -8,6 +8,7 @@
   const LS_TOKEN = 'vrcn_token';
   const LS_THEME = 'vrcn_theme';
   const FEED_PAGE = 100;
+  const FEED_DOM_MAX = 80; // 实时插入时 DOM 行数上限, 超过就重算窗口(避免停留顶部长期累积)
 
   const EM = window.VrcEventModel;
   const FM = window.VrcFriendModel;
@@ -36,6 +37,8 @@
     expanded: null,
     loadingOlder: false,
     feedReqId: 0,
+    feedGen: 0,           // 当前列表(筛选/搜索)代次: 旧代次的分页结果必须丢弃
+    feedResetPending: false, // 新列表请求进行中: 暂停用旧游标翻页
     feedDataVersion: 0,
     feedRenderedVersion: -1,
     newCount: 0,
@@ -45,6 +48,9 @@
     favorites: new Set(),
     vrcAbnormal: false,
     sseOpened: false,
+    initialLoaded: false,      // 首屏数据已加载完(用于决定首次 SSE 连接后的补拉)
+    pendingFirstBackfill: false,
+    feedBackfill: null,        // 首次连接补拉期间缓冲的实时事件: { reqId, events: [] }
     resyncing: false,
     config: {},
     status: {},
@@ -90,6 +96,8 @@
     }
     if (res.status === 401 && !o.noAuth) {
       const msg = String((data && data.error) || '');
+      // 登录类接口的 401 是业务错误(VRChat 用户名/密码错误): 抛给表单处理, 不能跳门禁
+      if (String(path).startsWith('/api/login')) throw new Error(msg || '用户名或密码错误');
       if (msg.includes('未登录')) showView('login');
       else { showView('gate'); setGateMsg('访问令牌无效, 请重新填写'); }
       throw new Error(msg || '访问被拒绝');
@@ -745,6 +753,14 @@
     }
   }
 
+  // 好友列表回到顶部: 只有滚过一段距离才显示
+  function updateFriendsTop() {
+    const list = $('#friendsList');
+    const btn = $('#friendsTop');
+    if (!list || !btn) return;
+    btn.classList.toggle('hidden', list.scrollTop < 80);
+  }
+
   function renderFriends() {
     const list = $('#friendsList');
     const groups = FM.splitGroups(state.friends, state.friendsQuery || '');
@@ -760,6 +776,7 @@
       state.friendOffsets = null;
       state.friendRange = null;
       renderFriendsVirtual({ animate: true });
+      updateFriendsTop();
       return;
     }
     if (list.classList.contains('virtual')) {
@@ -774,6 +791,7 @@
     if (sig === state.friendRenderSig && list.querySelector('.group-title')) return;
     renderFriendsIncremental(groups);
     state.friendRenderSig = sig;
+    updateFriendsTop();
   }
 
   function findFriend(id) {
@@ -995,35 +1013,25 @@
   }
 
   // 实时新动态: 只插入一行, 其他行用 FLIP 往下平移, 不重建整个窗口
-  function prependFeedEvent(item) {
-    const list = $('#feedList');
-    if (!list || !state.feedRange) return false;
-    if (state.events.some((ev) => ev.id === item.id)) return false;
-    const oldRects = [];
-    for (const el of list.querySelectorAll('.feed-item')) oldRects.push([el, el.getBoundingClientRect()]);
-    const merged = window.VrcFeedStore.mergeEvents(state.events, [item]);
-    state.events = merged.events;
-    state.feedDataVersion++;
-    state.total++;
-    const el = makeFeedItemEl(item, true);
-    const firstGap = list.querySelector('.vlist-gap');
-    if (firstGap) firstGap.after(el); else list.prepend(el);
-    // FLIP: 原有行只平移, 不重绘
-    for (const [oldEl, rect] of oldRects) {
-      const nr = oldEl.getBoundingClientRect();
-      const dy = rect.top - nr.top;
-      if (Math.abs(dy) < 0.5) continue;
-      try {
-        oldEl.animate([{ transform: 'translateY(' + dy + 'px)' }, { transform: 'none' }], { duration: 280, easing: 'cubic-bezier(.22,.8,.3,1)' });
-      } catch (e) { /* ignore */ }
-    }
-    const from = state.feedRange.from;
-    const to = Math.min(state.feedRange.to + (from === 0 ? 1 : 0), state.events.length - 1);
-    requestAnimationFrame(() => {
-      const h = Math.round(el.getBoundingClientRect().height * 100) / 100;
-      state.feedHeights.set(item.id, h);
+  // 实时插入后的收尾合并到一帧: 批量事件时避免每个事件各更新一次 range/占位,
+  // 同时把 DOM 行数收回到窗口上限内(长期停在顶部也不会无限累积节点)
+  let feedPrependSettleRaf = 0;
+  function scheduleFeedPrependSettle() {
+    if (feedPrependSettleRaf) return;
+    feedPrependSettleRaf = requestAnimationFrame(() => {
+      feedPrependSettleRaf = 0;
+      const list = $('#feedList');
+      if (!list) return;
+      const items = list.querySelectorAll('.feed-item');
+      if (!items.length) return;
+      if (items.length > FEED_DOM_MAX) {
+        state.feedRenderedVersion = -1;
+        renderFeed();
+        return;
+      }
       invalidateFeedOffsets();
-      if (state.feedRange && from === 0) state.feedRange = { from: 0, to };
+      for (const el of items) measureFeedRowEl(el);
+      if (state.feedRange && state.feedRange.from === 0) state.feedRange = { from: 0, to: items.length - 1 };
       state.feedRenderedVersion = state.feedDataVersion;
       const offsets = feedOffsets();
       const rangeNow = state.feedRange || { from: 0, to: state.events.length - 1 };
@@ -1036,6 +1044,34 @@
       $('#feedTotal').textContent = state.total ? '共 ' + state.total.toLocaleString() + ' 条' : '';
       updateFeedNew();
     });
+  }
+
+  function prependFeedEvent(item) {
+    const list = $('#feedList');
+    if (!list || !state.feedRange) return false;
+    if (state.events.some((ev) => ev.id === item.id)) return false;
+    const renderedItems = list.querySelectorAll('.feed-item');
+    // 突发大量实时事件时不再给每一行做 FLIP(50+ 行的逐个测量没有意义, 还会拖慢插入)
+    const animateRows = renderedItems.length <= 60;
+    const oldRects = [];
+    if (animateRows) for (const el of renderedItems) oldRects.push([el, el.getBoundingClientRect()]);
+    const merged = window.VrcFeedStore.mergeEvents(state.events, [item]);
+    state.events = merged.events;
+    state.feedDataVersion++;
+    state.total++;
+    const el = makeFeedItemEl(item, true);
+    const firstGap = list.querySelector('.vlist-gap');
+    if (firstGap) firstGap.after(el); else list.prepend(el);
+    // FLIP: 原有行只平移, 不重绘
+    for (const [oldEl, rect] of (animateRows ? oldRects : [])) {
+      const nr = oldEl.getBoundingClientRect();
+      const dy = rect.top - nr.top;
+      if (Math.abs(dy) < 0.5) continue;
+      try {
+        oldEl.animate([{ transform: 'translateY(' + dy + 'px)' }, { transform: 'none' }], { duration: 280, easing: 'cubic-bezier(.22,.8,.3,1)' });
+      } catch (e) { /* ignore */ }
+    }
+    scheduleFeedPrependSettle();
     return true;
   }
 
@@ -1145,18 +1181,33 @@
   async function loadFeed(older, opts) {
     // 只拦「加载更旧」的重复滚动请求; 筛选/搜索连续点击时以最后一次为准(请求序号防乱序)。
     // 关键: 翻页不能开启新一代请求序号 —— 否则会把正在返回的筛选响应误判成过时丢掉。
-    if (older && state.loadingOlder) return;
+    // 注意: 新列表请求(筛选/搜索)还没返回时不能翻页 —— 那会用旧列表末尾的游标去请求,
+    //       结果却被当成新列表的一页合并进来(中间记录丢失/hasMore 被带偏)。
+    if (older && (state.loadingOlder || state.feedResetPending)) return;
     if (older) state.loadingOlder = true;
+    const gen = state.feedGen;
     const reqId = older ? state.feedReqId : ++state.feedReqId;
+    if (!older) { state.feedGen++; state.feedResetPending = true; }
+    if (!older && opts && opts.mergePending) state.feedBackfill = { reqId, events: [] };
     try {
       const r = await api('GET', '/api/friend-events?' + feedQuery(older));
       if (reqId !== state.feedReqId) return; // 筛选已换代: 丢弃这次(可能是旧游标的)响应
+      if (older && gen !== state.feedGen) return; // 翻页请求发出后列表已换代: 旧游标结果作废
       const d = r.data || {};
       if (older) {
         state.events = window.VrcFeedStore.mergeEvents(state.events, d.events || []).events;
       } else {
-        state.events = d.events || [];
-        state.total = d.total || state.events.length; // 翻旧页时后端 total 只是「更旧部分」的计数, 不能覆盖总数
+        let incoming = d.events || [];
+        let extraTotal = 0;
+        // 首次连接补拉: 把请求期间实时到达、已被正常插入过的事件再并回来(按 id 去重),
+        // 避免补拉响应覆盖掉 SSE 刚推来的事件。
+        if (state.feedBackfill && state.feedBackfill.reqId === reqId && state.feedBackfill.events.length) {
+          const merged = window.VrcFeedStore.mergeEvents(incoming, state.feedBackfill.events);
+          incoming = merged.events;
+          extraTotal = merged.added;
+        }
+        state.events = incoming;
+        state.total = (d.total || incoming.length) + extraTotal; // 翻旧页时后端 total 只是「更旧部分」的计数, 不能覆盖总数
         if (!(opts && opts.keepScroll)) {
           // 换筛选/搜索后回到最新: 清掉展开态与滚动位置, 让结果从顶部可见
           state.expanded = null;
@@ -1174,7 +1225,9 @@
         $('#feedList').innerHTML = '<p class="muted" style="padding:14px">加载失败: ' + escapeHtml(e.message) + '</p>';
       }
     } finally {
+      if (state.feedBackfill && state.feedBackfill.reqId === reqId) state.feedBackfill = null;
       if (older) state.loadingOlder = false;
+      else if (reqId === state.feedReqId) state.feedResetPending = false;
     }
   }
 
@@ -1260,13 +1313,25 @@
   // 否则翻页刚插入的旧日志会被立刻删掉, 游标却已前进 → 永久丢历史。
   function trimLogRows(mode) {
     const box = logBox();
-    if (!box) return;
+    if (!box) return 0;
     const plan = window.VrcLogView.plan({ totalRows: box.children.length, maxRows: LOG_MAX_ROWS, mode });
+    let removed = 0;
     for (let i = 0; i < plan.count; i++) {
       const child = plan.side === 'top' ? box.firstChild : box.lastChild;
       if (!child) break;
       box.removeChild(child);
+      removed++;
     }
+    return removed;
+  }
+  // 裁剪后按 DOM 里实际保留的最老一行回写 oldestSeq, 避免 before= 游标指向已被裁掉的历史
+  function syncOldestSeqFromDom() {
+    const box = logBox();
+    if (!box) return;
+    const rows = box.querySelectorAll('div[data-seq]');
+    if (!rows.length) { logState.oldestSeq = null; return; }
+    const oldest = Number(rows[rows.length - 1].dataset.seq);
+    if (Number.isFinite(oldest)) logState.oldestSeq = oldest;
   }
   function setLoadMore(show) {
     const box = logBox();
@@ -1297,7 +1362,9 @@
       const wasAtTop = box.scrollTop <= 2;
       const beforeH = box.scrollHeight;
       box.insertBefore(div, box.firstChild);
-      trimLogRows('live');
+      // 只有真的裁掉了行才重算游标(否则每次实时日志都扫一遍 DOM, 开销不必要)
+      if (trimLogRows('live') > 0) syncOldestSeqFromDom();
+
       if (wasAtTop) box.scrollTop = 0;
       else box.scrollTop += box.scrollHeight - beforeH; // 阅读旧日志时视口不跳动
       if (seq != null && (logState.lastSeq == null || seq > logState.lastSeq)) logState.lastSeq = seq;
@@ -1336,8 +1403,11 @@
       }
       logState.ready = true;
     } catch (e) { /* 保留已显示的日志 */ }
-    logState.loading = false;
-    if (logState.pendingReset) { logState.pendingReset = false; loadLogs(true); }
+    finally {
+      // 无论是否被新请求取代/异常, 都要释放 loading 并处理待重载, 否则日志面板会永久卡死
+      logState.loading = false;
+      if (logState.pendingReset) { logState.pendingReset = false; loadLogs(true); }
+    }
   }
   // SSE 重连补缺口: after= 已展示的最新 seq
   async function loadLogsGap() {
@@ -1509,7 +1579,9 @@
     renderTop();
     renderSelf();
     await Promise.all([loadFriends(), loadFeed(false), loadHealth(), loadWsHistory()]);
+    state.initialLoaded = true;
     connectEvents();
+    if (state.pendingFirstBackfill) firstConnectBackfill();
   }
   let evt = null;
   function connectEvents() {
@@ -1549,6 +1621,8 @@
           search: state.search
         });
         if (!matched) return;
+        // 首次连接补拉期间: 同时缓冲一份供补拉响应合并(正常插入照旧), 避免响应覆盖实时事件
+        if (state.feedBackfill) state.feedBackfill.events.push(item);
         const atTop = $('#feedList').scrollTop < 6;
         if (atTop && prependFeedEvent(item)) return; // 已增量插入(其他行只平移)
         const merged = window.VrcFeedStore.mergeEvents(state.events, [item]);
@@ -1557,8 +1631,15 @@
           state.feedDataVersion++;
           state.total++;
           invalidateFeedOffsets();
-          state.newCount += merged.added;
-          updateFeedNew();
+          if (!state.feedRange) {
+            // 空列表(新安装/清空日志后)没有渲染窗口, 增量插入不可用: 直接整窗渲染首条事件
+            state.newCount = 0;
+            updateFeedNew();
+            renderFeed();
+          } else {
+            state.newCount += merged.added;
+            updateFeedNew();
+          }
         }
       } catch (err) { /* ignore */ }
     });
@@ -1627,10 +1708,32 @@
     evt.addEventListener('session-expired', () => { state.status = {}; if (evt) { evt.close(); evt = null; } showView('login'); });
     // EventSource 自动重连: 重连成功后补齐断线期间的数据(服务端不重放 friend-event)
     evt.onopen = () => {
-      if (state.sseOpened) resyncAfterReconnect();
-      else state.sseOpened = true;
+      if (!state.sseOpened) {
+        state.sseOpened = true;
+        // 首次建连前产生的事件不会通过 SSE 补发: 立即补拉一次, 覆盖这段空窗
+        if (state.initialLoaded) firstConnectBackfill();
+        else state.pendingFirstBackfill = true;
+        return;
+      }
+      resyncAfterReconnect();
     };
     evt.onerror = () => { /* 由断线看门狗负责提示, EventSource 自己会重连 */ };
+  }
+
+  let firstConnectBackfillStarted = false;
+  // 首次 SSE 连接后的补拉: 建连前的事件已持久化, 重新拉一次动态尾部 + 好友状态。
+  // 补拉响应会与「补拉期间实时到达的事件」按 id 合并(见 loadFeed 的 mergePending)。
+  async function firstConnectBackfill() {
+    if (firstConnectBackfillStarted || !state.initialLoaded) return;
+    firstConnectBackfillStarted = true;
+    state.pendingFirstBackfill = false;
+    try {
+      await Promise.all([
+        loadFriends(),
+        loadFeed(false, { keepScroll: true, mergePending: true })
+      ]);
+      renderTop();
+    } catch (e) { /* 下一次重连 resync 会再补 */ }
   }
 
   // 重连补齐: 重新拉一遍状态/好友/动态尾部/日志缺口/WS 历史
@@ -1908,7 +2011,12 @@
     });
     $('#twofaCancel').addEventListener('click', () => {
       state.tempSessionId = null;
+      state.loginWaiting = false;
+      $('#twofaCode').value = '';
       $('#twofaMsg').textContent = '';
+      // 登录按钮在发起登录请求时被禁用, 进入 2FA 后一直没恢复; 取消时必须重新启用
+      const loginBtn = $('#loginBtn');
+      if (loginBtn) loginBtn.disabled = false;
       switchLoginForm('login');
     });
     // 自动重登 / 会话挂起时的 2FA 弹窗(SSE 2fa-needed 触发)
@@ -2040,7 +2148,11 @@
       }, 160);
     });
     $('#friendsList').addEventListener('scroll', () => {
+      updateFriendsTop();
       if (state.friends.length > state.friendVlistAt) renderFriendsVirtual();
+    });
+    $('#friendsTop').addEventListener('click', () => {
+      $('#friendsList').scrollTo({ top: 0, behavior: 'smooth' });
     });
 
     // 动态

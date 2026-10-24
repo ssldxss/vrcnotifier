@@ -210,21 +210,49 @@ test('eventMatchesFilters: 与服务端筛选同口径(类型/特别关注/好�
   const notice = { type_code: 'group_announcement', friend_vrchat_id: 'grp_1', title: '晚安', body: '活动开始' };
   assert.equal(em.eventMatchesFilters(notice, { search: '活动' }), true);
   assert.equal(em.eventMatchesFilters(notice, { search: '晚安' }), true);
+  // 搜索字段与服务端 /api/friend-events 对齐:
+  // 服务端搜 locationExpr(世界 ID:实例), 但不搜旧位置; 群组名可搜
+  const loc = {
+    type_code: 'location_change', friend_vrchat_id: 'usr_p1', friend_name: 'Alice',
+    world_id: 'wrld_abc', instance_id: '12345', world_name: '新世界',
+    old_world_id: 'wrld_old', old_world_name: '旧世界', location: 'wrld_abc:12345'
+  };
+  assert.equal(em.eventMatchesFilters(loc, { search: 'wrld_abc' }), true);
+  assert.equal(em.eventMatchesFilters(loc, { search: 'wrld_abc:12345' }), true);
+  assert.equal(em.eventMatchesFilters(loc, { search: '12345' }), true);
+  assert.equal(em.eventMatchesFilters(loc, { search: '旧世界' }), false);
+  const noticeWithGroup = Object.assign({}, notice, { group_name: '活动群' });
+  assert.equal(em.eventMatchesFilters(noticeWithGroup, { search: '活动群' }), true);
 });
 
 test('applyFriendEvent: 实时事件更新好友对象(状态/社交状态/位置/签名)', () => {
   const base = {
-    friend_vrchat_id: 'usr_p1', display_name: 'Alice', state: 'offline', status: 'active',
-    status_description: '', world_id: 'wrld_a', instance_id: '1', world_name: 'A',
+    friend_vrchat_id: 'usr_p1', display_name: 'Alice', state: 'offline', display_state: 'offline',
+    status: 'active', status_description: '', world_id: 'wrld_a', instance_id: '1', world_name: 'A',
     config: { favorite: 1, notify_online: 1 }
   };
+  // /api/friends 始终带 display_state, 且分组/状态点优先读它 —— 实时事件必须同步更新
   assert.deepStrictEqual(
     em.applyFriendEvent(base, { type_code: 'friend_online', new_state: 'online', world_id: 'wrld_b', instance_id: '2', world_name: 'B' }),
-    Object.assign({}, base, { state: 'online', world_id: 'wrld_b', instance_id: '2', world_name: 'B' })
+    Object.assign({}, base, { state: 'online', display_state: 'online', world_id: 'wrld_b', instance_id: '2', world_name: 'B' })
   );
   assert.deepStrictEqual(
     em.applyFriendEvent(base, { type_code: 'friend_web_online', new_state: 'active' }),
-    Object.assign({}, base, { state: 'active' })
+    Object.assign({}, base, { state: 'active', display_state: 'active' })
+  );
+  assert.deepStrictEqual(
+    em.applyFriendEvent(Object.assign({}, base, { state: 'active', display_state: 'active' }), { type_code: 'friend_web_offline' }),
+    Object.assign({}, base, { state: 'offline', display_state: 'offline' })
+  );
+  assert.deepStrictEqual(
+    em.applyFriendEvent(Object.assign({}, base, { state: 'online', display_state: 'online' }), { type_code: 'friend_offline', new_state: 'offline' }),
+    Object.assign({}, base, { state: 'offline', display_state: 'offline' })
+  );
+  // pending 待确认态: 事件确认后清除 pending, display_state 回到新确认态
+  const pending = Object.assign({}, base, { state: 'offline', pending_state: 'online', display_state: 'online', pending_label: '可能在线' });
+  assert.deepStrictEqual(
+    em.applyFriendEvent(pending, { type_code: 'friend_online', new_state: 'online' }),
+    Object.assign({}, base, { state: 'online', display_state: 'online', pending_state: null, pending_label: null })
   );
   assert.deepStrictEqual(
     em.applyFriendEvent(base, { type_code: 'status_change', new_status: 'busy' }),

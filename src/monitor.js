@@ -841,7 +841,7 @@ function createMonitor({ db, notifier, pipeline, worldName, bus = null, config =
             displayName: u.displayName, ...avatarFields(u),
             instanceId,
             ...world
-          }, { eventType: type, at });
+          }, { eventType: type, at, resolveWorldName: true });
           break;
         }
         case 'user-update': {
