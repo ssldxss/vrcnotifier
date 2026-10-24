@@ -103,4 +103,4 @@ function migrateFriendEvents(db) {
   for (const [label, code] of TYPE_CODES) updateType.run(code, label);
 }
 
-module.exports = { migrateFriendEvents };
+module.exports = { migrateFriendEvents, SCHEMA };

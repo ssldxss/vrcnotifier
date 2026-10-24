@@ -1,6 +1,6 @@
 'use strict';
 const { FRIEND_CONFIG, SETTINGS } = require('../public/contracts');
-const { migrateFriendEvents } = require('./friend-event-migration');
+const { migrateFriendEvents, SCHEMA: FRIEND_EVENT_SCHEMA } = require('./friend-event-migration');
 const FRIEND_CONFIG_COLS = FRIEND_CONFIG.map(([key]) => key);
 const SETTING_COLUMNS = Object.fromEntries(SETTINGS.map(([key, , type]) => [key, type === 'string' ? 'str' : 'int']));
 
@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS users (
   last_seen INTEGER,
   remember_me INTEGER DEFAULT 0,
   cookie_data TEXT,
+  password TEXT,
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))
 );
@@ -240,6 +241,10 @@ function migrateDatabase(db) {
       MIGRATIONS[next - 1](db);
       db.exec(`PRAGMA user_version = ${next}`);
     }
+    // Preserve recovery when empty/missing tables are recreated after manual
+    // cleanup. IF NOT EXISTS is cheap and never re-runs the data migrations.
+    db.exec(SCHEMA);
+    db.exec(FRIEND_EVENT_SCHEMA);
     db.exec('COMMIT');
   } catch (e) {
     db.exec('ROLLBACK');
