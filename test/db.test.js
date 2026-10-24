@@ -1046,6 +1046,7 @@ test('friend_logs: 旧中文类型迁移成英文，重复启动及既有正文�
   const notice = db.addFriendEvent({ type: '群组公告', at: 1792252800002, notification_id: 'n_saved', body: '原始中文内容' });
   db.close();
   const raw = new DatabaseSync(file);
+  raw.exec('PRAGMA user_version = 0'); // 模拟尚未版本化的旧库
   raw.prepare('UPDATE friend_logs SET type=? WHERE id=?').run('切换世界', gps.id);
   raw.prepare('UPDATE friend_logs SET type=? WHERE id=?').run('群组公告', notice.id);
   raw.close();
@@ -1109,6 +1110,7 @@ test('friend_logs: 删掉历史多余位置列时保留下线前实例和邀请�
   const invite = db.addFriendEvent({ type: 'invite', at: 30, notification_id: 'n_saved', location: 'wrld_b:2~region(jp)', body: '保留通知' });
   db.close();
   const raw = new DatabaseSync(file);
+  raw.exec('PRAGMA user_version = 0'); // 模拟尚未版本化的旧库
   raw.exec(`ALTER TABLE friend_log_presence ADD COLUMN old_location TEXT;
     ALTER TABLE friend_log_status ADD COLUMN old_location TEXT;
     ALTER TABLE friend_log_status ADD COLUMN location TEXT;
