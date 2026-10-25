@@ -1769,6 +1769,17 @@ test('GET /api/friend-events: 倒序 + before 游标 + types/friendId/q 筛选 +
   const r4 = await get(ctx, '/api/friend-events?friendId=usr_a');
   assert.deepEqual(r4.data.events.map((e) => e.id), [e2.id, e1.id]);
 
+  // 好友筛选可多选: 逗号分隔取并集, total 同口径
+  const r4b = await get(ctx, '/api/friend-events?friendId=usr_a,usr_b');
+  assert.deepEqual(r4b.data.events.map((e) => e.id), [e3.id, e2.id, e1.id]);
+  assert.equal(r4b.data.total, 3);
+  // 多个好友 + 类型筛选叠加
+  const r4c = await get(ctx, '/api/friend-events?friendId=usr_a,usr_b&types=' + encodeURIComponent('上线'));
+  assert.deepEqual(r4c.data.events.map((e) => e.id), [e1.id]);
+  // 只有一个 ID 命中(另一个不存在)时不影响结果
+  const r4d = await get(ctx, '/api/friend-events?friendId=usr_b,usr_missing');
+  assert.deepEqual(r4d.data.events.map((e) => e.id), [e3.id]);
+
   const r5 = await get(ctx, '/api/friend-events?q=' + encodeURIComponent('世界一'));
   assert.deepEqual(r5.data.events.map((e) => e.id), [e1.id]);
 

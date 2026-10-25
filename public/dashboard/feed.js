@@ -2,9 +2,10 @@
 // Dashboard feed controller. Dependencies are explicit; local UI state stays private.
 window.VrcDashboardFeed = {
   create(context) {
-    const { escapeHtml, EM, state, $, api, $$ } = context;
+    const { escapeHtml, EM, state, $, api, $$, toast } = context;
     const FEED_PAGE = 100;
     const FEED_DOM_MAX = 80;
+    const FRIEND_FILTER_MAX = 5; // 好友筛选最多同时选 5 个
     const FEED_KIND_CLASS = {
       friend_online: 't-online',
       friend_offline: 't-offline',
@@ -177,7 +178,7 @@ window.VrcDashboardFeed = {
       const matched = window.VrcEventModel.eventMatchesFilters(item, {
         codes: window.VrcEventModel.filterCodes(state.filters),
         favoriteIds: state.favoriteOnly ? state.favorites : null,
-        friendId: state.friendId,
+        friendIds: friendFilterIds(),
         search: state.search
       });
       if (!matched) return;
@@ -368,7 +369,8 @@ window.VrcDashboardFeed = {
       const types = EM.filterCodes(state.filters);
       if (types) params.set('types', types.join(','));
       if (state.favoriteOnly) params.set('favorite', '1');
-      if (state.friendId) params.set('friendId', state.friendId);
+      const friendIds = friendFilterIds();
+      if (friendIds.length) params.set('friendId', friendIds.join(','));
       if (state.search) params.set('q', state.search);
       if (older && state.events.length) params.set('before', String(state.events[state.events.length - 1].id));
       return params.toString();
@@ -436,17 +438,65 @@ window.VrcDashboardFeed = {
         else c.classList.toggle('active', state.filters.includes(key));
       });
     }
-    function showFriendChip() {
-      const el = $('#feedFriendChip');
-      el.textContent = '只看 ' + state.friendName + ' ×';
-      el.classList.remove('hidden');
+    // ---------- 好友筛选(多选, 最多 5 个) ----------
+    // 数据存 [{ id, name }]: 顶部 chip 组按选择顺序展示, 好友列表里命中的行同步高亮。
+    function friendFilterIds() {
+      return state.friendFilters.map((f) => f.id);
     }
-    function hideFriendChip() {
-      $('#feedFriendChip').classList.add('hidden');
+    // 顶部「只看」chip 组: 一个好友一个 chip, 点掉一个就取消该好友的筛选
+    function syncFriendChips() {
+      const box = $('#feedFriendChips');
+      if (!box) return;
+      const list = state.friendFilters;
+      box.classList.toggle('hidden', list.length === 0);
+      box.innerHTML = list.length
+        ? '<span class="friend-chips-label">只看</span>' + list.map((f) =>
+          '<button class="chip active friend-chip" data-friend-id="' + escapeHtml(f.id) + '" title="取消该好友的筛选">' +
+          '<span class="fc-name">' + escapeHtml(f.name) + '</span><span class="fc-x" aria-hidden="true">×</span></button>'
+        ).join('')
+        : '';
     }
-
+    // 好友列表高亮: 被筛中的行始终高亮(滚动重绘的新行由 friendRowHtml 自带 filtering 类)
+    function syncFriendHighlight() {
+      const ids = new Set(friendFilterIds());
+      for (const el of $$('#friendsList .friend')) {
+        el.classList.toggle('filtering', ids.has(el.getAttribute('data-id')));
+      }
+    }
+    function applyFriendFilterChange() {
+      syncFriendChips();
+      syncFriendHighlight();
+    }
+    // 点好友行: 已在筛选里就移除, 否则追加; 返回 'added' | 'removed' | 'full'
+    function toggleFriendFilter(friend) {
+      const id = friend && friend.friend_vrchat_id;
+      if (!id) return null;
+      const idx = state.friendFilters.findIndex((f) => f.id === id);
+      let action;
+      if (idx >= 0) {
+        state.friendFilters.splice(idx, 1);
+        action = 'removed';
+      } else {
+        if (state.friendFilters.length >= FRIEND_FILTER_MAX) {
+          if (toast) toast('最多只能同时筛选 ' + FRIEND_FILTER_MAX + ' 个好友');
+          return 'full';
+        }
+        // 进入好友筛选时先回到「全部类型」, 与原来的单好友筛选行为一致;
+        // 已经处于好友筛选时再点别的好友则保留当前类型筛选(两个维度叠加)。
+        if (!state.friendFilters.length) {
+          state.filters = [];
+          syncFilterChips();
+        }
+        state.friendFilters.push({ id, name: friend.display_name || id });
+        action = 'added';
+      }
+      applyFriendFilterChange();
+      loadFeed(false);
+      return action;
+    }
 
     function bindFeed() {
+      syncFriendChips();
       // 动态
       $('#feedChips').addEventListener('click', (e) => {
         const chip = e.target.closest('.chip');
@@ -518,15 +568,17 @@ window.VrcDashboardFeed = {
         updateFeedNew();
         loadFeed(false);
       });
-      $('#feedFriendChip').addEventListener('click', () => {
-        state.friendId = null;
-        state.friendName = '';
-        hideFriendChip();
+      $('#feedFriendChips').addEventListener('click', (e) => {
+        const chip = e.target.closest('[data-friend-id]');
+        if (!chip) return;
+        const id = chip.getAttribute('data-friend-id');
+        state.friendFilters = state.friendFilters.filter((f) => f.id !== id);
+        applyFriendFilterChange();
         loadFeed(false);
       });
 
     }
 
-    return { bindFeed, loadFeed, renderFeed, receiveFeedEvent, patchFeedRowEl, syncFilterChips, showFriendChip };
+    return { bindFeed, loadFeed, renderFeed, receiveFeedEvent, patchFeedRowEl, toggleFriendFilter };
   }
 };

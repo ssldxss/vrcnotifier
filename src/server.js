@@ -1003,7 +1003,12 @@ function createApp({
     const types = typeof query.types === 'string'
       ? query.types.split(',').filter(Boolean).slice(0, 20)
       : undefined;
-    const friendId = typeof query.friendId === 'string' && query.friendId ? query.friendId : undefined;
+    // 好友筛选: friendId 可以是单个 ID, 也可以用逗号分隔多个(取并集, 最多 20 个)。
+    // 重复 ID 去重; 空串与不传一样表示不过滤。
+    const rawFriendIds = Array.isArray(query.friendId) ? query.friendId.join(',') : query.friendId;
+    const friendIds = typeof rawFriendIds === 'string' && rawFriendIds
+      ? [...new Set(rawFriendIds.split(',').map((s) => s.trim()).filter(Boolean))].slice(0, 20)
+      : undefined;
     const search = typeof query.q === 'string' && query.q ? query.q : undefined;
     // page(从 1 起, 缺省 1)是给日志页那条分页栏用的: 与 before 游标二者取一,
     // 传了 page 就按页跳, 只传 before 就还是游标翻页(旧调用方不用改)。
@@ -1017,7 +1022,7 @@ function createApp({
     // "只看特别关注"开关: favorite=1 生效; 缺省/其他值都不过滤(与现有 query 参数风格一致)。
     const favorite = query.favorite === '1';
     const { events, hasMore, total } = db.listFriendEvents({
-      limit, types, friendId, q: search, order, favorite,
+      limit, types, friendIds, q: search, order, favorite,
       before: useCursor ? before : undefined,
       page: useCursor ? undefined : page
     });

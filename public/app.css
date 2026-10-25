@@ -614,6 +614,16 @@ button.danger { background: linear-gradient(135deg, var(--bad), #b4232c); box-sh
 .friend:last-child { border-bottom: 0; }
 .friend:hover::before, .friend:hover::after { opacity: 1; transition-duration: .2s; }
 .friend:focus-within::after { opacity: 1; }
+/* 好友筛选(可多选): 被选中的好友行持续高亮, 与顶部「只看」chip 对应;
+   左侧描边用 inset 阴影, 不占布局; 悬停时比常态再深一点。 */
+.friend.filtering::after {
+  inset: 0;
+  border-radius: inherit;
+  background: var(--accent-soft);
+  opacity: 1;
+}
+.friend.filtering { box-shadow: inset 2px 0 0 var(--accent); }
+.friend.filtering:hover::after { background: color-mix(in srgb, var(--accent) 21%, transparent); }
 /* 特别关注切换: 被移动行的高光脉冲(与 FLIP 位移同步) */
 .friend.fav-spot::after {
   inset: 0;

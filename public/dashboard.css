@@ -801,8 +801,13 @@ body.variant-a .status-strip { display: none; }
   background: linear-gradient(135deg, var(--accent), var(--accent-2));
   box-shadow: 0 4px 16px var(--accent-soft);
 }
-.feed-tools .chip.hidden + .feed-search { margin-left: auto; }
-#feedFriendChip { flex: 0 0 auto; }
+/* 好友筛选(多选, 最多 5 个): 顶部「只看 A ×」chip 组; 点 chip 取消该好友, 好友列表同步高亮 */
+.friend-chips { flex: 0 0 auto; align-items: center; }
+.friend-chips-label { font-size: 12px; color: var(--text-3); white-space: nowrap; }
+.friend-chip { display: inline-flex; align-items: center; gap: 5px; padding-right: 9px; max-width: 150px; }
+.friend-chip .fc-name { overflow: hidden; text-overflow: ellipsis; }
+.friend-chip .fc-x { opacity: .72; font-size: 13px; line-height: 1; transition: opacity var(--t-fast); }
+.friend-chip:hover .fc-x { opacity: 1; }
 
 
 /* ================= 打磨: 日志面板 / 动画 / 回到顶部 ================= */

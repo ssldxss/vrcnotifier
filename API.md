@@ -22,6 +22,8 @@
 
 `GET /api/friend-events`：`limit` 默认 50，上限 200；`types` 为逗号分隔的稳定事件代码，省略表示全部，空串表示无类型；`friendId`、`q`、`favorite=1` 为筛选条件；`order=asc|desc`，默认 desc。
 
+- `friendId` 可以是单个好友 ID，也可以是逗号分隔的多个 ID（取并集，最多 20 个）；省略或空串表示不过滤。界面最多同时筛选 5 个好友。
+
 - 页码模式：`page` 从 1 开始，缺省为 1。响应 `pagination: "page"`、`page`、`pageSize`。
 - 游标模式：传 `before=<上次 nextBefore>`；asc 时查更大 ID，desc 时查更小 ID。响应 `pagination: "cursor"`、`page: null`。`before` 与 `page` 互斥，必须为安全正整数。
 - 两种模式的 `total` 都是同一套筛选条件下的总数，不随游标缩小；`hasMore` 表示还有后续数据，`nextBefore` 是下一次游标，没有后续时为 null。实时写入时总数可变，连续加载宜用游标。

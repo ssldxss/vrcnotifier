@@ -64,7 +64,9 @@
     if (!row) return false;
     if (o.codes && !o.codes.includes(typeCode(row))) return false;
     if (o.favoriteIds && !o.favoriteIds.has(row.friend_vrchat_id)) return false;
-    if (o.friendId && row.friend_vrchat_id !== o.friendId) return false;
+    // 好友筛选: friendIds 可多选(命中任一); 空数组/未传都不筛; 旧调用方仍可用单个 friendId。
+    const friendIds = o.friendIds != null ? o.friendIds : (o.friendId ? [o.friendId] : null);
+    if (friendIds && friendIds.length && !friendIds.includes(row.friend_vrchat_id)) return false;
     if (o.search) {
       const q = String(o.search).toLowerCase();
       const hay = [row.friend_name, row.friend_vrchat_id, row.world_name, row.world_id,

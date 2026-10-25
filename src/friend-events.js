@@ -83,14 +83,19 @@ function createFriendEventStore(db) {
     },
     trimFriendEvents,
     clearFriendEvents() { return db.prepare('DELETE FROM friend_logs').run().changes; },
-    listFriendEvents({ limit = 50, before, offset, page, types, friendId, q, order, favorite } = {}) {
+    listFriendEvents({ limit = 50, before, offset, page, types, friendId, friendIds, q, order, favorite } = {}) {
       const lim = Math.max(1, Math.min(500, Math.trunc(Number(limit) || 50)));
       const where = [], params = [];
       if (Array.isArray(types)) {
         if (!types.length) return { events: [], hasMore: false, total: 0 };
         where.push(`e.type IN (${types.map(() => '?').join(',')})`); params.push(...types.map(typeCode));
       }
-      if (friendId) { where.push('e.friend_vrchat_id=?'); params.push(String(friendId)); }
+      // 好友筛选: 支持多个好友取并集; 单 ID(旧调用方 friendId)与 friendIds 数组等价。
+      const friendList = Array.isArray(friendIds) ? friendIds.filter(Boolean) : (friendId ? [friendId] : []);
+      if (friendList.length) {
+        where.push(`e.friend_vrchat_id IN (${friendList.map(() => '?').join(',')})`);
+        params.push(...friendList.map(String));
+      }
       // 特别关注: 已删除好友 join 出来是 NULL, 自然被排除。
       if (favorite) where.push('f.favorite = 1');
       if (q) {

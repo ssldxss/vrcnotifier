@@ -21,8 +21,7 @@
     hasMore: false,
     filters: [],
     favoriteOnly: false,
-    friendId: null,
-    friendName: '',
+    friendFilters: [],    // 好友筛选: [{ id, name }], 最多 5 个; 点好友行切换, 命中任一好友即显示
     friendsQuery: '',
     friendVlistAt: Number(localStorage.getItem('vrcn_friendVlistAt')) || 120,
     friendHeights: new Map(),
@@ -198,16 +197,15 @@
   const { initLogPanel, receiveLog, loadLogsGap } = window.VrcDashboardLogs.create({
     $, state, api
   });
-  const { bindFeed, loadFeed, renderFeed, receiveFeedEvent, patchFeedRowEl, syncFilterChips, showFriendChip } = window.VrcDashboardFeed.create({
-    escapeHtml, EM, state, $, api, $$
+  const { bindFeed, loadFeed, renderFeed, receiveFeedEvent, patchFeedRowEl, toggleFriendFilter } = window.VrcDashboardFeed.create({
+    escapeHtml, EM, state, $, api, $$, toast
   });
   const { bindFriends, loadFriends, renderFriends, receiveFriendState, closeBellPopover } = window.VrcDashboardFriends.create({
     escapeHtml, avatarUrl, state, FR, $, FM, api,
     loadFeed: (...args) => loadFeed(...args), toast,
     openSettings: (...args) => openSettings(...args),
     renderTop: (...args) => renderTop(...args), $$,
-    syncFilterChips: (...args) => syncFilterChips(...args),
-    showFriendChip: (...args) => showFriendChip(...args)
+    toggleFriendFilter: (...args) => toggleFriendFilter(...args)
   });
   const { bindSettings, openSettings, closeSettings } = window.VrcDashboardSettings.create({
     $, api, state,

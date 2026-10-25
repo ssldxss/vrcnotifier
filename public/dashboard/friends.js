@@ -2,7 +2,7 @@
 // Dashboard friends controller. Dependencies are explicit; local UI state stays private.
 window.VrcDashboardFriends = {
   create(context) {
-    const { escapeHtml, avatarUrl, state, FR, $, FM, api, loadFeed, toast, openSettings, renderTop, $$, syncFilterChips, showFriendChip } = context;
+    const { escapeHtml, avatarUrl, state, FR, $, FM, api, loadFeed, toast, openSettings, renderTop, $$, toggleFriendFilter } = context;
     // ---------- 好友列表 ----------
     const TRUST_GROUPS = window.VrcFriendLayout.GROUPS;
     const COLLAPSE_KEY = 'vrcn_groupCollapsed';
@@ -60,11 +60,15 @@ window.VrcDashboardFriends = {
         ? window.VrcLinks.linkHtml('user', f.friend_vrchat_id, m.name)
         : escapeHtml(m.name);
     }
+    // 该好友当前是否参与动态筛选(被筛中的行高亮; 详见 feed.js 的好友多选筛选)
+    function isFilteredFriend(id) {
+      return (state.friendFilters || []).some((f) => f.id === id);
+    }
     function friendRowHtml(f) {
       const m = FR.rowModel(f);
       const av = avatarInnerHtml(f, m);
       return (
-        '<div class="friend" data-id="' + escapeHtml(f.friend_vrchat_id) + '">' +
+        '<div class="friend' + (isFilteredFriend(f.friend_vrchat_id) ? ' filtering' : '') + '" data-id="' + escapeHtml(f.friend_vrchat_id) + '">' +
         '<span class="avatar-wrap ' + m.dotClasses + '" data-avatar-key="' + escapeHtml(f.avatarKey || '') + '">' +
         (window.VrcLinks ? window.VrcLinks.wrapHtml('user', f.friend_vrchat_id, av) : av) + '</span>' +
         '<div class="fmeta"><div class="frow1">' +
@@ -81,6 +85,7 @@ window.VrcDashboardFriends = {
     // 已存在的行只更新发生变化的子元素(头像圆点/昵称/自定义状态/位置/星标/铃铛), 不重建整行
     function patchFriendRowEl(el, f) {
       const m = FR.rowModel(f);
+      el.classList.toggle('filtering', isFilteredFriend(f.friend_vrchat_id));
       const avWrap = el.querySelector('.avatar-wrap');
       if (avWrap) {
         avWrap.className = 'avatar-wrap ' + m.dotClasses;
@@ -668,12 +673,8 @@ window.VrcDashboardFriends = {
         const f = findFriend(id);
         if (!f) return;
         closeBellPopover(true);
-        state.friendId = id;
-        state.friendName = f.display_name || id;
-        state.filters = [];
-        syncFilterChips();
-        showFriendChip();
-        loadFeed(false);
+        // 点好友行 = 切换该好友的动态筛选(可多选, 最多 5 个); 被筛中的行同时高亮
+        toggleFriendFilter(f);
       });
       $('#friendSearch').addEventListener('input', () => {
         clearTimeout(state.friendSearchTimer);

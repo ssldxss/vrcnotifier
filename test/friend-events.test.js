@@ -125,3 +125,35 @@ test('GET /api/friend-events?favorite=1 只返回特别关注好友的日志', a
   const all = await getJson(ctx.base, '/api/friend-events');
   assert.deepEqual(all.data.events.map((e) => e.id), [plain.id, fav.id], '不传 favorite 不过滤');
 });
+
+test('好友筛选: friendId 逗号分隔多个好友取并集, 单个 ID 与空串的行为不变', async (t) => {
+  const ctx = setupServer();
+  t.after(async () => { ctx.server.closeAllConnections?.(); await new Promise((r) => ctx.server.close(r)); });
+  const login = await postJson(ctx.base, '/api/login', { username: 'me', password: 'pw', rememberMe: false });
+  assert.equal(login.status, 200, '桩登录成功');
+
+  ctx.db.upsertFriend('usr_a', { displayName: '甲' });
+  ctx.db.upsertFriend('usr_b', { displayName: '乙' });
+  const a = ctx.db.addFriendEvent({ type: '上线', at: 1, friend_vrchat_id: 'usr_a' });
+  const b = ctx.db.addFriendEvent({ type: '下线', at: 2, friend_vrchat_id: 'usr_b' });
+  ctx.db.addFriendEvent({ type: '状态变化', at: 3, friend_vrchat_id: 'usr_c' });
+
+  const multi = await getJson(ctx.base, '/api/friend-events?friendId=usr_a,usr_b');
+  assert.equal(multi.status, 200);
+  assert.deepEqual(multi.data.events.map((e) => e.id), [b.id, a.id], '多个好友取并集');
+  assert.equal(multi.data.total, 2, 'total 与好友筛选同口径');
+
+  const spaced = await getJson(ctx.base, '/api/friend-events?friendId=' + encodeURIComponent(' usr_a , usr_b '));
+  assert.deepEqual(spaced.data.events.map((e) => e.id), [b.id, a.id], '逗号两侧的空格会被忽略');
+
+  const single = await getJson(ctx.base, '/api/friend-events?friendId=usr_a');
+  assert.deepEqual(single.data.events.map((e) => e.id), [a.id], '单个 ID 的旧行为不变');
+
+  const empty = await getJson(ctx.base, '/api/friend-events?friendId=');
+  assert.equal(empty.data.total, 3, '空串与不传一样不过滤');
+
+  // 仓储层: 数组形式的 friendIds 与 friendId 等价, total/hasMore 同一口径
+  const store = ctx.db.listFriendEvents({ limit: 1, friendIds: ['usr_a', 'usr_b'] });
+  assert.equal(store.total, 2);
+  assert.equal(store.hasMore, true);
+});

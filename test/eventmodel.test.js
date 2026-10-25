@@ -203,6 +203,10 @@ test('eventMatchesFilters: 与服务端筛选同口径(类型/特别关注/好�
   assert.equal(em.eventMatchesFilters(ev, { favoriteIds: new Set(['usr_p1']) }), true);
   assert.equal(em.eventMatchesFilters(ev, { friendId: 'usr_p2' }), false);
   assert.equal(em.eventMatchesFilters(ev, { friendId: 'usr_p1' }), true);
+  // 好友多选: 命中任一即可; 空数组表示没选好友(不过滤)
+  assert.equal(em.eventMatchesFilters(ev, { friendIds: ['usr_p2'] }), false);
+  assert.equal(em.eventMatchesFilters(ev, { friendIds: ['usr_p2', 'usr_p1'] }), true);
+  assert.equal(em.eventMatchesFilters(ev, { friendIds: [] }), true);
   assert.equal(em.eventMatchesFilters(ev, { search: 'ALICE' }), true);
   assert.equal(em.eventMatchesFilters(ev, { search: 'world' }), true);
   assert.equal(em.eventMatchesFilters(ev, { search: 'nope' }), false);
