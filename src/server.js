@@ -6,19 +6,17 @@ const path = require('node:path');
 const { randomBytes, timingSafeEqual } = require('node:crypto');
 const { CookieJar } = require('./cookiejar');
 const { parseLocation } = require('./location');
-const { detectImageType, toThumbUrl } = require('./avatar');
+const { detectImageType } = require('./avatar');
 const { isMissingCredentials, isUnauthorized } = require('./vrcapi');
 const { formatLocalTime, getLogStream, avatarFields } = require('./util');
 const { currentVersion } = require('./version');
-const { displayState, isPending, pendingLabel } = require('./presence');
+const { createClientDtos } = require('./client-dto');
+
+const { FRIEND_CONFIG } = require('../public/contracts');
+const { parseFriendConfig, parseSettings, configOf } = require('./api-contract');
 
 const MASK = '••••••••';
 const SECRET_FIELDS = new Set(['qq_app_secret']);
-const SETTING_MAP = {
-  qqEnabled: 'qq_enabled', qqAppId: 'qq_app_id', qqAppSecret: 'qq_app_secret',
-  notifyGroupAnnouncement: 'notify_group_announcement', notifyBoop: 'notify_boop', notifyInvite: 'notify_invite'
-};
-
 // 日志筛选(服务端): 多选集合语义 — 选中集合=匹配集合(选一个只显示一个);
 // null=参数省略, 该维度不过滤; 空数组=不匹配任何行; 无法解析的行恒匹配(前端强制显示, 不受任何筛选)。
 function logLineMatches(line, levelSel, catSel) {
@@ -54,6 +52,7 @@ function createApp({
   const pending2faTtlMs = config.pending2faTtlMs ?? 5 * 60 * 1000;
 
   let current = null;        // { userId, dbId, vrcapi }
+  let authGeneration = 0;    // 登出使此前发出的认证请求失效，即使上游已经接受了凭据
   const pending2fa = new Map();
   let lastSnapshotAt = null;
   let sessionExpiredNotified = false; // 自动登录 401 通知只推一次, 登录成功后重置
@@ -73,12 +72,7 @@ function createApp({
   const reloginRetryMaxMs = config.reloginRetryMaxMs ?? autoLoginRetryMaxMs;
   const reloginRetryJitterMs = config.reloginRetryJitterMs ?? autoLoginRetryJitterMs;
 
-  // 世界名按需查询: 库里只存 world_id, 名字由世界名模块同步提供(peek, 不发请求)。
-  // private 等哨兵值由前端自行显示, 这里只补真实世界编号。
-  function worldNameOf(row) {
-    if (!row || !row.world_id || row.world_id === 'private') return null;
-    return worldNameSvc ? worldNameSvc.peek(row.world_id) : null;
-  }
+  const { friendRow, selfUserForClient, eventRow } = createClientDtos({ worldName: worldNameSvc, avatarCache });
 
   // "需要显示"的触发点: 让世界名模块去补缺的名字, 不阻塞本次响应。
   // 命中缓存时立即返回; 缺失/过期则后台查, 查到走 world-name SSE 推给前端定点更新。
@@ -87,59 +81,11 @@ function createApp({
     if (!worldNameSvc) return;
     const ids = new Set();
     for (const r of rows || []) {
-      if (r && r.world_id && r.world_id !== 'private') ids.add(r.world_id);
+      for (const col of ['world_id', 'old_world_id']) {
+        if (r && r[col] && r[col] !== 'private') ids.add(r[col]);
+      }
     }
     for (const id of ids) worldNameSvc.get(id).catch(() => {}); // get 保证不抛出, 这里只是兜底
-  }
-
-  // 逐好友通知配置: 原先存在独立的 monitor_config 表, 现在直接挂在 friends 行上。
-  // 保持 config 嵌套形状不变(前端按 f.config.x 读), 好友不存在时返回 null。
-  function configOf(f) {
-    if (!f) return null;
-    return {
-      friend_vrchat_id: f.friend_vrchat_id,
-      favorite: f.favorite,
-      notify_online: f.notify_online,
-      notify_web_online: f.notify_web_online,
-      notify_offline: f.notify_offline,
-      notify_status_change: f.notify_status_change,
-      notify_world_change: f.notify_world_change
-    };
-  }
-
-  // 好友行附带头像 key 与通知配置(前端零解析)
-  function friendRow(f) {
-    const out = { ...f };
-    out.world_name = worldNameOf(f);
-    // 待确认(pending)时对外呈现"目标态 + 可能X": 面板据此分组与标注。
-    // state 仍是已确认的起始态、pending_state 是目标态, 两个原始字段都保留给需要区分逻辑的调用方。
-    out.display_state = displayState(f);
-    out.pending = isPending(f);
-    out.pending_label = pendingLabel(f);
-    // 头像只有一个地址: 由 avatarFields 写库(util.js), 这里按缓存尺寸换算成 key。
-    // toThumbUrl 对 /image/…/{尺寸} 与 /file/…/file 两种形态都有效, 拿不到地址就给 null。
-    const thumbUrl = toThumbUrl(f.avatar_url);
-    out.avatarKey = thumbUrl && avatarCache ? avatarCache.thumbKeyFromUrl(thumbUrl) : null;
-    out.config = configOf(f);
-    return out;
-  }
-
-  function maskUser(row) {
-    if (!row) return null;
-    const out = { ...row };
-    delete out.cookie_data;
-    delete out.password; // 密码绝不出现在任何 API 响应(加密后同样不外泄)
-    return out;
-  }
-
-  // 当前用户返回体: 附带头像缓存 key(与 friendRow 同口径)
-  function selfUserForClient(row) {
-    const out = maskUser(row);
-    if (!out) return null;
-    out.world_name = worldNameOf(out);
-    const thumbUrl = toThumbUrl(out.avatar_url);
-    out.avatarKey = thumbUrl && avatarCache ? avatarCache.thumbKeyFromUrl(thumbUrl) : null;
-    return out;
   }
 
   // 恒时比较访问令牌, 避免时序侧信道(本地单用户场景也统一使用)
@@ -187,6 +133,8 @@ function createApp({
   }
 
   async function finalizeLogin(vrcapi, currentUser, { rememberMe, username, password }) {
+    // 登录可能直接切换账号；同步新 dbId 前撤销上一会话的机器人。
+    if (qq) qq.stopAll();
     sessionExpiredNotified = false;
     autoLogin401Streak = 0;
     autoLogin401Notified = false;
@@ -240,6 +188,7 @@ function createApp({
     const user = db.getUserByDbId(dbId);
     current = { userId, dbId, vrcapi, cookieCtx };
     sessionStore.set(userId, vrcapi);
+    if (qq) qq.sync(dbId, db.getGlobalSettings());
     // currentUser 就是刚落地用的那份 GET /auth/user 响应: 交给首轮对账当种子, 不再重复请求一次。
     await monitor.activateUser(user, vrcapi, { currentUser });
     return db.getUserByDbId(dbId);
@@ -258,17 +207,20 @@ function createApp({
   }
 
   // 单次自动登录尝试; 401/网络/5xx/429 失败后调度后台退避重试, 直到成功
-  async function attemptAutoLogin(saved) {
+  async function attemptAutoLogin(saved, generation = authGeneration) {
     const jar = CookieJar.deserialize(saved.cookie_data);
     const vrcapi = vrcapiFactory(jar);
     try {
       const user = await vrcapi.me({ noRetry: true, purpose: '自动登录探测' });
+      if (generation !== authGeneration) return;
       if (user && user.id) {
         await finalizeLogin(vrcapi, user, { rememberMe: true, username: saved.saved_username || null });
+        if (generation !== authGeneration) return;
         log.info(`[server] 自动登录成功: ${user.displayName || user.id}`);
         return;
       }
     } catch (e) {
+      if (generation !== authGeneration) return;
       const retryable = e && (e.status === 401 || e.status === 429 || e.status === 0 || e.status === -1 || (e.status >= 500 && e.status < 600));
       log.warn(`[server] 自动登录失败(${e.message})${retryable ? ', 按退避重试' : ''}`);
       if (retryable && !autoLoginFailingSince) autoLoginFailingSince = now();
@@ -282,6 +234,7 @@ function createApp({
         // 第一次 401 即检查 cookie 是否过期: 已过期 -> 推送"登录过期"并清除登录信息, 停止重试
         if (autoLogin401Streak === 0 && cookieJarExpired(jar, now())) {
           await notifySessionExpired(saved, 'expired');
+          if (generation !== authGeneration) return;
           db.clearCookies(saved.id);
           autoLoginFailingSince = 0;
           log.info(`[server] cookie 已过期, 清除登录信息并停止重试`);
@@ -294,19 +247,19 @@ function createApp({
           await notifySessionExpired(saved, 'ip_changed');
         }
       }
-      if (retryable) scheduleAutoLoginRetry(saved);
+      if (retryable) scheduleAutoLoginRetry(saved, generation);
     }
   }
 
-  function scheduleAutoLoginRetry(saved) {
-    if (autoLoginRetryTimer || current) return;
+  function scheduleAutoLoginRetry(saved, generation) {
+    if (generation !== authGeneration || autoLoginRetryTimer || current) return;
     const delay = Math.min(autoLoginRetryBaseMs * Math.pow(2, autoLoginRetryAttempt), autoLoginRetryMaxMs) + Math.floor(Math.random() * autoLoginRetryJitterMs);
     autoLoginRetryAttempt++;
     log.warn(`[server] 自动登录 ${delay}ms 后重试(第 ${autoLoginRetryAttempt} 次)`);
     autoLoginRetryTimer = setTimeout(() => {
       autoLoginRetryTimer = null;
-      if (current) return;
-      attemptAutoLogin(saved).catch((e) => log.warn(`[server] 自动登录重试异常: ${e.message}`));
+      if (generation !== authGeneration || current) return;
+      attemptAutoLogin(saved, generation).catch((e) => log.warn(`[server] 自动登录重试异常: ${e.message}`));
     }, delay);
     if (autoLoginRetryTimer.unref) autoLoginRetryTimer.unref();
   }
@@ -386,6 +339,19 @@ function createApp({
     if (st.retryTimer) { clearTimeout(st.retryTimer); st.retryTimer = null; }
   }
 
+  function invalidateAuthWork() {
+    authGeneration++;
+    pending2fa.clear();
+    if (autoLoginRetryTimer) { clearTimeout(autoLoginRetryTimer); autoLoginRetryTimer = null; }
+    for (const st of relogin.values()) clearReloginTimers(st);
+    relogin.clear();
+    return authGeneration;
+  }
+
+  function cancelledLogin(res) {
+    return res.status(409).json({ error: '登录请求已失效，请重新登录' });
+  }
+
   async function notifyRelogin(user, body, title = 'vrcnotifier') {
     const change = {
       changeType: '系统通知',
@@ -446,6 +412,7 @@ function createApp({
 
   // 单次重登: 携带旧 cookies + 密码登录(VRCX 同款, 换 IP 免 2FA)
   async function runRelogin(userId, reason, savedJar, { countAttempt = true } = {}) {
+    const generation = authGeneration;
     const user = db.getUserByVrcId(userId);
     if (!user || !user.password) { giveUpRelogin(userId); return; }
     const st = reloginState(userId);
@@ -466,6 +433,7 @@ function createApp({
     const username = user.saved_username || user.username || '';
     try {
       const result = await vrcapi.login(username, user.password);
+      if (generation !== authGeneration) return;
       if (result && Array.isArray(result.requiresTwoFactorAuth)) {
         const kind = result.requiresTwoFactorAuth.includes('emailOtp') ? 'emailOtp' : result.requiresTwoFactorAuth[0];
         st.pending = { vrcapi, username, password: user.password, kind, createdAt: now() };
@@ -476,10 +444,12 @@ function createApp({
       }
       if (!result || !result.id) throw new Error('relogin response missing user');
       await finalizeLogin(vrcapi, result, { rememberMe: true, username, password: user.password });
+      if (generation !== authGeneration) return;
       log.info(`[server] 自动重新登录成功: ${userId} (${reason})`);
       finishReloginSuccess(userId, st);
       broadcast('relogin-ok', { userId });
     } catch (e) {
+      if (generation !== authGeneration) return;
       log.warn(`[server] 自动重新登录失败(${userId}): ${e.message}`);
       if (e && e.status === 401) {
         giveUpRelogin(userId); // 密码错误等凭证问题: 立即放弃, 不退避
@@ -537,11 +507,14 @@ function createApp({
   // 验证码核心(QQ 与前端共用): 先判码, 再单独取身份落地。
   // 码通过后取身份失败只算会话/网络问题: 待验证会话保留(verified 标记), 重试不必再要一次码。
   async function verifyPendingCode(userId, code) {
+    const generation = authGeneration;
+    const cancelled = { ok: false, error: '登录请求已失效，请重新登录' };
     const st = relogin.get(userId);
     const pending = st && st.pending;
     if (!pending) return { ok: false, error: '没有待验证的登录会话' };
     if (!pending.verified) {
       const verdict = await verify2faCode(pending.vrcapi, pending.kind, code);
+      if (generation !== authGeneration) return cancelled;
       if (!verdict.ok) {
         if (verdict.kind === 'code') return { ok: false, error: '验证码错误或已过期' };
         if (verdict.kind === 'session') {
@@ -556,15 +529,19 @@ function createApp({
     let me;
     try {
       me = await pending.vrcapi.me({ purpose: '登录取身份' });
+      if (generation !== authGeneration) return cancelled;
       if (!me || !me.id) throw new Error('2fa verify missing user');
     } catch (e) {
+      if (generation !== authGeneration) return cancelled;
       log.warn(`[server] 2FA 已验证通过但取账号信息失败(${userId}): ${e.message}`);
       return { ok: false, error: '验证码已通过, 但获取账号信息失败, 请重试' };
     }
     st.pending = null;
     try {
       await finalizeLogin(pending.vrcapi, me, { rememberMe: true, username: pending.username, password: pending.password });
+      if (generation !== authGeneration) return cancelled;
     } catch (e) {
+      if (generation !== authGeneration) return cancelled;
       log.warn(`[server] 2FA 已验证通过但落地失败(${userId}): ${e.message}`);
       return { ok: false, error: '验证码已通过, 但同步数据失败, 请重试' };
     }
@@ -646,6 +623,10 @@ function createApp({
     broadcast('status', statusPayload());
   });
   bus.on('notification', (e) => broadcast('notification', e));
+  bus.on('friend-state', ({ friendId }) => {
+    broadcast('friend-state', { friend_vrchat_id: friendId, friend: friendRow(db.getFriend(friendId)) });
+  });
+  bus.on('friend-event', (e) => broadcast('friend-event', eventRow(e)));
   // 世界名按需查到名字 → 推给前端定点更新那一行(前端从不等待世界名)
   bus.on('world-name', (e) => broadcast('world-name', e));
   bus.on('session-expired', ({ userId }) => {
@@ -752,6 +733,7 @@ function createApp({
   app.post('/api/login', async (req, res) => {
     const { username, password, rememberMe } = req.body || {};
     if (!username || !password) return res.status(400).json({ error: '缺少用户名或密码' });
+    const generation = invalidateAuthWork();
     for (const [id, p] of pending2fa) {
       if (now() - p.createdAt > pending2faTtlMs) pending2fa.delete(id);
     }
@@ -759,14 +741,16 @@ function createApp({
     let result;
     try {
       result = await vrcapi.login(String(username), String(password));
+      if (generation !== authGeneration) return cancelledLogin(res);
       if (result && Array.isArray(result.requiresTwoFactorAuth)) {
         const tempSessionId = randomBytes(8).toString('hex');
-        pending2fa.set(tempSessionId, { vrcapi, username: String(username), password: String(password), rememberMe: !!rememberMe, createdAt: now() });
+        pending2fa.set(tempSessionId, { vrcapi, username: String(username), password: String(password), rememberMe: !!rememberMe, createdAt: now(), generation });
         log.info(`[server] 登录需要 2FA: username=${username}, kinds=${result.requiresTwoFactorAuth.join(',')}`);
         return res.json({ ok: true, requiresTwoFactorAuth: result.requiresTwoFactorAuth, tempSessionId });
       }
       if (!result || !result.id) throw new Error('login response missing user');
     } catch (e) {
+      if (generation !== authGeneration) return cancelledLogin(res);
       if (e.status === 401) {
         log.warn('[server] 登录失败: 用户名或密码错误');
         return res.status(401).json({ error: '用户名或密码错误' });
@@ -785,9 +769,11 @@ function createApp({
     bus.emit('sync-progress', { userId: result.id, stage: 'verified', at: now() });
     try {
       const user = await finalizeLogin(vrcapi, result, { rememberMe: !!rememberMe, username: String(username), password: String(password) });
+      if (generation !== authGeneration) return cancelledLogin(res);
       kickWorldNames([user]);
       return res.json({ ok: true, user: selfUserForClient(user) });
     } catch (e) {
+      if (generation !== authGeneration) return cancelledLogin(res);
       log.error(`[server] 登录已通过但落地失败: ${e.message}`);
       return res.status(500).json({ error: '登录已通过, 但同步数据失败, 请重试' });
     }
@@ -798,10 +784,12 @@ function createApp({
     if (!tempSessionId || !code) return res.status(400).json({ error: '缺少参数' });
     const pending = pending2fa.get(tempSessionId);
     if (!pending) return res.status(400).json({ error: '登录会话已过期, 请重新登录' });
+    const { generation } = pending;
     // ① 验证码裁决: 以 POST 返回体的 verified 为准(不再拿 me() 的成败当判据)。
     //    已经通过过(取身份失败后的重试)则跳过 —— TOTP 码会轮换, 不能逼用户重新过一遍。
     if (!pending.verified) {
       const verdict = await verify2faCode(pending.vrcapi, String(kind || 'emailOtp').toLowerCase(), code);
+      if (generation !== authGeneration) return cancelledLogin(res);
       if (!verdict.ok) {
         if (verdict.kind === 'code') {
           log.warn('[server] 2FA 验证失败: 验证码错误或已过期');
@@ -827,8 +815,10 @@ function createApp({
     let currentUser;
     try {
       currentUser = await pending.vrcapi.me({ purpose: '登录取身份' });
+      if (generation !== authGeneration) return cancelledLogin(res);
       if (!currentUser || !currentUser.id) throw new Error('2fa verify missing user');
     } catch (e) {
+      if (generation !== authGeneration) return cancelledLogin(res);
       log.warn(`[server] 2FA 已验证通过但取账号信息失败: ${e.message}`);
       return res.status(503).json({ error: '验证码已通过, 但获取账号信息失败, 请重试' });
     }
@@ -839,9 +829,11 @@ function createApp({
     bus.emit('sync-progress', { userId: currentUser.id, stage: 'verified', at: now() });
     try {
       const user = await finalizeLogin(pending.vrcapi, currentUser, { rememberMe: pending.rememberMe, username: pending.username, password: pending.password });
+      if (generation !== authGeneration) return cancelledLogin(res);
       kickWorldNames([user]);
       return res.json({ ok: true, user: selfUserForClient(user) });
     } catch (e) {
+      if (generation !== authGeneration) return cancelledLogin(res);
       log.error(`[server] 2FA 已通过但落地失败: ${e.message}`);
       return res.status(500).json({ error: '验证码正确, 但同步数据失败, 请重试' });
     }
@@ -865,20 +857,24 @@ function createApp({
     const body = req.body || {};
     const clearCache = !!body.clearCache;
     const clearSettings = !!body.clearSettings;
-    if (!current) return res.json({ ok: true });
+    invalidateAuthWork();
+    // 机器人按旧 dbId 持有连接和凭据；删除账号/设置前先撤销其收发能力。
+    if (qq) qq.stopAll();
     if (autoLoginRetryTimer) { clearTimeout(autoLoginRetryTimer); autoLoginRetryTimer = null; }
     autoLoginRetryAttempt = 0;
     autoLogin401Streak = 0;
     autoLogin401Notified = false;
     autoLoginFailingSince = 0;
-    const { userId, dbId } = current;
-    if (current.cookieCtx) {
+    const { userId, dbId } = current || {};
+    if (current && current.cookieCtx) {
       current.cookieCtx.cancelled = true;
       if (current.cookieCtx.timer) clearTimeout(current.cookieCtx.timer);
     }
-    try { monitor.deactivateUser(userId); } catch (e) { log.warn(`[server] 停用失败: ${e.message}`); }
-    sessionStore.delete(userId);
-    db.clearCookies(dbId);
+    if (userId) {
+      try { monitor.deactivateUser(userId); } catch (e) { log.warn(`[server] 停用失败: ${e.message}`); }
+    }
+    sessionStore.clear();
+    if (dbId) db.clearCookies(dbId);
     // 账号数据一律清掉(不需要勾选): 好友(含逐好友配置)/通知去重/用户 —— 对下一个账号都没有意义。
     // QQ 绑定是全局的(一个 QQ 应用一份), 不在这里清。
     const r = db.clearAccountData();
@@ -894,7 +890,7 @@ function createApp({
       const c = db.clearSettings();
       log.info(`[server] 登出彻底重置: 设置 ${c.settings} 项, QQ 绑定 ${c.bindings} 条(访问令牌保留)`);
     }
-    log.info(`[server] 登出: ${userId}`);
+    log.info(`[server] 登出: ${userId || '无活动会话'}`);
     current = null;
     return res.json({ ok: true });
   });
@@ -964,7 +960,7 @@ function createApp({
     app.use('/api/avatar', (req, res) => res.status(404).json({ error: '头像不存在' }));
   }
 
-    app.put('/api/friends/:friendId/config', (req, res) => {
+  app.put('/api/friends/:friendId/config', (req, res) => {
     if (!current) return res.status(401).json({ error: '未登录' });
     const body = req.body || {};
     const cur = db.getFriend(req.params.friendId);
@@ -972,21 +968,76 @@ function createApp({
       log.warn(`[server] 更新监控配置失败: 好友不存在 id=${req.params.friendId}`);
       return res.status(404).json({ error: '好友不存在' });
     }
-    // 语义是补丁不是整体覆盖: 只改显式传了的字段, 没传的保持原值。
-    // (旧行为是"没传的 notify* 一律视为开" —— 任何只传部分字段的调用方都会静默打开全部通知,
-    //  而新好友默认全关, 两边正好相反。)
-    const pick = (col, camel) => (body[camel] !== undefined ? !!body[camel] : cur[col] === 1);
-    db.setFriendConfig(req.params.friendId, {
-      favorite: pick('favorite', 'favorite'),
-      notifyOnline: pick('notify_online', 'notifyOnline'),
-      notifyWebOnline: pick('notify_web_online', 'notifyWebOnline'),
-      notifyOffline: pick('notify_offline', 'notifyOffline'),
-      notifyStatusChange: pick('notify_status_change', 'notifyStatusChange'),
-      notifyWorldChange: pick('notify_world_change', 'notifyWorldChange')
-    });
+    let patch;
+    try { patch = parseFriendConfig(body); }
+    catch (e) { return res.status(400).json({ error: e.message }); }
+    db.setFriendConfig(req.params.friendId, Object.fromEntries(
+      FRIEND_CONFIG.map(([key, alias]) => [alias, patch[key] === undefined ? cur[key] === 1 : patch[key] === 1])
+    ));
     const cfg = db.getFriend(req.params.friendId);
+    broadcast('friend-state', { friend_vrchat_id: req.params.friendId, friend: friendRow(cfg) });
     log.debug(`[server] 更新监控配置: 好友=${(cfg && cfg.display_name) || req.params.friendId}, 特别关注=${cfg ? (cfg.favorite ? '开' : '关') : '?'}, 上线=${cfg ? cfg.notify_online : '?'}, 网页上线=${cfg ? cfg.notify_web_online : '?'}, 下线=${cfg ? cfg.notify_offline : '?'}, 状态=${cfg ? cfg.notify_status_change : '?'}, 世界=${cfg ? cfg.notify_world_change : '?'}`);
     return res.json({ ok: true, config: configOf(cfg) });
+  });
+
+  // 好友动态(历史流水): 只读 + 清空。limit 给数字就夹到 1..200, 缺省/非法按 50。
+  app.get('/api/friend-events', (req, res) => {
+    if (!current) return res.status(401).json({ error: '未登录' });
+    const query = req.query || {};
+    if (query.before !== undefined && query.page !== undefined) {
+      return res.status(400).json({ error: 'before 与 page 不能同时使用' });
+    }
+    for (const key of ['before', 'page']) {
+      if (query[key] !== undefined && (!/^\d+$/.test(query[key]) || !Number.isSafeInteger(Number(query[key])) || Number(query[key]) < 1)) {
+        return res.status(400).json({ error: `${key} 必须是正整数` });
+      }
+    }
+    let limit = 50;
+    if (query.limit !== undefined && query.limit !== '') {
+      const n = Number(query.limit);
+      if (Number.isFinite(n)) limit = Math.min(200, Math.max(1, Math.trunc(n)));
+    }
+    const before = Number(query.before);
+    // types 只要出现在查询串里就是"显式给了选择": 空串 = 一个类型都没勾 = 什么都不匹配
+    // (与日志筛选同约定 —— 空集合不是"不过滤", 不过滤的表现是压根不传这个参数)
+    const types = typeof query.types === 'string'
+      ? query.types.split(',').filter(Boolean).slice(0, 20)
+      : undefined;
+    // 好友筛选: friendId 可以是单个 ID, 也可以用逗号分隔多个(取并集, 最多 20 个)。
+    // 重复 ID 去重; 空串与不传一样表示不过滤。
+    const rawFriendIds = Array.isArray(query.friendId) ? query.friendId.join(',') : query.friendId;
+    const friendIds = typeof rawFriendIds === 'string' && rawFriendIds
+      ? [...new Set(rawFriendIds.split(',').map((s) => s.trim()).filter(Boolean))].slice(0, 20)
+      : undefined;
+    const search = typeof query.q === 'string' && query.q ? query.q : undefined;
+    // page(从 1 起, 缺省 1)是给日志页那条分页栏用的: 与 before 游标二者取一,
+    // 传了 page 就按页跳, 只传 before 就还是游标翻页(旧调用方不用改)。
+    let page = 1;
+    if (query.page !== undefined && query.page !== '') {
+      const n = Number(query.page);
+      if (Number.isFinite(n)) page = Math.max(1, Math.trunc(n));
+    }
+    const useCursor = Number.isFinite(before) && query.page === undefined;
+    const order = query.order === 'asc' ? 'asc' : 'desc'; // 表头点时间可反转, 默认最新在前
+    // "只看特别关注"开关: favorite=1 生效; 缺省/其他值都不过滤(与现有 query 参数风格一致)。
+    const favorite = query.favorite === '1';
+    const { events, hasMore, total } = db.listFriendEvents({
+      limit, types, friendIds, q: search, order, favorite,
+      before: useCursor ? before : undefined,
+      page: useCursor ? undefined : page
+    });
+    kickWorldNames(events);
+    // total 是同一套筛选下的总条数, 分页栏的"共 N 条 / 第 K 页"都要它
+    return res.json({ ok: true, events: events.map(eventRow), hasMore, total,
+      pagination: useCursor ? 'cursor' : 'page', page: useCursor ? null : page,
+      nextBefore: hasMore && events.length ? events[events.length - 1].id : null, pageSize: limit });
+  });
+
+  app.delete('/api/friend-events', (req, res) => {
+    if (!current) return res.status(401).json({ error: '未登录' });
+    const removed = db.clearFriendEvents();
+    log.info(`[server] 清空好友动态: 移除 ${removed} 条`);
+    return res.json({ ok: true, removed });
   });
 
   app.get('/api/settings', (req, res) => {
@@ -998,16 +1049,11 @@ function createApp({
     if (!current) return res.status(401).json({ error: '未登录' });
     const body = req.body || {};
     const prev = db.getGlobalSettings();
-    const fields = {};
-    for (const [camel, snake] of Object.entries(SETTING_MAP)) {
-      const raw = body[camel] !== undefined ? body[camel] : body[snake];
-      if (raw === undefined) continue;
-      if (SECRET_FIELDS.has(snake)) {
-        if (raw === MASK) { fields[snake] = prev[snake] || null; continue; }
-        fields[snake] = (raw === '' || raw === null) ? null : String(raw);
-      } else {
-        fields[snake] = raw;
-      }
+    let fields;
+    try { fields = parseSettings(body); }
+    catch (e) { return res.status(400).json({ error: e.message }); }
+    for (const key of SECRET_FIELDS) {
+      if (fields[key] === MASK) fields[key] = prev[key] || null;
     }
     db.updateGlobalSettings(fields);
     if (qq) qq.sync(current.dbId, db.getGlobalSettings());
@@ -1144,7 +1190,7 @@ function createApp({
   app.use('/api', (req, res) => res.status(404).json({ error: '接口不存在' }));
 
   if (publicDir) {
-    app.use(express.static(publicDir));
+    app.use(express.static(publicDir)); // 根路径由 public/index.html(新版概览)提供
   }
 
   // eslint-disable-next-line no-unused-vars

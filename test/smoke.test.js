@@ -296,9 +296,11 @@ test('frontend server serves public dir as standalone process', async (t) => {
   assert.equal(home.status, 200);
   const html = await home.text();
   assert.ok(html.includes('vrcnotifier'));
-  assert.ok(html.includes(id='connectBtn'));
-  assert.ok(html.includes("id='wsChart'"), '概览包含 WS 消息图表');
-  assert.ok(html.includes("id='stHealth'"), '概览包含 VRChat 延迟');
+  assert.ok(html.includes('dashboard.js'), '首页加载新前端脚本');
+  assert.ok(html.includes('id="mainView"'), '概览包含主界面容器');
+  assert.ok(html.includes('id="connectBtn"'), '门禁包含连接按钮');
+  assert.ok(html.includes('id="wsSpark"'), '概览包含 WS 消息速率图');
+  assert.ok(html.includes('id="stHealth"'), '概览包含服务器延迟');
 
   const missing = await fetch(base + '/nope.js');
   assert.equal(missing.status, 404);

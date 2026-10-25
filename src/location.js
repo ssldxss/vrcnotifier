@@ -1,7 +1,9 @@
-﻿'use strict';
+'use strict';
 // VRChat location 字符串解析。
 // 结构: worldId:instanceId~param(value)~param2
 // 哨兵: "" / "offline" / "traveling" / "private" 不是真实实例。
+
+const { splitLocation } = require('../public/locationmodel');
 
 function parseLocation(tag) {
   const s = String(tag ?? '');
@@ -17,13 +19,12 @@ function parseLocation(tag) {
   if (s === 'traveling') { ctx.kind = 'traveling'; return ctx; }
   if (s === 'private') { ctx.kind = 'private'; return ctx; }
 
-  const sep = s.indexOf(':');
-  const worldPart = sep === -1 ? s : s.slice(0, sep);
-  const rest = sep === -1 ? '' : s.slice(sep + 1);
-  if (!worldPart.startsWith('wrld_')) { ctx.kind = 'invalid'; return ctx; }
+  const { worldId: worldPart, instanceId } = splitLocation(s);
+  const rest = instanceId || '';
+  if (!worldPart || !worldPart.startsWith('wrld_')) { ctx.kind = 'invalid'; return ctx; }
 
   ctx.worldId = worldPart;
-  ctx.instanceId = rest;
+  ctx.instanceId = instanceId;
   ctx.isReal = true;
   ctx.kind = 'instance';
 

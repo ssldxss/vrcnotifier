@@ -8,11 +8,11 @@
 
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
-    module.exports = factory();
+    module.exports = factory(require('./contracts'));
   } else {
-    root.VrcNotifier = factory();
+    root.VrcNotifier = factory(root.VrcContracts);
   }
-})(typeof globalThis !== 'undefined' ? globalThis : this, function () {
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (Contracts) {
   const DEFAULT_BASE = 'http://127.0.0.1:3000';
   const LS_BASE_KEY = 'vrcn_base';
   const LS_TOKEN_KEY = 'vrcn_token';
@@ -55,7 +55,7 @@
      */
     constructor(opts = {}) {
       this.storage = resolveStorage(opts.storage);
-      this.fetchImpl = opts.fetchImpl || (typeof fetch !== 'undefined' ? fetch : null);
+      this.fetchImpl = opts.fetchImpl || (typeof fetch !== 'undefined' ? fetch.bind(globalThis) : null);
       this.EventSourceImpl = opts.EventSourceImpl || (typeof EventSource !== 'undefined' ? EventSource : null);
       this.baseUrl = (opts.baseUrl || this.storage.getItem(LS_BASE_KEY) || DEFAULT_BASE).replace(/\/+$/, '');
       this.token = opts.token !== undefined ? opts.token : (this.storage.getItem(LS_TOKEN_KEY) || '');
@@ -82,12 +82,13 @@
 
     /**
      * 核心请求: 自动携带 Bearer token; 非 2xx 抛 ApiError。
-     * @returns {Promise<object>} 解析后的 JSON
+     * @returns {Promise<{status: number, data: object}>} HTTP 状态与解析后的 JSON
      */
-    async request(method, path, opts = {}) {
-      const { body, query, noAuth = false } = opts;
+    async requestResponse(method, path, opts = {}) {
+      const { body, query, noAuth = false, signal } = opts;
       if (!this.fetchImpl) throw new ApiError(0, '当前环境不支持 fetch');
-      const url = this.baseUrl + path + (query ? '?' + new URLSearchParams(query).toString() : '');
+      const params = new URLSearchParams(Object.entries(query || {}).filter(([, v]) => v !== undefined && v !== null));
+      const url = this.baseUrl + path + (params.size ? '?' + params : '');
       const headers = { Accept: 'application/json' };
       if (body !== undefined) headers['Content-Type'] = 'application/json';
       if (!noAuth && this.token) headers.Authorization = 'Bearer ' + this.token;
@@ -96,18 +97,24 @@
         res = await this.fetchImpl(url, {
           method,
           headers,
-          body: body === undefined ? undefined : JSON.stringify(body)
+          body: body === undefined ? undefined : JSON.stringify(body),
+          cache: 'no-store',
+          signal
         });
       } catch (e) {
         throw new ApiError(0, '网络错误: ' + e.message);
       }
       let data = null;
-      try { data = await res.json(); } catch (e) { data = null; }
+      try { data = await res.json(); } catch (e) { throw new ApiError(res.status, '后端响应不是 JSON'); }
       if (!res.ok) {
         const msg = (data && (data.error || data.message)) || ('HTTP ' + res.status);
         throw new ApiError(res.status, msg, data);
       }
-      return data;
+      return { status: res.status, data };
+    }
+
+    async request(method, path, opts = {}) {
+      return (await this.requestResponse(method, path, opts)).data;
     }
 
     // ---------- 公开(无需 token) ----------
@@ -116,12 +123,12 @@
 
     // ---------- 登录 / 会话 ----------
     login(username, password, rememberMe = false) {
-      return this.request('POST', '/api/login', { noAuth: true, body: { username, password, rememberMe } });
+      return this.request('POST', '/api/login', { body: { username, password, rememberMe } });
     }
     login2fa(tempSessionId, code, kind = 'emailOtp') {
-      return this.request('POST', '/api/login/2fa', { noAuth: true, body: { tempSessionId, code, kind } });
+      return this.request('POST', '/api/login/2fa', { body: { tempSessionId, code, kind } });
     }
-    logout() { return this.request('POST', '/api/logout', { body: {} }); }
+    logout(options = {}) { return this.request('POST', '/api/logout', { body: options }); }
     getSession() { return this.request('GET', '/api/session'); }
     getMe() { return this.request('GET', '/api/me'); }
 
@@ -137,16 +144,19 @@
     testNotification(kind) { return this.request('POST', '/api/test/' + encodeURIComponent(kind), { body: {} }); }
     getStatus() { return this.request('GET', '/api/status'); }
     getLogs(opts = {}) {
-      const query = {};
-      if (opts.tail) query.tail = opts.tail;
-      if (opts.after) query.after = opts.after;
-      return this.request('GET', '/api/logs', { query: Object.keys(query).length ? query : undefined });
+      return this.request('GET', '/api/logs', { query: opts });
     }
+    getFriendEvents(query = {}) { return this.request('GET', '/api/friend-events', { query }); }
+    clearFriendEvents() { return this.request('DELETE', '/api/friend-events'); }
     manualSnapshot() { return this.request('POST', '/api/monitor/snapshot', { body: {} }); }
 
     // ---------- 头像 ----------
     avatarUrl(key) {
       return this.baseUrl + '/api/avatar/' + encodeURIComponent(key) + '?token=' + encodeURIComponent(this.token);
+    }
+
+    eventsUrl() {
+      return this.baseUrl + '/api/events?token=' + encodeURIComponent(this.token);
     }
 
     /**
@@ -155,21 +165,22 @@
      * @returns {{ close: () => void }}
      */
     subscribeEvents(handlers = {}) {
-      const { onEvent, onError } = handlers;
+      const { onEvent, onError, onOpen } = handlers;
       const ES = this.EventSourceImpl;
       if (!ES) throw new ApiError(0, '当前环境不支持 EventSource');
-      const es = new ES(this.baseUrl + '/api/events?token=' + encodeURIComponent(this.token));
+      const es = new ES(this.eventsUrl());
       const dispatch = (type, e) => {
         if (!onEvent) return;
         let data = null;
         try { data = JSON.parse(e.data); } catch (err) { data = e.data; }
         onEvent(type, data);
       };
-      const KNOWN_EVENTS = ['notification', 'ws-failure', 'ws-recovered', 'snapshot', 'log'];
-      for (const name of KNOWN_EVENTS) es.addEventListener(name, (e) => dispatch(name, e));
+      for (const name of Contracts.SSE_EVENTS) es.addEventListener(name, (e) => dispatch(name, e));
       es.onmessage = (e) => dispatch('message', e);
+      es.onopen = (e) => { if (onOpen) onOpen(e); };
       es.onerror = (e) => { if (onError) onError(e); };
       return {
+        url: es.url,
         close() { try { es.close(); } catch (e) { /* 忽略 */ } }
       };
     }

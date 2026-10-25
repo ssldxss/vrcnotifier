@@ -1,0 +1,54 @@
+'use strict';
+// WebSocket 消息速率图(VRCX 同款算法): 60 秒窗口、每秒一个采样点,
+// 速率 = 窗口内消息数之和(次/分), 折线按窗口最大值缩放。
+// 浏览器用 <script src="wschart.js">(挂 window.VrcWsChart); Node 用 require(单测)。
+
+const test = require('node:test');
+const assert = require('node:assert');
+const ws = require('../public/wschart');
+
+test('perMinute: 窗口内消息数求和 = 每分钟平均次数', () => {
+  assert.equal(ws.perMinute([0, 2, 1, 4]), 7);
+  assert.equal(ws.perMinute([]), 0);
+});
+
+test('sparklinePoints: 按窗口最大值缩放, 纵向留 2px 余量', () => {
+  assert.deepStrictEqual(ws.sparklinePoints([0, 2, 1], 40, 12), [
+    { x: 0, y: 12 },
+    { x: 20, y: 2 },
+    { x: 40, y: 7 }
+  ]);
+});
+
+test('sparklinePoints: 全 0 时最大值按 1 处理, 画成底部直线', () => {
+  assert.deepStrictEqual(ws.sparklinePoints([0, 0, 0], 10, 12), [
+    { x: 0, y: 12 },
+    { x: 5, y: 12 },
+    { x: 10, y: 12 }
+  ]);
+  assert.deepStrictEqual(ws.sparklinePoints([], 10, 12), []);
+});
+
+test('ingestSample: 服务端每秒补推最近 3 秒, 按 sec 幂等去重', () => {
+  let st = { history: ws.emptyHistory(60), lastSec: null };
+  for (const [sec, n] of [[99, 1], [100, 2], [101, 3]]) {
+    st = ws.ingestSample(st.history, sec, n, st.lastSec);
+  }
+  assert.equal(st.lastSec, 101);
+  assert.deepStrictEqual(st.history.slice(-3), [1, 2, 3]);
+  for (const [sec, n] of [[100, 2], [101, 3], [102, 4]]) {
+    st = ws.ingestSample(st.history, sec, n, st.lastSec);
+  }
+  assert.equal(st.lastSec, 102);
+  assert.deepStrictEqual(st.history.slice(-4), [1, 2, 3, 4], '重复推送不应被当成新的一秒');
+  st = ws.ingestSample(st.history, 102, 9, st.lastSec);
+  assert.deepStrictEqual(st.history.slice(-4), [1, 2, 3, 9]);
+  assert.equal(st.lastSec, 102);
+});
+
+test('ingestSample: 跳秒时补 0, 丢 tick 图表也不失真', () => {
+  const st = ws.ingestSample(ws.emptyHistory(60), 100, 5, 100);
+  const next = ws.ingestSample(st.history, 104, 7, st.lastSec);
+  assert.equal(next.lastSec, 104);
+  assert.deepStrictEqual(next.history.slice(-5), [5, 0, 0, 0, 7]);
+});

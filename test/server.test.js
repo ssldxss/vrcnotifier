@@ -100,7 +100,7 @@ function setup(opts = {}) {
     config: { accessToken: opts.accessToken || null, confirmDelayMs: 30000, dedupeWindowMs: 30000, snapshotIntervalMs: 3600000, watchdogMs: 600000, autoLoginRetryBaseMs: opts.autoLoginRetryBaseMs ?? 5000, autoLoginRetryMaxMs: opts.autoLoginRetryMaxMs ?? 3600000, autoLoginRetryJitterMs: opts.autoLoginRetryJitterMs ?? 1000, reloginMaxPerHour: opts.reloginMaxPerHour ?? 5, reloginRetryBaseMs: opts.reloginRetryBaseMs ?? 5000, reloginRetryMaxMs: opts.reloginRetryMaxMs ?? 3600000, reloginRetryJitterMs: opts.reloginRetryJitterMs ?? 0 },
     logger: opts.logger || silent,
     now: opts.now || (() => 1000000),
-    publicDir: null,
+    publicDir: opts.publicDir || null,
     logStream: logStream,
     maskState,
     fileLog: opts.fileLog || null,
@@ -1121,7 +1121,7 @@ test('settings put stores notification type toggles', async (t) => {
   assert.equal(s.notify_boop, 0);
   assert.equal(s.notify_invite, 1);
   // 白名单外的 key 不落库
-  await put(ctx, '/api/settings', { notify_hack: 1 });
+  assert.equal((await put(ctx, '/api/settings', { notify_hack: 1 })).status, 400);
   assert.equal(ctx.db.getGlobalSettings().notify_hack, undefined);
 });
 
@@ -1734,4 +1734,278 @@ test('/api/config 报的版本优先取 APP_VERSION(镜像构建时注入的 tag
   const r = await get(ctx, '/api/config');
   assert.equal(r.status, 200);
   assert.equal(r.data.version, '9.9.9-injected', '版本来自 APP_VERSION, 而不是源码里写死的常量');
+});
+
+// ---------- 好友动态接口 ----------
+
+test('GET /api/friend-events: 未登录 401', async (t) => {
+  const ctx = setup();
+  t.after(async () => { ctx.server.closeAllConnections?.(); await close(ctx); });
+  const r = await get(ctx, '/api/friend-events');
+  assert.equal(r.status, 401);
+});
+
+test('GET /api/friend-events: 倒序 + before 游标 + types/friendId/q 筛选 + limit 夹取', async (t) => {
+  const ctx = setup();
+  t.after(async () => { ctx.server.closeAllConnections?.(); await close(ctx); });
+  await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: false });
+
+  const e1 = ctx.db.addFriendEvent({ type: '上线', at: 1, friend_vrchat_id: 'usr_a', friend_name: '甲', world_id: 'wrld_1', world_name: '世界一' });
+  const e2 = ctx.db.addFriendEvent({ type: '切换世界', at: 2, friend_vrchat_id: 'usr_a', friend_name: '甲', world_id: 'wrld_2', world_name: '世界二' });
+  const e3 = ctx.db.addFriendEvent({ type: '戳一戳', at: 3, friend_vrchat_id: 'usr_b', friend_name: '乙', title: '戳了你一下' });
+
+  const r = await get(ctx, '/api/friend-events?limit=2');
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.data.events.map((e) => e.id), [e3.id, e2.id], '最新在前');
+  assert.equal(r.data.hasMore, true);
+
+  const r2 = await get(ctx, `/api/friend-events?limit=2&before=${e3.id}`);
+  assert.deepEqual(r2.data.events.map((e) => e.id), [e2.id, e1.id]);
+  assert.equal(r2.data.hasMore, false);
+
+  const r3 = await get(ctx, '/api/friend-events?types=' + encodeURIComponent('上线,戳一戳'));
+  assert.deepEqual(r3.data.events.map((e) => e.id), [e3.id, e1.id]);
+
+  const r4 = await get(ctx, '/api/friend-events?friendId=usr_a');
+  assert.deepEqual(r4.data.events.map((e) => e.id), [e2.id, e1.id]);
+
+  // 好友筛选可多选: 逗号分隔取并集, total 同口径
+  const r4b = await get(ctx, '/api/friend-events?friendId=usr_a,usr_b');
+  assert.deepEqual(r4b.data.events.map((e) => e.id), [e3.id, e2.id, e1.id]);
+  assert.equal(r4b.data.total, 3);
+  // 多个好友 + 类型筛选叠加
+  const r4c = await get(ctx, '/api/friend-events?friendId=usr_a,usr_b&types=' + encodeURIComponent('上线'));
+  assert.deepEqual(r4c.data.events.map((e) => e.id), [e1.id]);
+  // 只有一个 ID 命中(另一个不存在)时不影响结果
+  const r4d = await get(ctx, '/api/friend-events?friendId=usr_b,usr_missing');
+  assert.deepEqual(r4d.data.events.map((e) => e.id), [e3.id]);
+
+  const r5 = await get(ctx, '/api/friend-events?q=' + encodeURIComponent('世界一'));
+  assert.deepEqual(r5.data.events.map((e) => e.id), [e1.id]);
+
+  const r6 = await get(ctx, '/api/friend-events?limit=0');
+  assert.equal(r6.data.events.length, 1, 'limit 下限夹到 1');
+
+  const r7 = await get(ctx, '/api/friend-events?limit=abc');
+  assert.deepEqual(r7.data.events.map((e) => e.id), [e3.id, e2.id, e1.id], '非法 limit 按默认 50');
+
+  const r8 = await get(ctx, '/api/friend-events?limit=9999');
+  assert.equal(r8.status, 200, '超大 limit 被夹住而不是报错');
+});
+
+test('GET /api/friend-events: 世界名缓存命中就同步补上, 头像按同一口径换算成 key', async (t) => {
+  const ctx = setup();
+  t.after(async () => { ctx.server.closeAllConnections?.(); await close(ctx); });
+  await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: false });
+
+  ctx.db.upsertWorldCache('wrld_old', '旧世界', 1);
+  ctx.db.upsertFriend('usr_a', { displayName: '甲', avatarUrl: 'https://api.vrchat.cloud/api/1/file/file_aaa-111/1/file' });
+  ctx.db.addFriendEvent({
+    type: '切换世界', at: 1, friend_vrchat_id: 'usr_a', friend_name: '甲',
+    old_world_id: 'wrld_old', old_world_name: null,
+    world_id: 'wrld_new', world_name: null,
+    friend_avatar: 'https://api.vrchat.cloud/api/1/file/file_aaa-111/1/file'
+  });
+
+  const r = await get(ctx, '/api/friend-events');
+  const e = r.data.events[0];
+  assert.equal(e.old_world_name, '旧世界', '缓存里有就问出来补上');
+  assert.equal(e.world_name, null, '还没查到的先留空, 由 world-name 事件补');
+  assert.equal(e.avatarKey, 'file_aaa-111_1_128', '与好友行同一套头像换算');
+});
+
+test('DELETE /api/friend-events: 清空并返回条数', async (t) => {
+  const ctx = setup();
+  t.after(async () => { ctx.server.closeAllConnections?.(); await close(ctx); });
+  const notLoggedIn = await fetch(ctx.base + '/api/friend-events', { method: 'DELETE', headers: authHeaders(ctx) });
+  assert.equal(notLoggedIn.status, 401, '未登录也不能清');
+
+  await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: false });
+  ctx.db.addFriendEvent({ type: '上线', at: 1, friend_vrchat_id: 'usr_a', friend_name: '甲' });
+  ctx.db.addFriendEvent({ type: '下线', at: 2, friend_vrchat_id: 'usr_a', friend_name: '甲' });
+
+  const res = await fetch(ctx.base + '/api/friend-events', { method: 'DELETE', headers: authHeaders(ctx) });
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.equal(data.removed, 2);
+  assert.equal(ctx.db.listFriendEvents({ limit: 10 }).events.length, 0);
+});
+
+test('设置: friend_event_limit 存得住也读得回', async (t) => {
+  const ctx = setup();
+  t.after(async () => { ctx.server.closeAllConnections?.(); await close(ctx); });
+  await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: false });
+
+  const before = await get(ctx, '/api/settings');
+  assert.equal(before.data.settings.friend_event_limit, null, '没设置过时是 null(用默认值)');
+
+  const saved = await put(ctx, '/api/settings', { friendEventLimit: 1234 });
+  assert.equal(saved.status, 200);
+  assert.equal(saved.data.settings.friend_event_limit, 1234);
+  assert.equal(ctx.db.getSetting('friend_event_limit'), '1234');
+});
+
+test('GET /api/friend-events: types 传了但为空 = 什么都不要(不是不过滤)', async (t) => {
+  const ctx = setup();
+  t.after(async () => { ctx.server.closeAllConnections?.(); await close(ctx); });
+  await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: false });
+  ctx.db.addFriendEvent({ type: '上线', at: 1, friend_vrchat_id: 'usr_a', friend_name: '甲' });
+  ctx.db.addFriendEvent({ type: '下线', at: 2, friend_vrchat_id: 'usr_a', friend_name: '甲' });
+
+  const none = await get(ctx, '/api/friend-events?types=');
+  assert.equal(none.status, 200);
+  assert.deepEqual(none.data.events, [], '界面上一个类型都没勾 = 一行都不显示(与日志筛选同约定)');
+  assert.equal(none.data.hasMore, false);
+
+  const all = await get(ctx, '/api/friend-events');
+  assert.equal(all.data.events.length, 2, '不传 types 才是不过滤');
+});
+
+test('GET /api/friend-events: page 翻页 + total(日志页那条分页栏要的)', async (t) => {
+  const ctx = setup();
+  t.after(async () => { ctx.server.closeAllConnections?.(); await close(ctx); });
+  await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: false });
+  for (let i = 1; i <= 12; i++) ctx.db.addFriendEvent({ type: '上线', at: i, friend_vrchat_id: 'usr_a', friend_name: '甲' });
+
+  const p1 = await get(ctx, '/api/friend-events?limit=5&page=1');
+  assert.equal(p1.status, 200);
+  assert.equal(p1.data.total, 12, '共 N 条');
+  assert.equal(p1.data.page, 1);
+  assert.equal(p1.data.pageSize, 5);
+  assert.equal(p1.data.events.length, 5);
+  assert.equal(p1.data.hasMore, true);
+
+  const p3 = await get(ctx, '/api/friend-events?limit=5&page=3');
+  assert.equal(p3.data.events.length, 2);
+  assert.equal(p3.data.hasMore, false);
+  assert.equal(p3.data.total, 12);
+
+  const p9 = await get(ctx, '/api/friend-events?limit=5&page=9');
+  assert.deepEqual(p9.data.events, [], '越界页给空');
+  assert.equal(p9.data.total, 12);
+
+  const bad = await get(ctx, '/api/friend-events?limit=5&page=abc');
+  assert.equal(bad.status, 400, '非法 page 明确拒绝');
+  const zero = await get(ctx, '/api/friend-events?limit=5&page=0');
+  assert.equal(zero.status, 400, 'page 必须从 1 开始');
+});
+
+test('GET /api/friend-events: order=asc 最早在前(表头点一下反转)', async (t) => {
+  const ctx = setup();
+  t.after(async () => { ctx.server.closeAllConnections?.(); await close(ctx); });
+  await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: false });
+  for (let i = 1; i <= 4; i++) ctx.db.addFriendEvent({ type: '上线', at: i, friend_vrchat_id: 'usr_a', friend_name: '甲' });
+  const d = await get(ctx, '/api/friend-events?limit=10');
+  assert.deepEqual(d.data.events.map((e) => e.at), [4, 3, 2, 1]);
+  const a = await get(ctx, '/api/friend-events?limit=10&order=asc');
+  assert.deepEqual(a.data.events.map((e) => e.at), [1, 2, 3, 4]);
+  assert.equal(a.data.total, 4);
+});
+
+test('GET /api/friend-events: 完整实例和当前昵称随筛选返回，通知原生 ID 可读取', async (t) => {
+  const ctx = setup();
+  t.after(async () => { ctx.server.closeAllConnections?.(); await close(ctx); });
+  await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: false });
+  ctx.db.upsertFriend('usr_a', { displayName: '旧名字' });
+  const row = ctx.db.addFriendEvent({ type: '切换世界', at: 1792252800123, friend_vrchat_id: 'usr_a',
+    old_location: 'wrld_a:1~region(jp)', location: 'wrld_a:2~friends(usr_host)~region(us)' });
+  ctx.db.updateFriendProfile(ctx.db.getFriend('usr_a').id, { displayName: '新名字' });
+  ctx.db.addFriendEvent({ type: '请求邀请', at: 1792252800456, friend_vrchat_id: 'usr_a', notification_id: 'n_request', location: 'wrld_b:3' });
+  const r = await get(ctx, '/api/friend-events?q=' + encodeURIComponent('新名字') + '&types=' + encodeURIComponent('切换世界'));
+  assert.equal(r.status, 200);
+  assert.equal(r.data.total, 1);
+  const event = r.data.events[0];
+  assert.equal(event.id, row.id);
+  assert.equal(event.friend_name, '新名字');
+  assert.equal(event.at, 1792252800123);
+  assert.equal(event.world_id, 'wrld_a');
+  assert.equal(event.instance_id, '2~friends(usr_host)~region(us)');
+  assert.equal(event.old_instance_id, '1~region(jp)');
+  assert.equal(event.location, 'wrld_a:2~friends(usr_host)~region(us)');
+  const notification = await get(ctx, '/api/friend-events?types=' + encodeURIComponent('请求邀请'));
+  assert.equal(notification.data.events[0].notification_id, 'n_request');
+  assert.equal(notification.data.events[0].location, 'wrld_b:3');
+});
+
+
+// ---------- 新前端作为根页面 ----------
+test('托管静态目录时 GET / 返回新概览页', async (t) => {
+  const ctx = setup({ publicDir: path.join(__dirname, '..', 'public') });
+  t.after(() => close(ctx));
+  const res = await fetch(ctx.base + '/');
+  const html = await res.text();
+  assert.equal(res.status, 200);
+  assert.ok(html.includes('id="mainView"'), '应由新版概览页提供 #mainView');
+  assert.ok(html.includes('dashboard.js'), '应加载新前端脚本');
+  assert.ok(!html.includes("id='mainView'"), '不应再返回经典前端(单引号标记)');
+});
+
+test('SDK and HTTP share authenticated login, config patch and settings contracts', async (t) => {
+  const ctx = setup({ accessToken: 'contract-token' });
+  t.after(() => close(ctx));
+  const { Client } = require('../public/sdk');
+  const client = new Client({ baseUrl: ctx.base, token: 'contract-token' });
+  assert.equal((await client.login('me', 'pw')).ok, true);
+  ctx.db.upsertFriend('usr_contract', { displayName: 'Contract' });
+  await client.updateFriendConfig('usr_contract', { notifyOnline: true });
+  const saved = await client.updateFriendConfig('usr_contract', { notify_online: 0 });
+  assert.equal(saved.config.notify_online, 0);
+  await assert.rejects(client.updateFriendConfig('usr_contract', { favorite: 1, notifyOnline: 'false' }), { status: 400 });
+  assert.equal(ctx.db.getFriend('usr_contract').favorite, 0, 'invalid patches are atomic');
+  await assert.rejects(client.updateSettings({ qq_app_id: 'changed', qq_enabled: 2 }), { status: 400 });
+  assert.equal(ctx.db.getGlobalSettings().qq_app_id, undefined);
+  await client.updateSettings({ friend_event_limit: 100000 });
+  assert.equal((await client.getSettings()).settings.friend_event_limit, 100000);
+});
+
+test('event cursor pagination keeps filtered total and exposes the next cursor in both orders', async (t) => {
+  const ctx = setup();
+  t.after(() => close(ctx));
+  await post(ctx, '/api/login', { username: 'me', password: 'pw' });
+  for (let i = 0; i < 6; i++) ctx.db.addFriendEvent({ type: 'boop', at: i });
+  const first = (await get(ctx, '/api/friend-events?limit=2')).data;
+  const next = (await get(ctx, '/api/friend-events?limit=2&before=' + first.nextBefore)).data;
+  assert.equal(next.total, 6);
+  assert.equal(next.pagination, 'cursor');
+  assert.equal(next.page, null);
+  assert.deepEqual(next.events.map((e) => e.id), [4, 3]);
+  const asc = (await get(ctx, '/api/friend-events?order=asc&limit=2&before=2')).data;
+  assert.deepEqual(asc.events.map((e) => e.id), [3, 4]);
+  assert.equal(asc.nextBefore, 4);
+  assert.equal((await get(ctx, '/api/friend-events?before=2&page=1')).status, 400);
+  assert.equal((await get(ctx, '/api/friend-events?page=1.5')).status, 400);
+});
+
+test('realtime friend state matches HTTP DTO through pending, confirmation and deletion', async (t) => {
+  let at = 1000000;
+  const ctx = setup({ offlineFriends: [{ id: 'usr_f', displayName: 'Friend' }], now: () => at });
+  t.after(async () => { ctx.server.closeAllConnections?.(); await close(ctx); ctx.monitor.deactivateUser('usr_me'); });
+  await post(ctx, '/api/login', { username: 'me', password: 'pw' });
+  ctx.db.setFriendConfig('usr_f', { notifyOnline: true });
+  const sse = await sseCollect(ctx, 'friend-state');
+  try {
+    await ctx.monitor.handlePipelineEvent('usr_me', '', { type: 'friend-online', content: {
+      location: 'private', user: { id: 'usr_f', displayName: 'Renamed', status: 'busy', statusDescription: 'new description' }
+    } });
+    await sse.until((events) => events.length >= 1);
+    const current = sse.events.at(-1).friend;
+    const http = (await get(ctx, '/api/friends')).data.friends.find((f) => f.friend_vrchat_id === 'usr_f');
+    assert.deepEqual(current, http);
+    assert.equal(current.status, 'busy');
+    assert.equal(current.status_description, 'new description');
+    assert.equal(current.display_name, 'Renamed');
+    assert.equal(current.state, 'offline');
+    assert.equal(current.display_state, 'online');
+    assert.equal(current.pending, true);
+    assert.equal(current.pending_label, '可能在线');
+    const historical = ctx.db.listFriendEvents().events.find((e) => e.type_code === 'friend_online');
+    assert.equal(historical.new_status, null, 'history keeps only its own event dimension');
+    at += 30001;
+    await ctx.monitor.handlePipelineEvent('usr_me', '', { type: 'friend-online', content: { userId: 'usr_f', location: 'private' } });
+    await sse.until((events) => events.some((e) => e.friend && e.friend.pending === false));
+    assert.equal(sse.events.at(-1).friend.state, 'online');
+    await ctx.monitor.handlePipelineEvent('usr_me', '', { type: 'friend-delete', content: { userId: 'usr_f' } });
+    await sse.until((events) => events.some((e) => e.friend === null));
+    assert.deepEqual(sse.events.at(-1), { friend_vrchat_id: 'usr_f', friend: null });
+  } finally { sse.stop(); }
 });

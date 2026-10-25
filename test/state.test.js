@@ -1,29 +1,10 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const {
-  deriveStateFromLocation, deriveStateFromSnapshot,
   classifyTransition, applyChange
 } = require('../src/state');
 
 const F = (over) => ({ state: 'offline', status: 'active', worldId: null, worldName: null, statusDescription: null, platform: 'unknown', ...over });
-
-test('deriveStateFromLocation maps sentinels and instances', () => {
-  assert.equal(deriveStateFromLocation('offline'), 'offline');
-  assert.equal(deriveStateFromLocation(''), 'offline');
-  assert.equal(deriveStateFromLocation('private'), 'online');
-  assert.equal(deriveStateFromLocation('traveling'), 'online');
-  assert.equal(deriveStateFromLocation('wrld_a:1~region(us)'), 'online');
-  assert.equal(deriveStateFromLocation(undefined), 'offline');
-});
-
-test('deriveStateFromSnapshot prefers currentUser arrays then location', () => {
-  const cu = { onlineFriends: ['u1'], activeFriends: ['u2'], offlineFriends: ['u3'] };
-  assert.equal(deriveStateFromSnapshot({ id: 'u1', location: 'offline' }, cu), 'online');
-  assert.equal(deriveStateFromSnapshot({ id: 'u2', location: 'offline' }, cu), 'active');
-  assert.equal(deriveStateFromSnapshot({ id: 'u3', location: 'offline' }, cu), 'offline');
-  assert.equal(deriveStateFromSnapshot({ id: 'u9', location: 'wrld_a:1' }, cu), 'online');
-  assert.equal(deriveStateFromSnapshot({ id: 'u9', location: 'offline' }, cu), 'offline');
-});
 
 test('classifyTransition: online/offline upgrades and downgrades', () => {
   // 上下线(含网页上线)都是"存在性"变化: 先 pending, 到期 me() 复核后才通知

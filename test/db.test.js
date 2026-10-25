@@ -636,3 +636,512 @@ test('头像改由单一地址承载: 旧库的 avatar_thumb_url 列被删除, �
   assert.ok(db.getFriend('usr_f1'), '迁移后仍能按新 schema 读好友');
   assert.equal(db.getFriend('usr_f1').avatar_url, 'https://x/f1-full.png');
 });
+
+// ---------- 好友动态(friend_logs): 只增不改的历史流水 ----------
+
+test('friend_logs: addFriendEvent 写入并返回整行', () => {
+  const db = newDb();
+  db.upsertFriend('usr_a', { displayName: '甲', avatarUrl: 'https://x/a.png' });
+  const row = db.addFriendEvent({
+    type: '切换世界', at: 1700000000000,
+    friend_vrchat_id: 'usr_a', friend_name: '甲', friend_avatar: 'https://x/a.png',
+    old_state: 'online', new_state: 'online',
+    old_world_id: 'wrld_1', old_world_name: '世界一',
+    world_id: 'wrld_2', world_name: '世界二'
+  });
+  assert.ok(row.id > 0, '返回带自增 id 的整行');
+  assert.equal(row.type, '切换世界');
+  assert.equal(row.at, 1700000000000);
+  assert.equal(row.friend_vrchat_id, 'usr_a');
+  assert.equal(row.friend_name, '甲');
+  assert.equal(row.friend_avatar, 'https://x/a.png');
+  assert.equal(row.old_world_name, '世界一');
+  assert.equal(row.world_name, '世界二');
+  assert.equal(row.title, null, '没传的列是 null');
+  const again = db.listFriendEvents({ limit: 10 }).events;
+  assert.equal(again.length, 1, '真的落库了');
+  assert.equal(again[0].id, row.id);
+});
+
+test('friend_logs: 旧库打开自动建表(不需要迁移代码)', () => {
+  const { DatabaseSync } = require('node:sqlite');
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'vrcnt-db-ev-')), 'old.db');
+  const raw = new DatabaseSync(file);
+  // 旧库(真实老 schema): 只有好友表, 完全没有 friend_events
+  raw.exec(`CREATE TABLE friends (id INTEGER PRIMARY KEY AUTOINCREMENT, friend_vrchat_id TEXT NOT NULL,
+    display_name TEXT, avatar_url TEXT, avatar_thumb_url TEXT,
+    state TEXT DEFAULT 'offline', status TEXT, world_id TEXT, instance_id TEXT,
+    status_description TEXT, platform TEXT, trust_level TEXT, pending_state TEXT, pending_at INTEGER,
+    last_seen INTEGER, created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(friend_vrchat_id))`);
+  raw.exec("INSERT INTO friends (friend_vrchat_id, display_name) VALUES ('usr_f1','朋友')");
+  raw.close();
+
+  const db = createDb(file);
+  const chk = new DatabaseSync(file, { readOnly: true });
+  const has = chk.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='friend_logs'").all();
+  chk.close();
+  assert.equal(has.length, 1, '打开旧库就把表建出来');
+  const row = db.addFriendEvent({ type: '上线', at: 5, friend_vrchat_id: 'usr_f1', friend_name: '朋友' });
+  assert.ok(row.id > 0, '建完表立刻能写');
+  assert.equal(db.listFriends().length, 1, '老数据不受影响');
+  db.close();
+});
+
+test('friend_logs: 超过条数上限丢最旧(每次写入都裁)', () => {
+  const db = newDb();
+  for (let i = 1; i <= 5; i++) {
+    db.addFriendEvent({ type: '上线', at: i, friend_vrchat_id: 'usr_a', friend_name: '甲' }, { limit: 3 });
+  }
+  const rows = db.listFriendEvents({ limit: 10 }).events;
+  assert.equal(rows.length, 3, '只留最新 3 条');
+  assert.deepEqual(rows.map((r) => r.at), [5, 4, 3], '留下的是最新的那些(倒序返回)');
+});
+
+test('friend_logs: 不传上限就不裁(交给调用方定策略)', () => {
+  const db = newDb();
+  for (let i = 1; i <= 5; i++) db.addFriendEvent({ type: '上线', at: i, friend_vrchat_id: 'usr_a' });
+  assert.equal(db.listFriendEvents({ limit: 10 }).events.length, 5);
+});
+
+test('friend_logs: listFriendEvents 倒序 / before 游标 / types / friendId / q / hasMore', () => {
+  const db = newDb();
+  db.upsertFriend('usr_a', { displayName: '甲' });
+  db.upsertFriend('usr_b', { displayName: '乙' });
+  const a1 = db.addFriendEvent({ type: '上线', at: 1, friend_vrchat_id: 'usr_a', friend_name: '甲', world_id: 'wrld_1', world_name: '世界一' });
+  const a2 = db.addFriendEvent({ type: '切换世界', at: 2, friend_vrchat_id: 'usr_a', friend_name: '甲', old_world_name: '世界一', world_id: 'wrld_2', world_name: '世界二' });
+  const b1 = db.addFriendEvent({ type: '戳一戳', at: 3, friend_vrchat_id: 'usr_b', friend_name: '乙', title: '戳了你一下' });
+
+  const first = db.listFriendEvents({ limit: 2 });
+  assert.deepEqual(first.events.map((e) => e.id), [b1.id, a2.id], '按 id 倒序(最新在前)');
+  assert.equal(first.hasMore, true, '还有更旧的');
+  const second = db.listFriendEvents({ limit: 2, before: b1.id });
+  assert.deepEqual(second.events.map((e) => e.id), [a2.id, a1.id]);
+  assert.equal(second.hasMore, false, '到尾了');
+
+  assert.deepEqual(db.listFriendEvents({ limit: 10, types: ['上线', '戳一戳'] }).events.map((e) => e.id), [b1.id, a1.id]);
+  assert.deepEqual(db.listFriendEvents({ limit: 10, types: [] }).events, [], '空集合 = 什么都不要(不是不过滤)');
+  assert.deepEqual(db.listFriendEvents({ limit: 10, friendId: 'usr_a' }).events.map((e) => e.id), [a2.id, a1.id]);
+  assert.deepEqual(db.listFriendEvents({ limit: 10, q: '世界一' }).events.map((e) => e.id), [a1.id], 'q 匹配世界名');
+  assert.deepEqual(db.listFriendEvents({ limit: 10, q: '乙' }).events.map((e) => e.id), [b1.id], 'q 匹配昵称');
+  assert.deepEqual(db.listFriendEvents({ limit: 10, q: '戳了你' }).events.map((e) => e.id), [b1.id], 'q 匹配通知文案');
+  assert.deepEqual(db.listFriendEvents({ limit: 10, q: '查无此人' }).events, []);
+});
+
+test('friend_logs: q 里的 % 与 _ 当普通字符(不当通配符)', () => {
+  const db = newDb();
+  db.upsertFriend('usr_a', { displayName: '100%猫' });
+  db.upsertFriend('usr_b', { displayName: '100X猫' });
+  db.upsertFriend('usr_c', { displayName: 'AB' });
+  db.addFriendEvent({ type: '上线', at: 1, friend_vrchat_id: 'usr_a', friend_name: '100%猫' });
+  db.addFriendEvent({ type: '上线', at: 2, friend_vrchat_id: 'usr_b', friend_name: '100X猫' });
+  db.addFriendEvent({ type: '上线', at: 3, friend_vrchat_id: 'usr_c', friend_name: 'AB' });
+  assert.deepEqual(db.listFriendEvents({ limit: 10, q: '100%' }).events.map((e) => e.at), [1], '% 不是通配符');
+  assert.deepEqual(db.listFriendEvents({ limit: 10, q: 'A_' }).events, [], '_ 不是通配符');
+});
+
+test('friend_logs: 登出与清库都带走(与好友同一生命周期)', () => {
+  const db = newDb();
+  db.upsertFriend('usr_a', { displayName: '甲' });
+  db.addFriendEvent({ type: '上线', at: 1, friend_vrchat_id: 'usr_a', friend_name: '甲' });
+  const cleared = db.clearAccountData();
+  assert.equal(cleared.events, 1, 'clearAccountData 报告清了 1 条');
+  assert.equal(db.listFriendEvents({ limit: 10 }).events.length, 0);
+
+  db.addFriendEvent({ type: '上线', at: 2, friend_vrchat_id: 'usr_a', friend_name: '甲' });
+  db.wipeAllExceptToken();
+  assert.equal(db.listFriendEvents({ limit: 10 }).events.length, 0, 'wipeAllExceptToken 也清');
+
+  db.addFriendEvent({ type: '上线', at: 3, friend_vrchat_id: 'usr_a', friend_name: '甲' });
+  db.clearSettings();
+  assert.equal(db.listFriendEvents({ limit: 10 }).events.length, 1, 'clearSettings 只动设置, 不动动态');
+  assert.equal(db.clearFriendEvents(), 1, '手动清空返回条数');
+  assert.equal(db.listFriendEvents({ limit: 10 }).events.length, 0);
+});
+
+test('friend_logs: 早期写入的 "web端上线" 开库时统一改名成界面用的 "网页上线"', () => {
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'vrcnt-db-ev2-')), 'old.db');
+  const db1 = createDb(file);
+  db1.addFriendEvent({ type: 'web端上线', at: 1, friend_vrchat_id: 'usr_a', friend_name: '甲' });
+  db1.addFriendEvent({ type: '上线', at: 2, friend_vrchat_id: 'usr_a', friend_name: '甲' });
+  db1.close();
+
+  const db2 = createDb(file); // 开库时的迁移
+  const rows = db2.listFriendEvents({ limit: 10 }).events;
+  assert.deepEqual(rows.map((r) => r.type), ['上线', '网页上线'], '老行改名, 其它类型不动');
+  db2.close();
+});
+
+test('friend_logs: 按页取(total/offset) —— 分页栏要的"共 N 条"和"跳到第 K 页"', () => {
+  const db = newDb();
+  db.upsertFriend('usr_a', { displayName: '甲' });
+  for (let i = 1; i <= 12; i++) db.addFriendEvent({ type: i % 2 ? '上线' : '下线', at: i, friend_vrchat_id: 'usr_a', friend_name: '甲' });
+
+  const p1 = db.listFriendEvents({ limit: 5, page: 1 });
+  assert.equal(p1.total, 12, '总数按筛选后的条数算');
+  assert.equal(p1.events.length, 5);
+  assert.equal(p1.hasMore, true);
+  assert.deepEqual(p1.events.map((e) => e.at), [12, 11, 10, 9, 8]);
+
+  const p2 = db.listFriendEvents({ limit: 5, page: 2 });
+  assert.deepEqual(p2.events.map((e) => e.at), [7, 6, 5, 4, 3]);
+  assert.equal(p2.hasMore, true);
+
+  const p3 = db.listFriendEvents({ limit: 5, page: 3 });
+  assert.deepEqual(p3.events.map((e) => e.at), [2, 1], '最后一页不满也照给');
+  assert.equal(p3.hasMore, false);
+
+  assert.deepEqual(db.listFriendEvents({ limit: 5, page: 9 }).events, [], '越界页给空');
+  // 筛选与总数一起考虑
+  const only = db.listFriendEvents({ limit: 5, page: 1, types: ['上线'] });
+  assert.equal(only.total, 6);
+  assert.ok(only.events.every((e) => e.type === '上线'));
+  // q 也参与总数
+  assert.equal(db.listFriendEvents({ limit: 5, q: '甲' }).total, 12);
+  assert.equal(db.listFriendEvents({ limit: 5, q: '没人' }).total, 0);
+});
+
+test('friend_logs: order 支持最早在前(表头点一下反转)', () => {
+  const db = newDb();
+  for (let i = 1; i <= 4; i++) db.addFriendEvent({ type: '上线', at: i, friend_vrchat_id: 'usr_a', friend_name: '甲' });
+  assert.deepEqual(db.listFriendEvents({ limit: 10 }).events.map((e) => e.at), [4, 3, 2, 1], '默认最新在前');
+  assert.deepEqual(db.listFriendEvents({ limit: 10, order: 'asc' }).events.map((e) => e.at), [1, 2, 3, 4], 'asc = 最早在前');
+  const p2 = db.listFriendEvents({ limit: 2, page: 2, order: 'asc' });
+  assert.deepEqual(p2.events.map((e) => e.at), [3, 4], '排序与分页能一起用');
+  assert.equal(p2.total, 4);
+});
+
+test('friend_logs: 完整位置持久化，昵称读取当前好友资料而非事件快照', () => {
+  const db = newDb();
+  db.upsertFriend('usr_a', { displayName: '当前昵称', avatarUrl: 'https://current' });
+  const row = db.addFriendEvent({
+    at: 1792252800123, type: '切换世界', friend_vrchat_id: 'usr_a',
+    old_location: 'wrld_a:12~friends(usr_host)~region(jp)',
+    location: 'wrld_a:34~private(usr_host)~canRequestInvite~region(us)',
+    friend_name: '不应保存的昵称', friend_avatar: 'https://obsolete'
+  });
+  assert.equal(row.location, 'wrld_a:34~private(usr_host)~canRequestInvite~region(us)');
+  assert.equal(row.old_instance_id, '12~friends(usr_host)~region(jp)');
+  assert.equal(row.instance_id, '34~private(usr_host)~canRequestInvite~region(us)');
+  assert.equal(row.at, 1792252800123);
+  db.updateFriendProfile(db.getFriend('usr_a').id, { displayName: '改名后' });
+  const read = db.listFriendEvents().events[0];
+  assert.equal(read.friend_name, '改名后');
+  assert.equal(read.friend_avatar, 'https://current');
+  assert.equal(db.listFriendEvents({ q: '不应保存的昵称' }).total, 0);
+  assert.equal(db.listFriendEvents({ q: '改名后' }).total, 1);
+  db.deleteFriend('usr_a');
+  assert.equal(db.listFriendEvents().events[0].friend_name, 'usr_a');
+  db.close();
+});
+
+test('friend_logs: 旧宽表迁移保留历史和游标，毫秒时间戳和无昵称结构可重开', (t) => {
+  const { DatabaseSync } = require('node:sqlite');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vrcnt-event-migration-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const file = path.join(dir, 'old.db');
+  const raw = new DatabaseSync(file);
+  raw.exec(`CREATE TABLE friend_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, type TEXT NOT NULL,
+    friend_vrchat_id TEXT,friend_name TEXT,friend_avatar TEXT,old_name TEXT,old_trust TEXT,new_trust TEXT,
+    old_state TEXT,new_state TEXT,old_status TEXT,new_status TEXT,old_desc TEXT,new_desc TEXT,
+    old_world_id TEXT,old_world_name TEXT,world_id TEXT,world_name TEXT,title TEXT,body TEXT);
+    INSERT INTO friend_events(id,at,type,friend_name) VALUES(99,1792252800123,'上线','旧昵称');
+    DELETE FROM friend_events;
+    INSERT INTO friend_events(id,at,type,friend_vrchat_id,friend_name,old_state,new_state)
+      VALUES(7,1792252800001,'web端上线','usr_a','不保存的旧名','offline','active');
+    INSERT INTO friend_events(id,at,type,friend_vrchat_id,old_world_id,old_world_name,world_id,world_name)
+      VALUES(8,1792252800002,'切换世界','usr_a','wrld_a','世界 A','wrld_b','世界 B');
+    INSERT INTO friend_events(id,at,type,friend_vrchat_id,old_status,new_status,old_desc,new_desc)
+      VALUES(9,1792252800003,'状态变化','usr_a','active','busy','旧签名','新签名');
+    INSERT INTO friend_events(id,at,type,title,body)
+      VALUES(10,1792252800004,'群组公告','旧公告','旧内容');`);
+  raw.close();
+  let db = createDb(file);
+  const migrated = db.listFriendEvents({ order: 'asc' }).events;
+  assert.deepEqual(migrated.map((r) => r.id), [7, 8, 9, 10]);
+  assert.deepEqual(migrated.map((r) => r.type), ['网页上线', '切换世界', '状态变化', '群组公告']);
+  assert.equal(migrated[0].at, 1792252800001);
+  assert.equal(migrated[0].new_state, 'active');
+  assert.equal(migrated[0].friend_name, 'usr_a', '旧昵称不搬入日志');
+  assert.equal(migrated[1].source, 'legacy');
+  assert.equal(migrated[1].old_location, 'wrld_a');
+  assert.equal(migrated[1].location, 'wrld_b');
+  assert.equal(migrated[1].instance_id, null, '历史没有实例号就保留未知');
+  assert.equal(migrated[1].world_name, '世界 B', '已有世界名迁入共享缓存');
+  assert.equal(migrated[2].old_status, 'active');
+  assert.equal(migrated[2].new_status, 'busy');
+  assert.equal(migrated[2].new_desc, '新签名');
+  assert.equal(migrated[3].title, '旧公告');
+  assert.equal(migrated[3].body, '旧内容');
+  const row = db.addFriendEvent({ at: 1792252800456, type: '上线', friend_vrchat_id: 'usr_a', new_state: 'online' });
+  assert.ok(row.id > 99, '迁移保留已删除行的 ID 高水位，客户端旧游标不会碰撞');
+  db.close();
+  db = createDb(file);
+  assert.equal(db.listFriendEvents().events[0].at, 1792252800456);
+  assert.equal(db.listFriendEvents().events[0].new_state, 'online');
+  assert.equal(db.listFriendEvents().total, 5);
+  db.close();
+  const check = new DatabaseSync(file, { readOnly: true });
+  try {
+    for (const name of ['friend_logs','friend_log_location','friend_log_presence','friend_log_status','friend_log_notifications']) {
+      const cols = check.prepare(`PRAGMA table_info(${name})`).all().map((c) => c.name);
+      assert.ok(!cols.some((c) => /name|avatar/.test(c)), name + ' 不保存名字或头像');
+    }
+    assert.equal(check.prepare('SELECT typeof(at) AS t FROM friend_logs').get().t, 'integer');
+    assert.deepEqual(check.prepare('PRAGMA foreign_key_check').all(), []);
+  } finally { check.close(); }
+});
+
+test('friend_logs: 通知去重跨重开，清空与裁剪同时释放对应通知记录', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vrcnt-event-notif-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const file = path.join(dir, 'events.db');
+  let db = createDb(file);
+  const first = db.addFriendEvent({ type: '世界邀请', at: 10, notification_id: 'n_one', location: 'wrld_a:1~region(jp)' });
+  db.close();
+  db = createDb(file);
+  assert.equal(db.addFriendEvent({ type: '世界邀请', at: 60010, notification_id: 'n_one' }), null);
+  assert.equal(db.listFriendEvents().total, 1);
+  db.addFriendEvent({ type: '状态变化', at: 20, old_status: 'active', new_status: 'busy' }, { limit: 1 });
+  assert.equal(db.listFriendEvents().total, 1);
+  const replay = db.addFriendEvent({ type: '世界邀请', at: 30, notification_id: 'n_one' });
+  assert.ok(replay.id > first.id, '旧历史被裁剪后可重新记录通知');
+  assert.equal(db.clearFriendEvents(), 2);
+  assert.ok(db.addFriendEvent({ type: '世界邀请', at: 40, notification_id: 'n_one' }));
+  db.close();
+});
+
+for (const alreadyRenamed of [false, true]) {
+  test(`friend_logs: ${alreadyRenamed ? '已改名的' : '旧表名的'}分类日志拆分位置后保留内容、外键、去重和游标`, (t) => {
+    const { DatabaseSync } = require('node:sqlite');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vrcnt-log-rename-'));
+    t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+    const file = path.join(dir, 'old.db');
+    const raw = new DatabaseSync(file);
+    raw.exec(`PRAGMA foreign_keys=ON;
+      CREATE TABLE friend_events(id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, type TEXT NOT NULL,
+        friend_vrchat_id TEXT, source TEXT NOT NULL DEFAULT 'ws', old_location TEXT, location TEXT);
+      CREATE INDEX idx_friend_events_at ON friend_events(at DESC);
+      CREATE INDEX idx_friend_events_friend ON friend_events(friend_vrchat_id,id DESC);
+      CREATE TABLE friend_event_presence(event_id INTEGER PRIMARY KEY REFERENCES friend_events(id) ON DELETE CASCADE,old_state TEXT,new_state TEXT);
+      CREATE TABLE friend_event_status(event_id INTEGER PRIMARY KEY REFERENCES friend_events(id) ON DELETE CASCADE,old_status TEXT,new_status TEXT,old_desc TEXT,new_desc TEXT);
+      CREATE TABLE friend_event_notifications(event_id INTEGER PRIMARY KEY REFERENCES friend_events(id) ON DELETE CASCADE,notification_id TEXT UNIQUE,group_id TEXT,title TEXT,body TEXT);
+      INSERT INTO friend_events VALUES(10,1792252800001,'上线','usr_a','ws',NULL,'wrld_a:1');
+      INSERT INTO friend_event_presence VALUES(10,'offline','online');
+      INSERT INTO friend_events VALUES(20,1792252800002,'状态变化','usr_a','ws','wrld_a:1','wrld_a:1');
+      INSERT INTO friend_event_status VALUES(20,'active','busy','旧签名','新签名');
+      INSERT INTO friend_events VALUES(30,1792252800003,'切换世界','usr_a','ws','wrld_a:1','wrld_a:2~region(jp)');
+      INSERT INTO friend_events VALUES(40,1792252800004,'世界邀请','usr_a','ws',NULL,'wrld_b:3');
+      INSERT INTO friend_event_notifications VALUES(40,'n_saved',NULL,'邀请','一起来');
+      INSERT INTO friend_events(id,at,type) VALUES(99,1792252800005,'上线');
+      DELETE FROM friend_events WHERE id=99;`);
+    if (alreadyRenamed) raw.exec(`
+      ALTER TABLE friend_events RENAME TO friend_logs;
+      ALTER TABLE friend_event_presence RENAME TO friend_log_presence;
+      ALTER TABLE friend_event_status RENAME TO friend_log_status;
+      ALTER TABLE friend_event_notifications RENAME TO friend_log_notifications;
+      DROP INDEX idx_friend_events_at;
+      DROP INDEX idx_friend_events_friend;
+      CREATE INDEX idx_friend_logs_at ON friend_logs(at DESC);
+      CREATE INDEX idx_friend_logs_friend ON friend_logs(friend_vrchat_id,id DESC);`);
+    raw.close();
+    let db = createDb(file);
+    const rows = db.listFriendEvents({ order: 'asc' }).events;
+    assert.deepEqual(rows.map((r) => r.id), [10,20,30,40]);
+    assert.equal(rows[0].new_state, 'online');
+    assert.equal(rows[0].location, 'wrld_a:1');
+    assert.equal(rows[1].new_desc, '新签名');
+    assert.equal(rows[1].old_location, null, '状态记录不再保留旧位置');
+    assert.equal(rows[1].location, null, '状态记录不再保留位置');
+    assert.equal(rows[2].location, 'wrld_a:2~region(jp)');
+    assert.equal(rows[3].notification_id, 'n_saved');
+    assert.equal(rows[3].location, 'wrld_b:3');
+    assert.equal(rows[3].body, '一起来');
+    assert.equal(db.addFriendEvent({ type: '世界邀请', notification_id: 'n_saved' }), null);
+    assert.ok(db.addFriendEvent({ type: '上线' }).id > 99);
+    db.close();
+    const check = new DatabaseSync(file, { readOnly: true });
+    try {
+      const names = check.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((r) => r.name);
+      for (const name of ['friend_logs','friend_log_location','friend_log_presence','friend_log_status','friend_log_notifications']) assert.ok(names.includes(name), name + ' 应存在');
+      for (const name of ['friend_events','friend_event_presence','friend_event_status','friend_event_notifications']) assert.ok(!names.includes(name), name + ' 应完成改名');
+      assert.deepEqual(check.prepare('PRAGMA table_info(friend_logs)').all().map((c) => c.name),
+        ['id','at','type','friend_vrchat_id','source']);
+      assert.equal(check.prepare('SELECT COUNT(*) AS n FROM friend_log_location').get().n, 1, '只有位置变化进入位置表');
+      assert.equal(check.prepare('SELECT event_id FROM friend_log_location').get().event_id, 30);
+      assert.deepEqual(check.prepare('PRAGMA foreign_key_check').all(), []);
+    } finally { check.close(); }
+    db = createDb(file);
+    assert.equal(db.clearFriendEvents(), 5);
+    assert.ok(db.addFriendEvent({ type: '世界邀请', notification_id: 'n_saved' }), '清空时分类表应级联清理');
+    db.close();
+  });
+}
+
+test('friend_logs: 公共流水只存公共字段，位置变化独立保存且清空时级联删除', (t) => {
+  const { DatabaseSync } = require('node:sqlite');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vrcnt-log-location-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const file = path.join(dir, 'logs.db');
+  const db = createDb(file);
+  const row = db.addFriendEvent({ type: '切换世界', at: 1792252800123, friend_vrchat_id: 'usr_a',
+    old_location: 'wrld_a:1~region(jp)', location: 'wrld_a:2~friends(usr_host)~region(us)' });
+  assert.equal(db.listFriendEvents({ types: ['切换世界'] }).events[0].location, 'wrld_a:2~friends(usr_host)~region(us)');
+  let check = new DatabaseSync(file, { readOnly: true });
+  try {
+    assert.deepEqual(check.prepare('PRAGMA table_info(friend_logs)').all().map((c) => c.name),
+      ['id','at','type','friend_vrchat_id','source']);
+    const position = check.prepare('SELECT * FROM friend_log_location').get();
+    assert.equal(position.event_id, row.id);
+    assert.equal(position.old_location, 'wrld_a:1~region(jp)');
+    assert.equal(position.location, 'wrld_a:2~friends(usr_host)~region(us)');
+  } finally { check.close(); }
+  assert.equal(db.clearFriendEvents(), 1);
+  check = new DatabaseSync(file, { readOnly: true });
+  try {
+    assert.equal(check.prepare('SELECT COUNT(*) AS n FROM friend_log_location').get().n, 0);
+    assert.deepEqual(check.prepare('PRAGMA foreign_key_check').all(), []);
+  } finally { check.close(); db.close(); }
+});
+
+test('friend_logs: 类型使用英文代码入库，中英文筛选兼容且业务文本保留原文', (t) => {
+  const { DatabaseSync } = require('node:sqlite');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vrcnt-log-types-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const file = path.join(dir, 'logs.db');
+  const db = createDb(file);
+  const types = [
+    ['上线','friend_online'], ['下线','friend_offline'],
+    ['网页上线','friend_web_online'], ['网页下线','friend_web_offline'],
+    ['状态变化','status_change'], ['自定义状态','status_description_change'],
+    ['切换世界','location_change'], ['群组公告','group_announcement'],
+    ['戳一戳','boop'], ['世界邀请','invite'], ['请求邀请','request_invite']
+  ];
+  for (const [label,code] of types) {
+    const row = db.addFriendEvent({ type: label, title: '中文公告标题', body: '中文通知正文',
+      old_desc: '旧中文签名', new_desc: '新中文签名', location: 'wrld_a:1' });
+    assert.equal(row.type, label, '原接口继续返回原有中文展示值');
+    assert.equal(db.listFriendEvents({ types: [code] }).events[0]?.id, row.id, '可用英文代码筛选');
+  }
+  const check = new DatabaseSync(file, { readOnly: true });
+  try {
+    assert.deepEqual(check.prepare('SELECT type FROM friend_logs ORDER BY id').all().map((r) => r.type), types.map(([,code]) => code));
+    assert.equal(check.prepare('SELECT COUNT(*) AS n FROM friend_log_presence').get().n, 4);
+    assert.equal(check.prepare('SELECT COUNT(*) AS n FROM friend_log_status').get().n, 2);
+    assert.equal(check.prepare('SELECT COUNT(*) AS n FROM friend_log_location').get().n, 1);
+    assert.equal(check.prepare('SELECT COUNT(*) AS n FROM friend_log_notifications').get().n, 4);
+    assert.equal(check.prepare('SELECT new_desc FROM friend_log_status LIMIT 1').get().new_desc, '新中文签名');
+    assert.equal(check.prepare('SELECT body FROM friend_log_notifications LIMIT 1').get().body, '中文通知正文');
+  } finally { check.close(); db.close(); }
+});
+
+test('friend_logs: 旧中文类型迁移成英文，重复启动及既有正文和 ID 不受影响', (t) => {
+  const { DatabaseSync } = require('node:sqlite');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vrcnt-log-type-migration-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const file = path.join(dir, 'logs.db');
+  let db = createDb(file);
+  const gps = db.addFriendEvent({ type: '切换世界', at: 1792252800001, old_location: 'wrld_a:1', location: 'wrld_a:2' });
+  const notice = db.addFriendEvent({ type: '群组公告', at: 1792252800002, notification_id: 'n_saved', body: '原始中文内容' });
+  db.close();
+  const raw = new DatabaseSync(file);
+  raw.exec('PRAGMA user_version = 0'); // 模拟尚未版本化的旧库
+  raw.prepare('UPDATE friend_logs SET type=? WHERE id=?').run('切换世界', gps.id);
+  raw.prepare('UPDATE friend_logs SET type=? WHERE id=?').run('群组公告', notice.id);
+  raw.close();
+  for (let i=0;i<2;i++) {
+    db = createDb(file);
+    assert.equal(db.listFriendEvents({ types: ['切换世界'] }).events[0].id, gps.id);
+    const notification = db.listFriendEvents({ types: ['group_announcement'] }).events[0];
+    assert.equal(notification.id, notice.id);
+    assert.equal(notification.at, 1792252800002);
+    assert.equal(notification.body, '原始中文内容');
+    assert.equal(db.addFriendEvent({ type: 'group_announcement', notification_id: 'n_saved' }), null);
+    db.close();
+  }
+  const check = new DatabaseSync(file, { readOnly: true });
+  try {
+    assert.deepEqual(check.prepare('SELECT type FROM friend_logs ORDER BY id').all().map((r) => r.type), ['location_change','group_announcement']);
+    assert.deepEqual(check.prepare('PRAGMA foreign_key_check').all(), []);
+  } finally { check.close(); }
+});
+
+test('friend_logs: 只保留各类业务必需的位置列，下线仍能读到最后实例', (t) => {
+  const { DatabaseSync } = require('node:sqlite');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vrcnt-log-trim-columns-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const file = path.join(dir, 'logs.db');
+  const db = createDb(file);
+  const offline = db.addFriendEvent({ type: 'friend_offline', old_state: 'online', new_state: 'offline', old_location: 'wrld_a:1~region(jp)', location: null });
+  assert.equal(offline.old_location, 'wrld_a:1~region(jp)');
+  assert.equal(offline.location, null);
+  const social = db.addFriendEvent({ type: 'status_change', old_status: 'active', new_status: 'busy', old_location: 'wrld_a:1', location: 'wrld_a:2' });
+  const invite = db.addFriendEvent({ type: 'invite', notification_id: 'n_one', old_location: 'wrld_a:1', location: 'wrld_b:3~region(us)' });
+  const check = new DatabaseSync(file, { readOnly: true });
+  try {
+    const expected = {
+      friend_logs: ['id','at','type','friend_vrchat_id','source'],
+      friend_log_location: ['event_id','old_location','location'],
+      friend_log_presence: ['event_id','old_state','new_state','location'],
+      friend_log_status: ['event_id','old_status','new_status','old_desc','new_desc'],
+      friend_log_notifications: ['event_id','notification_id','group_id','title','body','location']
+    };
+    for (const [table,cols] of Object.entries(expected)) {
+      assert.deepEqual(check.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name), cols, table);
+    }
+    assert.equal(check.prepare('SELECT location FROM friend_log_presence WHERE event_id=?').get(offline.id).location, 'wrld_a:1~region(jp)');
+    assert.equal(check.prepare('SELECT location FROM friend_log_notifications WHERE event_id=?').get(invite.id).location, 'wrld_b:3~region(us)');
+    assert.equal(social.location, null);
+    assert.equal(social.old_location, null);
+    assert.equal(invite.old_location, null);
+    assert.deepEqual(check.prepare('PRAGMA foreign_key_check').all(), []);
+  } finally { check.close(); db.close(); }
+});
+
+test('friend_logs: 删掉历史多余位置列时保留下线前实例和邀请目标，重复启动稳定', (t) => {
+  const { DatabaseSync } = require('node:sqlite');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vrcnt-log-context-migration-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const file = path.join(dir, 'logs.db');
+  let db = createDb(file);
+  const down = db.addFriendEvent({ type: 'friend_offline', at: 10, old_state: 'online', new_state: 'offline' });
+  const status = db.addFriendEvent({ type: 'status_change', at: 20, old_status: 'active', new_status: 'busy', new_desc: '保留签名' });
+  const invite = db.addFriendEvent({ type: 'invite', at: 30, notification_id: 'n_saved', location: 'wrld_b:2~region(jp)', body: '保留通知' });
+  db.close();
+  const raw = new DatabaseSync(file);
+  raw.exec('PRAGMA user_version = 0'); // 模拟尚未版本化的旧库
+  raw.exec(`ALTER TABLE friend_log_presence ADD COLUMN old_location TEXT;
+    ALTER TABLE friend_log_status ADD COLUMN old_location TEXT;
+    ALTER TABLE friend_log_status ADD COLUMN location TEXT;
+    ALTER TABLE friend_log_notifications ADD COLUMN old_location TEXT;`);
+  raw.prepare('UPDATE friend_log_presence SET old_location=? WHERE event_id=?').run('wrld_a:1~region(us)', down.id);
+  raw.prepare('UPDATE friend_log_status SET old_location=?,location=? WHERE event_id=?').run('wrld_a:1','wrld_a:2',status.id);
+  raw.prepare('UPDATE friend_log_notifications SET old_location=? WHERE event_id=?').run('wrld_old:9', invite.id);
+  raw.close();
+  for (let i=0;i<2;i++) {
+    db = createDb(file);
+    const rows = db.listFriendEvents({ order: 'asc' }).events;
+    assert.deepEqual(rows.map((r) => r.id), [down.id,status.id,invite.id]);
+    assert.equal(rows[0].old_location, 'wrld_a:1~region(us)');
+    assert.equal(rows[0].location, null);
+    assert.equal(rows[1].old_location, null);
+    assert.equal(rows[1].location, null);
+    assert.equal(rows[1].new_desc, '保留签名');
+    assert.equal(rows[2].old_location, null);
+    assert.equal(rows[2].location, 'wrld_b:2~region(jp)');
+    assert.equal(rows[2].body, '保留通知');
+    assert.equal(db.addFriendEvent({ type: 'invite', notification_id: 'n_saved' }), null);
+    db.close();
+  }
+  const check = new DatabaseSync(file, { readOnly: true });
+  try {
+    for (const table of ['friend_log_presence','friend_log_status','friend_log_notifications']) {
+      const columns = check.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
+      assert.ok(!columns.includes('old_location'));
+      if (table === 'friend_log_status') assert.ok(!columns.includes('location'));
+    }
+    assert.deepEqual(check.prepare('PRAGMA foreign_key_check').all(), []);
+    assert.equal(check.prepare('PRAGMA integrity_check').get().integrity_check, 'ok');
+  } finally { check.close(); }
+});

@@ -1,25 +1,7 @@
 'use strict';
-// 好友状态机: 状态派生、转移分类、上/下线的 pending 防闪烁确认(确认期间只钉住 state 一列)。
+// 好友状态机: 转移分类、上/下线的 pending 防闪烁确认(确认期间只钉住 state 一列)。
 
 const GAME_STATUSES = ['active', 'join me', 'ask me', 'busy'];
-
-/** 由 location 字符串派生 presence 状态 */
-function deriveStateFromLocation(location) {
-  const s = String(location ?? '');
-  if (s === 'offline' || s === '') return 'offline';
-  if (s === 'private' || s === 'traveling' || s.startsWith('wrld_')) return 'online';
-  return 'offline';
-}
-
-/** 由快照派生状态: CurrentUser 数组优先, location 兜底 */
-function deriveStateFromSnapshot(friend, currentUser) {
-  if (currentUser) {
-    if (Array.isArray(currentUser.onlineFriends) && currentUser.onlineFriends.includes(friend.id)) return 'online';
-    if (Array.isArray(currentUser.activeFriends) && currentUser.activeFriends.includes(friend.id)) return 'active';
-    if (Array.isArray(currentUser.offlineFriends) && currentUser.offlineFriends.includes(friend.id)) return 'offline';
-  }
-  return deriveStateFromLocation(friend.location);
-}
 
 /**
  * 分类状态转移。prev/next: {state, status, worldId, worldName, statusDescription}
@@ -170,4 +152,4 @@ function buildChange(transition, prev, next) {
   };
 }
 
-module.exports = { deriveStateFromLocation, deriveStateFromSnapshot, classifyTransition, applyChange };
+module.exports = { classifyTransition, applyChange };

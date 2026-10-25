@@ -970,6 +970,26 @@ test('世界名按需查询: 快照不查, WS 事件查一次后进缓存', asyn
   assert.equal(t.monitor.worldName.peek('wrld_a'), '世界_wrld_a', '名字落在世界名缓存里');
 });
 
+test('世界名按需查询: WS friend-update 的新世界也要解析(通知/动态里不能是空名)', async () => {
+  let worldCalls = 0;
+  const t = setup({ onlineFriends: [onlineFriend('usr_f1')] });
+  t.vrcapi.world = async (id) => { worldCalls++; return { id, name: '世界_' + id }; };
+  const user = addUser(t.db);
+  addConfig(t, 'usr_f1');
+  await t.monitor.activateUser(user, t.vrcapi);
+  t.notifications.length = 0;
+  worldCalls = 0;
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, 'fu', {
+    type: 'friend-update',
+    content: { userId: 'usr_f1', user: { id: 'usr_f1', displayName: 'F1', status: 'active', location: 'wrld_new:1~region(us)' } }
+  });
+  assert.equal(worldCalls, 1, 'friend-update 也应触发一次世界名查询');
+  assert.equal(t.db.getFriend('usr_f1').world_id, 'wrld_new');
+  assert.equal(t.monitor.worldName.peek('wrld_new'), '世界_wrld_new', '名字写进世界名缓存');
+  assert.equal(t.notifications.length, 1, '切换世界通知照常发出');
+  assert.equal(t.notifications[0].change.newWorld, '世界_wrld_new', '通知里带解析出的世界名');
+});
+
 test('snapshot keeps social/custom status when friend offline via API list', async () => {
   const t = setup({ onlineFriends: [onlineFriend('usr_f1')] });
   const user = addUser(t.db);
@@ -1964,4 +1984,521 @@ test('watchdog: 退避重连中(已有重连计划)不打断节奏', async () =>
   t.pipeline.reconnects = 0;
   await t.monitor.runWatchdog();
   assert.equal(t.pipeline.reconnects, 0, '退避重连中不应被 watchdog 打断');
+});
+
+// ---------- 好友动态: notifyField 为 null 的变化只记录, 不推送 ----------
+
+test('好友动态: notifyField 为 null 的变化(网页下线)不发通知, 但要能被记录', async () => {
+  const t = setup({ activeFriends: [onlineFriend('usr_f1')] });
+  const user = addUser(t.db);
+  addConfig(t, 'usr_f1');   // 该好友所有通知开关都开
+  await t.monitor.activateUser(user, t.vrcapi);
+  assert.equal(t.db.getFriend('usr_f1').state, 'active', '先让他在网页在线状态');
+  t.notifications.length = 0;
+
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '1', { type: 'friend-offline', content: { userId: 'usr_f1', platform: '' } });
+
+  assert.equal(t.db.getFriend('usr_f1').state, 'offline', '状态照样落地');
+  assert.equal(t.notifications.length, 0, 'notifyField 为 null = 只记录不通知(开关全开也不推)');
+});
+
+function events(t) { return t.db.listFriendEvents({ limit: 100 }).events; }
+function seedFriend(t, id, over = {}) {
+  t.db.upsertFriend(id, { displayName: '朋友' + id, state: 'offline', ...over });
+  return t.db.getFriend(id);
+}
+
+test('好友动态: 上线写一行(昵称/目的地世界/时间用注入的时钟)', async () => {
+  const t = setup();
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+  seedFriend(t, 'usr_f1');
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '1', { type: 'friend-online', content: { userId: 'usr_f1', platform: 'standalonewindows', location: 'wrld_b:2~region(jp)', user: { id: 'usr_f1', displayName: '朋友usr_f1', status: 'join me', statusDescription: 'hi' } } });
+
+  const rows = events(t);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].type, '上线');
+  assert.equal(rows[0].friend_vrchat_id, 'usr_f1');
+  assert.equal(rows[0].friend_name, '朋友usr_f1');
+  assert.equal(rows[0].old_state, 'offline');
+  assert.equal(rows[0].new_state, 'online');
+  assert.equal(rows[0].world_id, 'wrld_b', '落地世界记为目的地');
+  assert.equal(rows[0].old_world_id, null);
+  assert.equal(rows[0].at, 1000000, '用注入的 now');
+});
+
+test('好友动态: 切换世界写一行(从哪到哪，名字读取缓存)', async () => {
+  const t = setup();
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+  seedFriend(t, 'usr_f1', { state: 'online', worldId: 'wrld_a' });
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '1', { type: 'friend-location', content: { userId: 'usr_f1', location: 'wrld_b:2~region(jp)', user: { id: 'usr_f1', displayName: '朋友usr_f1', status: 'join me' } } });
+
+  const rows = events(t);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].type, '切换世界');
+  assert.equal(rows[0].old_world_id, 'wrld_a');
+  assert.equal(rows[0].world_id, 'wrld_b');
+  assert.equal(rows[0].world_name, '世界_wrld_b', '查询时从现有缓存补世界名');
+  assert.equal(rows[0].old_world_name, null, '旧世界名缓存里没有就留 null(前端再按 id 补)');
+  assert.equal(t.notifications.length, 0, '默认配置下不推送(这条只验证记录)');
+});
+
+test('好友动态: 状态变化写一行(社交状态 old→new, 不等通知合并窗口)', async () => {
+  const t = setup({ statusCoalesceMs: 3000 });
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+  seedFriend(t, 'usr_f1', { state: 'online', worldId: 'wrld_a', instanceId: '1', status: 'join me' });
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '1', { type: 'friend-update', content: { userId: 'usr_f1', user: { id: 'usr_f1', displayName: '朋友usr_f1', status: 'busy', location: 'wrld_a:1' } } });
+
+  const rows = events(t);
+  assert.equal(rows.length, 1, '状态变化立刻落库(推送那边还在等合并窗口)');
+  assert.equal(rows[0].type, '状态变化');
+  assert.equal(rows[0].old_status, 'join me');
+  assert.equal(rows[0].new_status, 'busy');
+  assert.equal(rows[0].world_id, null, '状态日志不保存位置');
+  assert.equal(t.db.getFriend('usr_f1').world_id, 'wrld_a', '好友当前世界仍正常保存');
+  assert.equal(rows[0].old_world_id, null);
+});
+
+test('好友动态: 网页下线写一行(只记录不推送)', async () => {
+  const t = setup({ activeFriends: [onlineFriend('usr_f1')] });
+  const user = addUser(t.db);
+  addConfig(t, 'usr_f1');
+  await t.monitor.activateUser(user, t.vrcapi);
+  t.notifications.length = 0;
+
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '1', { type: 'friend-offline', content: { userId: 'usr_f1', platform: '' } });
+
+  const rows = events(t);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].type, '网页下线');
+  assert.equal(rows[0].old_state, 'active');
+  assert.equal(rows[0].new_state, 'offline');
+  assert.equal(t.notifications.length, 0, '只进动态, 不推送');
+});
+
+test('好友动态: 下线立即记录, pending 确认不重复', async () => {
+  let clock = 0;
+  const t = setup({ now: () => clock });
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+  seedFriend(t, 'usr_f1', { state: 'online', worldId: 'wrld_a' });
+  setConfig(t.db, 'usr_f1');
+
+  clock = 5000;
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '1', { type: 'friend-offline', content: { userId: 'usr_f1', platform: '' } });
+  assert.equal(events(t).length, 1, 'pending 期间已经记下观察到的下线');
+  assert.equal(t.db.getFriend('usr_f1').pending_state, 'offline');
+
+  clock = 100000; // 远超 30s 确认窗口
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '2', { type: 'friend-offline', content: { userId: 'usr_f1', platform: '' } });
+  const rows = events(t);
+  assert.equal(rows.length, 1, '确认后正好一行');
+  assert.equal(rows[0].type, '下线');
+  assert.equal(rows[0].at, 5000, '用 pending_at(看到下线的时刻), 不是确认时刻');
+});
+
+test('好友动态: pending 期间又上线追加回退记录', async () => {
+  let clock = 0;
+  const t = setup({ now: () => clock });
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+  seedFriend(t, 'usr_f1', { state: 'online', worldId: 'wrld_a' });
+  setConfig(t.db, 'usr_f1');
+
+  clock = 5000;
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '1', { type: 'friend-offline', content: { userId: 'usr_f1', platform: '' } });
+  clock = 10000;
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '2', { type: 'friend-online', content: { userId: 'usr_f1', location: 'wrld_a:1', user: { id: 'usr_f1', displayName: '朋友usr_f1', status: 'active' } } });
+
+  assert.deepEqual(events(t).map((r) => r.type), ['上线', '下线'], '保留首次观察及回退');
+  assert.equal(t.db.getFriend('usr_f1').pending_state, null);
+});
+
+test('好友动态: 首次全量对账(opts.silent)不写任何记录', async () => {
+  const t = setup({ onlineFriends: [onlineFriend('usr_f1')], activeFriends: [onlineFriend('usr_f2')], offlineFriends: [offlineFriend('usr_f3')] });
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+
+  assert.equal(t.db.listFriends().length, 3, '好友照常入库');
+  assert.equal(events(t).length, 0, '登录/重启的第一次对账不灌历史');
+});
+
+test('好友动态: 写日志失败不影响状态落地与通知', async () => {
+  const warns = [];
+  const t = setup({ confirmDelayMs: 0, logger: { debug: () => {}, info: () => {}, warn: (m) => warns.push(m), error: () => {} } });
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+  seedFriend(t, 'usr_f1');
+  setConfig(t.db, 'usr_f1');
+  t.db.addFriendEvent = () => { throw new Error('磁盘满了'); };
+
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '1', { type: 'friend-online', content: { userId: 'usr_f1', location: 'wrld_a:1', user: { id: 'usr_f1', displayName: '朋友usr_f1', status: 'active' } } });
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '2', { type: 'friend-online', content: { userId: 'usr_f1', location: 'wrld_a:1', user: { id: 'usr_f1', displayName: '朋友usr_f1', status: 'active' } } });
+
+  assert.equal(t.db.getFriend('usr_f1').state, 'online', '状态照样落地');
+  assert.equal(t.notifications.length, 1, '通知照样发');
+  assert.ok(warns.some((w) => w.includes('写好友动态失败')), '只留一条 warn: ' + JSON.stringify(warns));
+});
+
+test('好友动态: 改名只更新当前资料，不保存昵称历史', async () => {
+  const t = setup();
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+  seedFriend(t, 'usr_f1', { state: 'online', displayName: '旧名字' });
+
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '1', { type: 'friend-update', content: { userId: 'usr_f1', user: { id: 'usr_f1', displayName: '新名字', status: 'active' } } });
+
+  assert.equal(events(t).length, 0);
+  assert.equal(t.db.getFriend('usr_f1').display_name, '新名字');
+});
+
+test('好友动态: 名字没变不写, 首次拿到名字(旧值为空)也不写', async () => {
+  const t = setup();
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+  seedFriend(t, 'usr_f1', { state: 'online', displayName: '同一个名字' });
+
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '1', { type: 'friend-update', content: { userId: 'usr_f1', user: { id: 'usr_f1', displayName: '同一个名字', status: 'active' } } });
+  assert.equal(events(t).length, 0, '同名不算改名');
+
+  const f = seedFriend(t, 'usr_f2', { state: 'online', displayName: null });
+  assert.equal(f.display_name, null);
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '2', { type: 'friend-update', content: { userId: 'usr_f2', user: { id: 'usr_f2', displayName: '第一次拿到', status: 'active' } } });
+  assert.equal(events(t).length, 0, '从无到有不算改名');
+});
+
+test('好友动态: 信任等级变化只更新资料，不记录范围外动态', async () => {
+  const t = setup({ onlineFriends: [onlineFriend('usr_f1', { tags: ['system_trust_basic'] })] });
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+  assert.equal(t.db.getFriend('usr_f1').trust_level, 'New User', '首次对账静默建基线');
+  assert.equal(events(t).length, 0);
+
+  // 再对账时他已经是 Known User(快照是信任等级唯一的来源)
+  t.rosters.onlineList[0].tags = ['system_trust_trusted'];
+  await t.monitor.runSnapshot(user.vrchat_user_id);
+
+  assert.equal(events(t).length, 0);
+  assert.equal(t.db.getFriend('usr_f1').trust_level, 'Known User', '等级照样落地');
+});
+
+test('好友动态: 信任等级没变不写, 从无到有(旧值为空)也不写', async () => {
+  const t = setup({ onlineFriends: [onlineFriend('usr_f1', { tags: ['system_trust_basic'] })] });
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+  await t.monitor.runSnapshot(user.vrchat_user_id);
+  assert.equal(events(t).length, 0, '等级没变');
+
+  // 旧库里没有信任等级的老好友, 第一次拿到等级不该记成"变化"
+  t.db.upsertFriend('usr_f2', { displayName: '朋友usr_f2', state: 'online', worldId: 'wrld_a', instanceId: '1~region(us)', status: 'active', trustLevel: null });
+  assert.equal(t.db.getFriend('usr_f2').trust_level, null);
+  t.rosters.onlineList.push(onlineFriend('usr_f2', { tags: ['system_trust_basic'] }));
+  await t.monitor.runSnapshot(user.vrchat_user_id);
+  assert.equal(t.db.getFriend('usr_f2').trust_level, 'New User', '等级补上了');
+  assert.deepEqual(events(t).map((e) => e.type), [], '从无到有不记');
+});
+
+test('好友动态: 新增好友只建基线，不记录关系变化', async () => {
+  const t = setup();
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '1', { type: 'friend-add', content: { userId: 'usr_f1', location: 'wrld_a:1', user: { id: 'usr_f1', displayName: '新朋友', status: 'active' } } });
+
+  assert.equal(events(t).length, 0);
+  assert.equal(t.db.getFriend('usr_f1').display_name, '新朋友');
+
+  // 首次对账一次性建基线的好友不算"新增"(否则登录一次刷一屏)
+  const t2 = setup({ onlineFriends: [onlineFriend('usr_x')] });
+  const user2 = addUser(t2.db);
+  await t2.monitor.activateUser(user2, t2.vrcapi);
+  assert.equal(t2.db.listFriends().length, 1);
+  assert.equal(events(t2).length, 0);
+});
+
+test('好友动态: 快照对账删除好友，不新增关系变化日志', async () => {
+  const t = setup({ onlineFriends: [onlineFriend('usr_f1')] });
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+  assert.equal(events(t).length, 0);
+
+  t.rosters.onlineList.length = 0; // 名册里没有他了(名册可用 → 判定为已不是好友)
+  await t.monitor.runSnapshot(user.vrchat_user_id);
+
+  assert.equal(t.db.getFriend('usr_f1'), null, '好友记录被移除');
+  assert.equal(events(t).length, 0);
+});
+
+test('好友动态: pending 验证删除好友时保留已观察的下线，不增加关系日志', async () => {
+  const t = setup({ confirmDelayMs: 20, now: () => Date.now(), onlineFriends: [onlineFriend('usr_f1')] });
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+  setConfig(t.db, 'usr_f1');
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '1', { type: 'friend-online', content: { userId: 'usr_f1', location: 'wrld_a:1~region(us)', user: { id: 'usr_f1', displayName: '朋友usr_f1', status: 'active' } } });
+  // 下线挂 pending; 到期验证时名册里已经没这个人了 → 视为已删除好友
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '2', { type: 'friend-offline', content: { userId: 'usr_f1', platform: '' } });
+  t.vrcapi.me = async () => ({ id: 'usr_me', friends: [], onlineFriends: [], activeFriends: [], offlineFriends: [] });
+  await new Promise((r) => setTimeout(r, 120));
+
+  assert.equal(t.db.getFriend('usr_f1'), null, '好友记录被移除');
+  const rows = events(t);
+  assert.equal(rows.length, 1, '只保留已观察到的下线');
+  assert.equal(rows[0].type, '下线');
+  assert.equal(rows[0].friend_vrchat_id, 'usr_f1');
+});
+
+test('好友动态: 站内通知开关关着也记日志(戳一戳)', async () => {
+  const t = setup();
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+  t.db.updateGlobalSettings({ notify_boop: 0 });
+  t.db.upsertFriend('usr_f9', { displayName: '好友九', state: 'offline' });
+
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '1', { type: 'notification-v2', content: { id: 'n_boop', version: 2, type: 'boop', senderUserId: 'usr_f9', message: '戳了你一下' } });
+
+  assert.equal(t.notifications.length, 0, '开关关着不推送');
+  const rows = events(t);
+  assert.equal(rows.length, 1, '但要进动态');
+  assert.equal(rows[0].type, '戳一戳');
+  assert.equal(rows[0].friend_vrchat_id, 'usr_f9');
+  assert.equal(rows[0].friend_name, '好友九');
+  assert.equal(rows[0].title, '戳一戳');
+  assert.equal(rows[0].body, '戳了你一下');
+  assert.equal(rows[0].world_id, null);
+});
+
+test('好友动态: 世界邀请记一行(带邀请的世界), 开关开着时照旧推送', async () => {
+  const t = setup();
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+  t.db.upsertFriend('usr_f9', { displayName: '好友九', state: 'offline' });
+
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '1', { type: 'notification-v2', content: { id: 'n_inv', version: 2, type: 'invite', senderUserId: 'usr_f9', title: '邀请', message: '一起来', details: { worldId: 'wrld_x', worldName: '某个世界' } } });
+
+  const rows = events(t);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].type, '世界邀请');
+  assert.equal(rows[0].friend_name, '好友九');
+  assert.equal(rows[0].world_id, 'wrld_x');
+  assert.equal(rows[0].world_name, '某个世界');
+  assert.equal(rows[0].title, '邀请');
+  assert.equal(rows[0].body, '一起来');
+  assert.equal(t.notifications.length, 1, '默认开着 → 照旧推送');
+});
+
+test('好友动态: 群组公告记一行(群名当发送者, 没有好友 id)', async () => {
+  const t = setup();
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '1', { type: 'notification-v2', content: { id: 'n_ga', version: 2, type: 'group.announcement', title: '公告', message: '开会了', link: 'group:grp_g1' } });
+
+  const rows = events(t);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].type, '群组公告');
+  assert.equal(rows[0].friend_vrchat_id, null);
+  assert.equal(rows[0].friend_name, '群组_grp_g1', '群名解析出来当发送者');
+  assert.equal(rows[0].title, '公告');
+  assert.equal(rows[0].body, '开会了');
+});
+
+test('好友动态: 同一条通知(同 id)重放只记一行, 也只推一次', async () => {
+  const t = setup();
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+  t.db.upsertFriend('usr_f9', { displayName: '好友九', state: 'offline' });
+  const n = { type: 'notification-v2', content: { id: 'n_dup', version: 2, type: 'boop', senderUserId: 'usr_f9', message: '戳' } };
+
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '1', n);
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '2', n);
+
+  assert.equal(events(t).length, 1, '同一条通知只留一行');
+  assert.equal(t.notifications.length, 1, '推送也只一次');
+});
+
+test('好友动态: 推送范围外的站内通知(好友请求/私信/系统)不记', async () => {
+  const t = setup();
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+  t.db.upsertFriend('usr_f9', { displayName: '好友九', state: 'offline' });
+
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '1', { type: 'notification-v2', content: { id: 'n_fr', version: 2, type: 'friendRequest', senderUserId: 'usr_f9', title: '好友请求', message: 'hi' } });
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '2', { type: 'notification-v2', content: { id: 'n_msg', version: 2, type: 'message', senderUserId: 'usr_f9', title: 'msg', message: 'yo' } });
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '3', { type: 'notification-v2', content: { id: 'n_sys', version: 2, type: 'system', title: '频道公告', message: 'hello' } });
+
+  assert.equal(events(t).length, 0, '不推送的类型也不记');
+  assert.equal(t.notifications.length, 0);
+});
+
+test('好友动态: 网页上线的日志类型用界面上的说法(网页上线, 不是通知里的 web端上线)', async () => {
+  const t = setup();
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+  seedFriend(t, 'usr_f1');
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '1', { type: 'friend-active', content: { userId: 'usr_f1', platform: 'web', user: { id: 'usr_f1', displayName: '朋友usr_f1', status: 'active' } } });
+
+  const rows = events(t);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].type, '网页上线', '日志类型必须与界面档位同名, 否则筛选与配色都对不上');
+  assert.equal(rows[0].old_state, 'offline');
+  assert.equal(rows[0].new_state, 'active');
+});
+
+test('好友动态: 同世界切实例及访问权限变化保留完整位置，重复 WS 不刷屏', async () => {
+  const t = setup();
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+  seedFriend(t, 'usr_f1', { state: 'online', status: 'active', worldId: 'wrld_a', instanceId: '12~friends(usr_host)~region(jp)' });
+  const msg = { type: 'friend-location', content: { userId: 'usr_f1', location: 'wrld_a:34~private(usr_host)~canRequestInvite~region(us)', user: { id: 'usr_f1', status: 'active' } } };
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '', msg);
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '', msg);
+  const rows = events(t);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].type, '切换世界');
+  assert.equal(rows[0].old_location, 'wrld_a:12~friends(usr_host)~region(jp)');
+  assert.equal(rows[0].location, msg.content.location);
+  assert.equal(rows[0].source, 'ws');
+  assert.equal(t.notifications.length, 0, '实例日志不改变原有 QQ 通知规则');
+});
+
+test('好友动态: 同条 WS 的位置、社交状态和签名变化分别可筛选', async () => {
+  const t = setup();
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+  seedFriend(t, 'usr_f1', { state: 'online', status: 'active', statusDescription: '旧签名', worldId: 'wrld_a', instanceId: '1' });
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '', { type: 'friend-location', content: { userId: 'usr_f1', location: 'wrld_b:2', user: { id: 'usr_f1', status: 'busy', statusDescription: '新签名' } } });
+  assert.deepEqual(events(t).map((r) => r.type).sort(), ['切换世界', '状态变化', '自定义状态'].sort());
+  const status = t.db.listFriendEvents({ types: ['状态变化'] }).events[0];
+  assert.equal(status.old_status, 'active');
+  assert.equal(status.new_status, 'busy');
+  assert.equal(status.old_desc, '旧签名');
+  assert.equal(status.new_desc, '新签名');
+  assert.equal(status.location, null, '状态记录不保存位置');
+  assert.equal(t.db.listFriendEvents({ types: ['切换世界'] }).events[0].location, 'wrld_b:2');
+});
+
+test('好友动态: 世界名请求未完成时已经记录 WS 收到时间和位置', async () => {
+  let clock = 10, release;
+  const t = setup({ now: () => clock });
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+  seedFriend(t, 'usr_f1', { state: 'online', status: 'active', worldId: 'wrld_a', instanceId: '1' });
+  t.vrcapi.world = () => new Promise((resolve) => { release = resolve; });
+  const processing = t.monitor.handlePipelineEvent(user.vrchat_user_id, '', { type: 'friend-location', content: { userId: 'usr_f1', location: 'wrld_b:2', user: { id: 'usr_f1', status: 'active' } } });
+  try {
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(events(t).length, 1, '落库不等待世界名');
+    assert.equal(events(t)[0].at, 10);
+    clock = 100;
+  } finally {
+    release({ id: 'wrld_b', name: '世界 B' });
+    await processing;
+  }
+  assert.equal(events(t)[0].at, 10);
+  assert.equal(events(t)[0].world_name, '世界 B', '之后从共享缓存补名字');
+});
+
+test('好友动态: 请求邀请保留通知 ID 和完整实例，关闭推送不补发 REST，跨窗口重放不重复', async () => {
+  let clock = 100;
+  const t = setup({ now: () => clock });
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+  t.db.updateGlobalSettings({ notify_invite: 0 });
+  let worldCalls = 0;
+  t.vrcapi.world = async () => { worldCalls++; return { name: '不能因日志而请求' }; };
+  const msg = { type: 'notification', content: { id: 'n_request', type: 'requestInvite', senderUserId: 'usr_f1', details: JSON.stringify({ worldId: 'wrld_b:34~friends(usr_host)~region(jp)' }) } };
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '', msg);
+  clock += 60000;
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '', msg);
+  assert.equal(events(t).length, 1);
+  assert.equal(events(t)[0].type, '请求邀请');
+  assert.equal(events(t)[0].notification_id, 'n_request');
+  assert.equal(events(t)[0].world_id, 'wrld_b');
+  assert.equal(events(t)[0].location, 'wrld_b:34~friends(usr_host)~region(jp)');
+  assert.equal(worldCalls, 0);
+  assert.equal(t.notifications.length, 0);
+});
+
+test('好友动态: 局部位置消息不伪造社交状态和签名回退', async () => {
+  const t = setup();
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+  seedFriend(t, 'usr_f1', { state: 'online', status: 'busy', statusDescription: '请勿打扰', worldId: 'wrld_a', instanceId: '1' });
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '', { type: 'friend-location', content: { userId: 'usr_f1', location: 'wrld_b:2' } });
+  assert.deepEqual(events(t).map((r) => r.type), ['切换世界']);
+  assert.equal(t.db.getFriend('usr_f1').status, 'busy');
+  assert.equal(t.db.getFriend('usr_f1').status_description, '请勿打扰');
+});
+
+test('好友动态: friend-update 携带位置时使用消息里的世界和实例', async () => {
+  const t = setup();
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+  seedFriend(t, 'usr_f1', { state: 'online', status: 'active', worldId: 'wrld_a', instanceId: '1' });
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '', { type: 'friend-update', content: { user: { id: 'usr_f1', location: 'wrld_b:2~region(jp)' } } });
+  assert.equal(events(t).length, 1);
+  assert.equal(events(t)[0].old_location, 'wrld_a:1');
+  assert.equal(events(t)[0].location, 'wrld_b:2~region(jp)');
+  assert.equal(t.db.getFriend('usr_f1').world_id, 'wrld_b');
+});
+
+test('好友动态: 通知写入失败后重放可补录，SSE 只发送成功的新记录', async () => {
+  const t = setup();
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+  t.db.updateGlobalSettings({ notify_boop: 0 });
+  const inserted = [];
+  t.bus.on('friend-event', (row) => inserted.push(row));
+  const add = t.db.addFriendEvent.bind(t.db);
+  let fail = true;
+  t.db.addFriendEvent = (...args) => { if (fail) { fail = false; throw new Error('暂时写入失败'); } return add(...args); };
+  const msg = { type: 'notification-v2', content: { id: 'n_retry', type: 'boop', senderUserId: 'usr_f1' } };
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '', msg);
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '', msg);
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '', msg);
+  assert.equal(events(t).length, 1);
+  assert.equal(events(t)[0].notification_id, 'n_retry');
+  assert.equal(inserted.length, 1);
+});
+
+test('好友动态: 传送中的 WS 和快照保留最后实例，不伪造离开及返回', async () => {
+  const t = setup({ onlineFriends: [onlineFriend('usr_f1')] });
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '', { type: 'friend-location', content: { userId: 'usr_f1', location: 'traveling' } });
+  t.rosters.onlineList[0].location = 'traveling';
+  await t.monitor.runSnapshot(user.vrchat_user_id);
+  assert.equal(t.db.getFriend('usr_f1').instance_id, '1~region(us)');
+  assert.equal(events(t).length, 0);
+  t.rosters.onlineList[0].location = 'wrld_a:1~region(us)';
+  await t.monitor.runSnapshot(user.vrchat_user_id);
+  assert.equal(events(t).length, 0, '回到原实例不算换实例');
+});
+
+// ---------- 好友动态: 保留条数默认不限制, 只有开启设置才自动清理 ----------
+test('好友动态: 未设置保留条数时按不限制写入(limit=0)', async () => {
+  const t = setup();
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+  seedFriend(t, 'usr_f1', { state: 'online', status: 'active', worldId: 'wrld_a', instanceId: '1' });
+  const limits = [];
+  const add = t.db.addFriendEvent.bind(t.db);
+  t.db.addFriendEvent = (ev, opts) => { limits.push(opts && opts.limit); return add(ev, opts); };
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '', { type: 'friend-location', content: { userId: 'usr_f1', location: 'wrld_b:2' } });
+  assert.deepStrictEqual(limits, [0], '默认应传 0 表示不限制(不自动清理)');
+});
+
+test('好友动态: 设置 friend_event_limit 后才按该条数清理', async () => {
+  const t = setup();
+  const user = addUser(t.db);
+  await t.monitor.activateUser(user, t.vrcapi);
+  t.db.updateGlobalSettings({ friend_event_limit: 1234 });
+  seedFriend(t, 'usr_f1', { state: 'online', status: 'active', worldId: 'wrld_a', instanceId: '1' });
+  const limits = [];
+  const add = t.db.addFriendEvent.bind(t.db);
+  t.db.addFriendEvent = (ev, opts) => { limits.push(opts && opts.limit); return add(ev, opts); };
+  await t.monitor.handlePipelineEvent(user.vrchat_user_id, '', { type: 'friend-location', content: { userId: 'usr_f1', location: 'wrld_b:2' } });
+  assert.deepStrictEqual(limits, [1234]);
 });
