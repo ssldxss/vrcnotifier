@@ -127,5 +127,3 @@ npm start                    # 面板 + API 同源 :3000(默认行为, 打开 ht
 <img width="1254" height="1254" alt="psc" src="https://github.com/user-attachments/assets/43077f4e-4fc1-4b8d-bd18-499edef84a52" />
 
 也就只能写写readme了
-
-开发维护与接口约定见 [ARCHITECTURE.md](ARCHITECTURE.md) 和 [API.md](API.md)。后端与单元测试运行 `npm test`；安装 Chromium（`npx playwright install --with-deps chromium`）后运行 `npm run test:browser`，覆盖浏览器交互与实际应用进程启动、重启。
