@@ -1,4 +1,3 @@
-⚠️ **【重要】VRChat 官方 API 近期调整，好友资料不再返回头像缩略图字段，导致旧版本的好友头像无法加载（自己的头像正常）。其他受影响范围正在评估中。请及时更新到最新镜像修复：`docker compose pull && docker compose up -d`。**
 
 # vrcnotifier  [![Docker Pulls](https://img.shields.io/docker/pulls/sihenglu/vrcnotifier-backend)](https://hub.docker.com/r/sihenglu/vrcnotifier-backend)  
 
