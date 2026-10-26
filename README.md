@@ -8,8 +8,6 @@ VRChat 好友监控与通知器:WebSocket 实时好友**上线 / 下线 / 切换
 
 将以下内容保存为 `docker-compose.yml`:
 
-> 完整文件见仓库根目录 [`docker-compose.yml`](./docker-compose.yml)(含逐项注释)。
-
 ```yaml
 name: vrcnotifier
 
@@ -114,11 +112,6 @@ npm start                    # 面板 + API 同源 :3000(默认行为, 打开 ht
 ## 环境变量
 
 `PORT` `ACCESS_TOKEN` `MASTER_KEY` `VRC_API_URL` `VRC_WS_URL` `QQ_API_BASE` `QQ_WS_URL` `VRC_STATUS_URL` `USER_AGENT` `SNAPSHOT_INTERVAL_MS` `DEDUPE_WINDOW_MS` `WATCHDOG_MS` `WATCHDOG_CHECK_MS` `WS_PING_INTERVAL_MS` `WS_PONG_TIMEOUT_MS` `RECONNECT_MAX_MS` `SERVE_STATIC`(默认开: 同源托管面板; 置 `0` 只跑 API) `LOG_SEGMENT_MB` `LOG_MAX_FILES`
-
-## 日志文件
-
-后端日志写入 `data/logs/`:分段存储,一段一个文件(2MB),以创建时间命名(`vrcnotifier-20260909-120000-123.log`)。
-
 
 灵感来自 [shanyaojinjn/VRC-Notifier](https://github.com/shanyaojinjn/VRC-Notifier):改用 WebSocket 实时事件 + QQ 机器人集成,极致的vrcapi调用(平均3次/h)。
 
