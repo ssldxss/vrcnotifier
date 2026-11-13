@@ -826,15 +826,47 @@ test('auto-relogin network failure keeps retrying without deactivating (no serve
   assert.equal(ctx.notifications.filter((n) => String(n.change.notificationBody).includes('自动重新登录失败')).length, 0, '失败通知由 monitor 故障窗口统一负责');
 });
 
-test('auto-relogin with wrong password gives up and deactivates', async (t) => {
+test('auto-relogin with wrong password immediately notifies and deactivates', async (t) => {
   const ctx = setup({ reloginRetryBaseMs: 40, reloginRetryJitterMs: 0 });
   t.after(() => close(ctx));
   await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: true });
   ctx.vrcapi.login = async () => { const e = new Error('Invalid Username/Email or Password'); e.status = 401; throw e; };
   ctx.bus.emit('relogin-needed', { userId: 'usr_me', reason: 'IP 变化' });
   await sleep(60);
+  assert.equal(ctx.notifications.length, 1, '第一次凭据无效即通知, 不等待 5 分钟');
+  assert.equal(ctx.notifications[0].change.eventType, 'vrc_system');
+  assert.equal(ctx.notifications[0].change.notificationTitle, '⚠️ VRChat 登录失败');
+  assert.equal(ctx.notifications[0].change.notificationBody, 'VRChat 用户名/邮箱或密码无效, 监控已停用, 请重新登录');
   assert.ok(ctx.pipeline.disconnects.length >= 1, '密码错误: 停用会话');
-  assert.equal(ctx.notifications.filter((n) => String(n.change.notificationBody).includes('已自动重新登录')).length, 0);
+});
+
+test('auto login with saved wrong password immediately notifies without an active session', async (t) => {
+  const ctx = setup();
+  t.after(() => close(ctx));
+  const jar = new CookieJar();
+  jar.setCookies(['auth=token123'], 'https://api.vrchat.cloud');
+  const uid = ctx.db.upsertUser('usr_me', { username: 'me', displayName: '我' });
+  ctx.db.saveCookies(uid, jar.serialize(), 'me');
+  ctx.db.savePassword(uid, 'pw');
+  ctx.vrcapi.me = async () => { const e = new Error('"Missing Credentials"'); e.status = 401; throw e; };
+  ctx.vrcapi.login = async () => { const e = new Error('"Invalid Username/Email or Password"'); e.status = 401; throw e; };
+  const r = await get(ctx, '/api/session');
+  assert.equal(r.data.loggedIn, false);
+  assert.equal(ctx.notifications.length, 1, '启动恢复首次凭据无效即通知, 不依赖活动会话');
+  assert.equal(ctx.notifications[0].user.id, uid, '通知发送给已保存账号');
+  assert.equal(ctx.notifications[0].change.notificationTitle, '⚠️ VRChat 登录失败');
+  assert.equal(ctx.notifications[0].change.notificationBody, 'VRChat 用户名/邮箱或密码无效, 监控已停用, 请重新登录');
+});
+
+test('auto-relogin with other 401 errors does not immediately notify', async (t) => {
+  const ctx = setup();
+  t.after(() => close(ctx));
+  await post(ctx, '/api/login', { username: 'me', password: 'pw', rememberMe: true });
+  ctx.vrcapi.login = async () => { const e = new Error('Unauthorized'); e.status = 401; throw e; };
+  ctx.bus.emit('relogin-needed', { userId: 'usr_me', reason: 'IP 变化' });
+  await sleep(60);
+  assert.equal(ctx.notifications.length, 0, '其他 401 保留原通知行为');
+  assert.ok(ctx.pipeline.disconnects.length >= 1, '其他 401 仍停用会话');
 });
 
 test('auto-relogin with 2FA waits for QQ code, resend command re-logins', async (t) => {

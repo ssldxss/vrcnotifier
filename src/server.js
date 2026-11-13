@@ -453,6 +453,10 @@ function createApp({
       log.warn(`[server] 自动重新登录失败(${userId}): ${e.message}`);
       if (e && e.status === 401) {
         giveUpRelogin(userId); // 密码错误等凭证问题: 立即放弃, 不退避
+        if (String(e.message || '').includes('Invalid Username/Email or Password')) {
+          // 凭据无效需人工处理: 直接通知, 不依赖已经停用的监控会话或 5 分钟故障窗口。
+          await notifyRelogin(user, 'VRChat 用户名/邮箱或密码无效, 监控已停用, 请重新登录', '⚠️ VRChat 登录失败');
+        }
         return;
       }
       // 网络/429/5xx: 指数退避重试(通知由 monitor 故障窗口负责)
