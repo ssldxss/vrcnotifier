@@ -113,7 +113,16 @@ npm start                    # 面板 + API 同源 :3000(默认行为, 打开 ht
 
 `PORT` `ACCESS_TOKEN` `MASTER_KEY` `VRC_API_URL` `VRC_WS_URL` `QQ_API_BASE` `QQ_WS_URL` `VRC_STATUS_URL` `USER_AGENT` `SNAPSHOT_INTERVAL_MS` `DEDUPE_WINDOW_MS` `WATCHDOG_MS` `WATCHDOG_CHECK_MS` `WS_PING_INTERVAL_MS` `WS_PONG_TIMEOUT_MS` `RECONNECT_MAX_MS` `SERVE_STATIC`(默认开: 同源托管面板; 置 `0` 只跑 API) `LOG_SEGMENT_MB` `LOG_MAX_FILES`
 
-灵感来自 [shanyaojinjn/VRC-Notifier](https://github.com/shanyaojinjn/VRC-Notifier):改用 WebSocket 实时事件 + QQ 机器人集成,极致的vrcapi调用(平均3次/h)。
+灵感来自 [shanyaojinjn/VRC-Notifier](https://github.com/shanyaojinjn/VRC-Notifier):改用 WebSocket 实时事件 + QQ 机器人集成  
+极致的vrcapi调用(小于4次/h)
+| 请求类型 | 平均次数/h |
+|--|--:|
+| 所有需要鉴权的端点（`/auth/user`,`/auth`,`/users/{userId}/groups`,`/auth/user/friends`） | **3.34** |
+| 世界信息查询（公开端点） | 10.35 |
+| 头像下载（公开端点） | 0.24 |
+| 健康探测（公开端点/config) | 180 |  
+
+`数据来自运行 200h 后日志统计`
 
 鉴定为玩vrc玩的
 
