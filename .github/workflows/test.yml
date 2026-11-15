@@ -2,9 +2,8 @@
 #  vrcnotifier CI: 测试(PR / 手动 / 被 release.yml 复用)
 #
 #  矩阵两档:
-#    22.13.0  package.json engines 声明的最低版本(生产镜像 node:22-alpine 恒 >= 它,
-#             所以这一档是对 22 线更严格的覆盖)
-#    24.x     本地开发版本(README 推荐)
+#    22.13.0  package.json engines 声明的最低版本, 覆盖 ARMv7 镜像使用的 Node 22
+#    24.x     AMD64/ARM64 镜像与本地推荐版本
 #
 #  测试用 Node 内置 node:test + node:sqlite, 没有 devDependencies, 故 npm ci 即可。
 #  注意: 项目里的等待普遍用 unref 定时器(生产有 HTTP server 保活), 测试脚手架需自备

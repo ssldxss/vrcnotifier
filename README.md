@@ -6,6 +6,8 @@ VRChat 好友监控与通知器:WebSocket 实时好友**上线 / 下线 / 切换
 
 ## 快速开始(Docker)
 
+镜像支持 `linux/amd64`、`linux/arm64`、`linux/arm/v7`, Docker 自动选择对应架构。AMD64/ARM64 使用 Node 24, ARMv7 使用 Node 22。
+
 将以下内容保存为 `docker-compose.yml`:
 
 ```yaml
@@ -91,7 +93,7 @@ docker compose down        # 停止(保留卷)
 
 ## 本地运行
 
-Node.js ≥ 22.13.0(推荐 24.x,依赖 node:sqlite):
+Node.js ≥ 22.13.0(AMD64/ARM64 推荐 24.x, ARMv7 使用 22.x,依赖 node:sqlite):
 
 ```bash
 npm install
