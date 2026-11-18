@@ -140,6 +140,10 @@
       </div>
     </div>
     <div class="feed-list" id="feedList"></div>
+    <div class="feed-load-state">
+      <span id="feedLoadText" role="status" aria-live="polite"></span>
+      <button class="feed-retry hidden" id="feedRetry" type="button" aria-controls="feedList">重试</button>
+    </div>
     <button class="feed-new hidden" id="feedNew"></button>
     <button class="feed-top hidden" id="feedTop" title="回到顶部" aria-label="回到顶部">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"></path></svg>

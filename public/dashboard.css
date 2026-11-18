@@ -156,6 +156,26 @@ body.variant-a .status-strip { display: none; }
 }
 
 .feed-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 4px 8px 10px; overflow-anchor: none; }
+.feed-load-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex: 0 0 auto;
+  min-height: 36px;
+  padding: 0 12px;
+  color: var(--text-2);
+  font-size: 12px;
+}
+.feed-retry {
+  padding: 4px 10px;
+  font-size: 12px;
+  color: var(--text-1);
+  background: var(--btn-sec);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+.feed-retry:hover { background: var(--btn-sec-hover); }
 .feed-day {
   position: sticky;
   top: 0;

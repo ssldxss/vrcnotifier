@@ -5,6 +5,9 @@ window.VrcDashboardFeed = {
     const { escapeHtml, EM, state, $, api, $$, toast } = context;
     const FEED_PAGE = 100;
     const FEED_DOM_MAX = 80;
+    const FEED_TIMEOUT_MS = 15000;
+    const FEED_RETRY_DELAYS = [1000, 2000];
+    const FEED_PREFETCH_SCREENS = 3;
     const FRIEND_FILTER_MAX = 5; // 好友筛选最多同时选 5 个
     const FEED_KIND_CLASS = {
       friend_online: 't-online',
@@ -271,6 +274,7 @@ window.VrcDashboardFeed = {
 
     function renderFeed() {
       const list = $('#feedList');
+      scheduleFeedCheck();
       $('#feedTotal').textContent = state.total ? '共 ' + state.total.toLocaleString() + ' 条' : '';
       updateFeedNew();
       if (!state.events.length) {
@@ -328,6 +332,7 @@ window.VrcDashboardFeed = {
       gaps[0].style.height = sp.before + 'px';
       gaps[1].style.height = sp.after + 'px';
       restoreVisibleAnchor(anchor);
+      scheduleFeedCheck();
     }
     // 渲染后量真实行高(展开行/长公告会更高), 修正占位; 不重建窗口, 避免滚动时抖动
     function measureFeedRows() {
@@ -355,6 +360,7 @@ window.VrcDashboardFeed = {
         gaps[0].style.height = sp.before + 'px';
         gaps[1].style.height = sp.after + 'px';
         restoreVisibleAnchor(anchor);
+        scheduleFeedCheck();
       });
     }
     function updateFeedNew() {
@@ -375,23 +381,105 @@ window.VrcDashboardFeed = {
       if (older && state.events.length) params.set('before', String(state.events[state.events.length - 1].id));
       return params.toString();
     }
+    let feedRequest = null;
+    let feedFailure = null;
+    let feedCheckRaf = 0;
+
+    function setFeedLoadState(text = '', retry = false) {
+      $('#feedLoadText').textContent = text;
+      $('#feedRetry').classList.toggle('hidden', !retry);
+      $('#feedList').setAttribute('aria-busy', String(!!feedRequest));
+    }
+
+    // 检查已加载数据的余量；请求结束、行高变化和容器 resize 后也检查，
+    // 避免用户停在底部时必须再滚动一下才能继续加载。
+    function scheduleFeedCheck() {
+      if (feedCheckRaf) return;
+      feedCheckRaf = requestAnimationFrame(() => {
+        feedCheckRaf = 0;
+        const list = $('#feedList');
+        if (feedRequest || feedFailure || !state.hasMore || state.feedResetPending || !list.clientHeight) return;
+        const remaining = list.scrollHeight - list.scrollTop - list.clientHeight;
+        if (remaining <= list.clientHeight * FEED_PREFETCH_SCREENS) loadFeed(true);
+      });
+    }
+
+    function waitForFeedRetry(ms, signal) {
+      return new Promise((resolve, reject) => {
+        const onAbort = () => { clearTimeout(timer); reject(signal.reason); };
+        const timer = setTimeout(() => { signal.removeEventListener('abort', onAbort); resolve(); }, ms);
+        signal.addEventListener('abort', onAbort, { once: true });
+        if (signal.aborted) onAbort();
+      });
+    }
+
+    async function requestFeed(path, operation) {
+      const signal = operation.controller.signal;
+      for (let attempt = 0; ; attempt++) {
+        signal.throwIfAborted();
+        const controller = new AbortController();
+        const onAbort = () => controller.abort(signal.reason);
+        signal.addEventListener('abort', onAbort, { once: true });
+        let timedOut = false;
+        const timer = setTimeout(() => { timedOut = true; controller.abort(); }, FEED_TIMEOUT_MS);
+        let failure;
+        try {
+          const r = await api('GET', path, undefined, { signal: controller.signal });
+          signal.throwIfAborted();
+          const d = r.data;
+          // api() 会把部分 HTTP 错误转为返回值；失败不能被当成空页提交。
+          if (r.status < 200 || r.status >= 300) {
+            throw Object.assign(new Error((d && d.error) || '动态加载失败'), { status: r.status });
+          }
+          if (!d || d.ok !== true || !Array.isArray(d.events) || typeof d.hasMore !== 'boolean' ||
+              (d.total != null && (!Number.isSafeInteger(d.total) || d.total < 0)) ||
+              d.events.some((e) => !e || !Number.isSafeInteger(e.id) || e.id < 1) ||
+              (d.hasMore && !d.events.length)) {
+            throw Object.assign(new Error('动态数据不完整，请重试'), { status: r.status });
+          }
+          const before = new URLSearchParams(path.split('?')[1]).get('before');
+          if (before && d.events.some((e) => e.id >= Number(before))) {
+            throw Object.assign(new Error('动态分页位置异常，请重试'), { status: r.status });
+          }
+          return d;
+        } catch (e) {
+          signal.throwIfAborted();
+          failure = timedOut ? Object.assign(new Error('加载超时，请重试'), { status: 0 }) : e;
+        } finally {
+          clearTimeout(timer);
+          signal.removeEventListener('abort', onAbort);
+        }
+        const retryable = failure.status === 0 || failure.status === 408 || failure.status === 429 || failure.status >= 500;
+        if (!retryable || attempt >= FEED_RETRY_DELAYS.length) throw failure;
+        setFeedLoadState('连接暂时不可用，正在重试（' + (attempt + 1) + '/' + FEED_RETRY_DELAYS.length + '）…');
+        await waitForFeedRetry(FEED_RETRY_DELAYS[attempt], signal);
+      }
+    }
+
     async function loadFeed(older, opts) {
       // 只拦「加载更旧」的重复滚动请求; 筛选/搜索连续点击时以最后一次为准(请求序号防乱序)。
       // 关键: 翻页不能开启新一代请求序号 —— 否则会把正在返回的筛选响应误判成过时丢掉。
       // 注意: 新列表请求(筛选/搜索)还没返回时不能翻页 —— 那会用旧列表末尾的游标去请求,
       //       结果却被当成新列表的一页合并进来(中间记录丢失/hasMore 被带偏)。
-      if (older && (state.loadingOlder || state.feedResetPending)) return;
+      if (older && (feedRequest || state.feedResetPending)) return;
+      // 取消整个旧操作（包括超时计时、退避等待），不让旧请求占住新筛选的连接。
+      if (!older && feedRequest) feedRequest.controller.abort();
+      if (!older) state.loadingOlder = false;
       if (older) state.loadingOlder = true;
       const gen = state.feedGen;
       const reqId = older ? state.feedReqId : ++state.feedReqId;
       if (!older) { state.feedGen++; state.feedResetPending = true; }
       if (!older) state.feedBackfill = { reqId, events: [] };
+      const operation = { controller: new AbortController() };
+      feedRequest = operation;
+      feedFailure = null;
+      setFeedLoadState(older ? '正在加载更早动态…' : '正在加载动态…');
       const anchor = opts && opts.keepScroll ? captureFeedAnchor() : null;
+      let succeeded = false;
       try {
-        const r = await api('GET', '/api/friend-events?' + feedQuery(older));
+        const d = await requestFeed('/api/friend-events?' + feedQuery(older), operation);
         if (reqId !== state.feedReqId) return; // 筛选已换代: 丢弃这次(可能是旧游标的)响应
         if (older && gen !== state.feedGen) return; // 翻页请求发出后列表已换代: 旧游标结果作废
-        const d = r.data || {};
         if (older) {
           state.events = window.VrcFeedStore.mergeEvents(state.events, d.events || []).events;
         } else {
@@ -419,14 +507,21 @@ window.VrcDashboardFeed = {
         invalidateFeedOffsets();
         restoreFeedAnchor(anchor);
         renderFeed();
+        succeeded = true;
       } catch (e) {
-        if (reqId === state.feedReqId && state.events.length === 0) {
-          $('#feedList').innerHTML = '<p class="muted" style="padding:14px">加载失败: ' + escapeHtml(e.message) + '</p>';
+        if (feedRequest === operation && !operation.controller.signal.aborted) {
+          feedFailure = { older, opts, message: e.message || '动态加载失败' };
         }
       } finally {
         if (state.feedBackfill && state.feedBackfill.reqId === reqId) state.feedBackfill = null;
-        if (older) state.loadingOlder = false;
-        else if (reqId === state.feedReqId) state.feedResetPending = false;
+        // 旧请求的 finally 不能释放新请求的锁或覆盖其加载提示。
+        if (feedRequest === operation) {
+          feedRequest = null;
+          if (older) state.loadingOlder = false;
+          else state.feedResetPending = false;
+          setFeedLoadState(feedFailure ? feedFailure.message : '', !!feedFailure);
+          if (succeeded) scheduleFeedCheck();
+        }
       }
     }
 
@@ -497,6 +592,11 @@ window.VrcDashboardFeed = {
 
     function bindFeed() {
       syncFriendChips();
+      $('#feedRetry').addEventListener('click', () => {
+        if (feedFailure) loadFeed(feedFailure.older, feedFailure.opts);
+      });
+      const feedResizeObserver = new ResizeObserver(scheduleFeedCheck);
+      feedResizeObserver.observe($('#feedList'));
       // 动态
       $('#feedChips').addEventListener('click', (e) => {
         const chip = e.target.closest('.chip');
@@ -553,10 +653,7 @@ window.VrcDashboardFeed = {
           updateFeedNew();
           loadFeed(false);
         }
-        if (state.hasMore && !state.loadingOlder) {
-          const el = $('#feedList');
-          if (el.scrollTop + el.clientHeight >= el.scrollHeight - 200) loadFeed(true);
-        }
+        scheduleFeedCheck();
       });
       $('#feedTop').addEventListener('click', () => {
         const el = $('#feedList');
