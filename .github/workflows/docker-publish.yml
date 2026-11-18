@@ -27,25 +27,10 @@ permissions:
   contents: write
 
 jobs:
-  # 打 tag 前先跑测试: 测试不过就不发镜像(跨 workflow 的 needs 用不了, 所以 gate 写在本文件)
+  # 与 release.yml 共用 Node 22/24 测试门禁, 覆盖三种架构所用的运行时。
   test:
     name: Test
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Install JS dependencies
-        run: npm ci
-
-      - name: Run tests
-        run: npm test
+    uses: ./.github/workflows/test.yml
 
   publish:
     name: Build & push to Docker Hub
@@ -65,13 +50,18 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
 
       # 后端 Dockerfile 直接 COPY node_modules(依赖为纯 JS, 无原生模块);
       # node_modules 被 gitignore, 故在构建上下文里先安装一份。
       - name: Install JS dependencies
         run: npm ci --omit=dev
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64,arm
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -103,7 +93,7 @@ jobs:
         with:
           context: .
           file: Dockerfile
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64,linux/arm/v7
           push: true
           # 与 release.yml 同口径: 把版本注入镜像, 容器里 /api/config 报的就是它
           build-args: |

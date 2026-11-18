@@ -72,7 +72,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
 
       - name: Compute & push tag
         id: version
@@ -113,7 +113,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
 
       # 后端 Dockerfile 直接 COPY node_modules(依赖为纯 JS, 无原生模块); 故先装一份
@@ -123,6 +123,11 @@ jobs:
       - name: Compute short sha
         id: meta
         run: echo "sha12=${GITHUB_SHA:0:12}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64,arm
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -139,7 +144,7 @@ jobs:
         with:
           context: .
           file: Dockerfile
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64,linux/arm/v7
           push: true
           # APP_VERSION 注入镜像: 容器里 /api/config 报的版本就是它
           build-args: |

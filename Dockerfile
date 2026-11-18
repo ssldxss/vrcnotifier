@@ -5,17 +5,25 @@
 # 版本: 由 release workflow 传入 tag 版本(build-arg APP_VERSION), 镜像内 /api/config 就报它,
 # 于是"镜像报的版本 == git tag == Docker tag"。不传则回落到 package.json(src/version.js)。
 
+# 按目标架构选择运行时: AMD64/ARM64 使用 Node 24, ARMv7 保留仍提供正式支持的 Node 22。
+# TARGETARCH 由 BuildKit 根据 --platform 自动提供; 未使用的基础阶段不会构建。
+ARG TARGETARCH
+FROM node:24-alpine AS node-amd64
+FROM node:24-alpine AS node-arm64
+FROM node:22-alpine AS node-arm
+FROM node-${TARGETARCH} AS base
+
 # ---------- 依赖构建阶段 ----------
 # 依赖为纯 JS(express/ws, 无原生模块), 直接复用本地已安装的 node_modules,
 # 避免构建容器内 `npm ci` 依赖外网/代理。若需从零安装: 移除 `COPY node_modules` 行并改回 `RUN npm ci --omit=dev`。
-FROM node:22-alpine AS build
+FROM base AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY node_modules ./node_modules
 
 # ---------- 运行阶段 ----------
 # alpine 基础镜像(依赖为纯 JS, 无原生模块): 比 bookworm-slim 小约 26%
-FROM node:22-alpine
+FROM base AS runtime
 ARG APP_VERSION=
 ENV NODE_ENV=production \
     PORT=3000 \
