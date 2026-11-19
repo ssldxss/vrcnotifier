@@ -1,12 +1,12 @@
 'use strict';
-// VRChat 服务器状态(仿 VRCX): 仅当前端调用 status() 时才请求
-// https://status.vrchat.com/api/v2/status.json, 结果内存缓存 60s(最多 1 分钟一次)。
-// All Systems Operational → normal; minor → degraded; major/critical → outage。
+// VRChat 官方状态: 请求 status.json, 正常 15 分钟、异常/失败 2 分钟后刷新(与 VRCX 一致)。
+// All Systems Operational → normal; 仅 major → outage, 其余异常 → degraded(与 VRCX 一致)。
 // 有异常时补拉 summary.json 汇总故障组件, 供前端悬停详情。
-// 获取失败: 沿用最近一次成功状态(标记 stale:true); 无历史成功时返回 unknown(无法获取)。
+// 获取失败: 和 VRCX 一样显示 Failed to fetch VRC status, 不沿用旧正常状态。
 
 const DEFAULT_API_URL = 'https://status.vrchat.com/api/v2';
-const DEFAULT_CACHE_TTL_MS = 60 * 1000;
+const NORMAL_INTERVAL_MS = 15 * 60 * 1000;
+const ISSUE_INTERVAL_MS = 2 * 60 * 1000;
 
 function createVrcStatus({
   apiUrl = DEFAULT_API_URL,
@@ -15,15 +15,24 @@ function createVrcStatus({
   logger = null,
   now = Date.now,
   timeoutMs = 8000,
-  cacheTtlMs = DEFAULT_CACHE_TTL_MS
+  onUpdate = null
 } = {}) {
   const log = logger || { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
-  let cache = null; // { state, description, summary, updatedAt, fetchedAt, stale? }
-  let lastOk = null; // 最近一次成功获取结果(获取失败时沿用展示)
+  let cache = null; // { state, indicator, description, summary, updatedAt, fetchedAt }
   let inflight = null;
+  let pollingTimer = null;
+  let stopped = false;
+  const activeRequests = new Set();
+
+  function notify() {
+    if (!stopped && onUpdate) {
+      try { onUpdate({ ...cache }); } catch (e) { log.warn(`[vrcstatus] 状态推送失败: ${e.message}`); }
+    }
+  }
 
   async function fetchJson(path) {
     const ac = new AbortController();
+    activeRequests.add(ac);
     const timer = setTimeout(() => ac.abort(), timeoutMs);
     if (timer.unref) timer.unref();
     try {
@@ -36,6 +45,7 @@ function createVrcStatus({
       return await res.json();
     } finally {
       clearTimeout(timer);
+      activeRequests.delete(ac);
     }
   }
 
@@ -46,8 +56,13 @@ function createVrcStatus({
     const indicator = st.indicator || '';
     const updatedAt = (data && data.page && data.page.updated_at) || null;
     if (description === 'All Systems Operational') {
-      return { state: 'normal', description, summary: null, updatedAt, fetchedAt: now() };
+      return { state: 'normal', indicator: '', description, summary: null, updatedAt, fetchedAt: now() };
     }
+    const state = indicator === 'major' ? 'outage' : 'degraded';
+    return { state, indicator, description: description || 'VRChat 服务异常', summary: null, updatedAt, fetchedAt: now() };
+  }
+
+  async function fetchSummary(snapshot) {
     let summary = null;
     try {
       const s = await fetchJson('summary.json');
@@ -59,46 +74,64 @@ function createVrcStatus({
         if (parts.length) summary = parts.join(', ');
       }
     } catch (e) {
-      log.warn(`[vrcstatus] summary 获取失败: ${e.message}`);
+      if (!stopped) log.warn(`[vrcstatus] summary 获取失败: ${e.message}`);
+      return;
     }
-    const state = indicator === 'major' || indicator === 'critical' ? 'outage' : 'degraded';
-    return { state, description: description || 'VRChat 服务异常', summary, updatedAt, fetchedAt: now() };
+    if (!stopped && cache === snapshot) {
+      cache = { ...snapshot, summary };
+      notify();
+    }
   }
 
-  // 惰性请求: 60s 内复用内存缓存; 最近一次获取失败时沿用上次成功状态(标记 stale), 下个 TTL 再重试; 并发调用共享同一次请求
-  function status() {
+  // 多个页面共享状态和进行中的请求, 不重复请求官方状态页。
+  function status({ focus = false } = {}) {
+    if (stopped) return Promise.resolve(cache);
     const at = now();
-    if (cache && at - cache.fetchedAt < cacheTtlMs) return Promise.resolve(cache);
+    const interval = focus ? 60000 : (cache && cache.state === 'normal' ? NORMAL_INTERVAL_MS : ISSUE_INTERVAL_MS);
+    if (cache && at - cache.fetchedAt <= interval) return Promise.resolve(cache);
     if (inflight) return inflight;
     inflight = (async () => {
       try {
         cache = await fetchStatus();
-        lastOk = cache; // 记录成功结果, 供获取失败时沿用
         log.debug(`[vrcstatus] 状态获取成功: ${cache.state}${cache.description ? ` (${cache.description})` : ''}`);
       } catch (e) {
-        if (lastOk) {
-          // 获取失败: 沿用上一次成功状态展示(标记 stale), 不直接报「无法获取」
-          log.warn(`[vrcstatus] 状态获取失败: ${e.message}, 沿用上次成功状态`);
-          cache = { ...lastOk, stale: true, fetchedAt: now() };
-        } else {
-          log.warn(`[vrcstatus] 状态获取失败: ${e.message}`);
-          cache = {
-            state: 'unknown',
-            description: '无法获取',
-            summary: e && e.message ? e.message : String(e),
-            updatedAt: null,
-            fetchedAt: now()
-          };
-        }
+        if (stopped) return cache;
+        log.warn(`[vrcstatus] 状态获取失败: ${e.message}`);
+        cache = {
+          state: 'unknown',
+          description: 'Failed to fetch VRC status',
+          summary: e && e.message ? e.message : String(e),
+          updatedAt: null,
+          fetchedAt: now()
+        };
       } finally {
         inflight = null;
       }
+      notify();
+      // 与 VRCX 一样, 组件摘要独立请求, 不阻塞公开状态接口或告警。
+      if (cache.state === 'degraded' || cache.state === 'outage') fetchSummary(cache);
       return cache;
     })();
     return inflight;
   }
 
-  return { status };
+  function start() {
+    stopped = false;
+    if (!pollingTimer) {
+      pollingTimer = setInterval(() => { status(); }, 60000);
+      pollingTimer.unref?.();
+    }
+    return status();
+  }
+
+  function stop() {
+    stopped = true;
+    clearInterval(pollingTimer);
+    pollingTimer = null;
+    for (const request of activeRequests) request.abort();
+  }
+
+  return { status, start, stop };
 }
 
 module.exports = { createVrcStatus };

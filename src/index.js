@@ -243,7 +243,9 @@ function buildApplication(opts = {}) {
     userAgent: config.userAgent,
     fetchImpl: opts.fetchImpl || fetch,
     logger,
-    timeoutMs: opts.vrcStatusTimeoutMs ?? 8000
+    timeoutMs: opts.vrcStatusTimeoutMs ?? 8000,
+    now,
+    onUpdate: (status) => bus.emit('vrc-status', status)
   });
   // 启动周期对账 + watchdog 定时器(单用户, 无会话时为空转)
   monitor.startTimers();
@@ -277,6 +279,7 @@ function buildApplication(opts = {}) {
   });
   connectionStatus.fn = getConnectionStatus;
   authCommandHooks.fn = handleAuthCommand;
+  vrcStatus.start?.();
 
   return {
     app, autoLogin, monitor, pipeline, sessionStore, db, bus,
@@ -383,6 +386,7 @@ async function main() {
     try { runtime.monitor.stopTimers(); } catch (e) { logger.warn(`[退出] stopTimers: ${e.message}`); }
     try { runtime.avatarCache.stopTimers(); } catch (e) { logger.warn(`[退出] avatarCache.stopTimers: ${e.message}`); }
     try { runtime.healthMonitor.stop(); } catch (e) { logger.warn(`[退出] healthMonitor.stop: ${e.message}`); }
+    try { runtime.vrcStatus.stop?.(); } catch (e) { logger.warn(`[退出] vrcStatus.stop: ${e.message}`); }
     try { runtime.qq.stopAll(); } catch (e) { logger.warn(`[退出] qq.stopAll: ${e.message}`); }
     for (const { user } of runtime.monitor.activeUsers()) {
       try { runtime.monitor.deactivateUser(user.vrchat_user_id); } catch (e) { /* ignore */ }

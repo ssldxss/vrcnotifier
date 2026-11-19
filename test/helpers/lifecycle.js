@@ -28,7 +28,8 @@ async function waitFor(read, predicate, timeoutMs = 3000) {
   assert.fail('condition not reached: ' + JSON.stringify(value));
 }
 
-async function startApplication(t, { qqPlatform = null } = {}) {
+async function startApplication(t, { qqPlatform = null, serveStatic = false, now = Date.now, officialStatus = {} } = {}) {
+  const official = { description: 'All Systems Operational', indicator: 'none', components: [], httpStatus: 200, ...officialStatus };
   const holds = [];
   const expired = new Set();
   const invalidSessions = new Set();
@@ -62,8 +63,9 @@ async function startApplication(t, { qqPlatform = null } = {}) {
     if (url.pathname === '/api/1/auth') return send({ token: name || 'mock' });
     if (url.pathname === '/api/1/config') return send({ clientApiKey: 'mock' });
     if (url.pathname.startsWith('/api/1/users/')) return send({ id: url.pathname.split('/').at(-1) });
-    if (url.pathname === '/status/status.json') return send({ status: { indicator: 'none', description: 'Operational' } });
-    if (url.pathname === '/status/summary.json') return send({ components: [] });
+    if (url.pathname === '/status/status.json') return send({ page: { updated_at: '2026-11-19T00:00:00Z' },
+      status: { indicator: official.indicator, description: official.description } }, official.httpStatus);
+    if (url.pathname === '/status/summary.json') return send({ components: official.components });
     return send({}, 404);
   });
   upstream.listen(0, '127.0.0.1'); await once(upstream, 'listening');
@@ -73,12 +75,14 @@ async function startApplication(t, { qqPlatform = null } = {}) {
   const avatarDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vrcn-lifecycle-'));
   const runtime = buildApplication({ dbPath: ':memory:', avatarDir, logger: silent,
     apiBaseUrl: base + '/api/1', wsBaseUrl: base, vrcStatusUrl: base + '/status',
-    accessToken: 'lifecycle-token', reconnectBaseMs: 20, jitterMs: 0,
+    accessToken: 'lifecycle-token', reconnectBaseMs: 20, jitterMs: 0, now,
+    publicDir: serveStatic ? path.join(__dirname, '../../public') : null,
     ...(qqPlatform ? { qqTokenUrl: qqPlatform.base + '/app/getAppAccessToken', qqApiBase: qqPlatform.base, qqWsUrl: qqPlatform.wsUrl } : {}) });
   const server = runtime.app.listen(0, '127.0.0.1'); await once(server, 'listening');
   t.after(async () => {
     for (const hold of holds) hold.resume.resolve();
     runtime.monitor.stopTimers(); runtime.healthMonitor.stop(); runtime.avatarCache.stopTimers(); runtime.qq.stopAll();
+    runtime.vrcStatus.stop?.();
     for (const { user } of runtime.monitor.activeUsers()) runtime.monitor.deactivateUser(user.vrchat_user_id);
     server.closeAllConnections(); await new Promise((r) => server.close(r));
     for (const socket of sockets) socket.terminate();
@@ -93,6 +97,7 @@ async function startApplication(t, { qqPlatform = null } = {}) {
     return { status: response.status, data: await response.json() };
   }
   return {
+    base: appBase, setOfficialStatus: values => Object.assign(official, values),
     request, login: (name) => request('POST', '/api/login', { username: name, password: 'test-password', rememberMe: true }),
     holdNext(matches) {
       const hold = { matches, used: false, started: deferred(), resume: deferred() }; holds.push(hold);

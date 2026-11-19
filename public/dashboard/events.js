@@ -2,7 +2,7 @@
 // Dashboard events controller. Dependencies are explicit; local UI state stays private.
 window.VrcDashboardEvents = {
   create(context) {
-    const { syncClient, state, renderTop, renderSelf, isBootActive, loadAll, receiveFriendState, receiveFeedEvent, loadFriends, renderFriends, $, patchFeedRowEl, renderFeed, drawWsSpark, applyHealthUi, receiveLog, openReloginModal, bootProgress, showView, loadFeed, api, loadHealth, loadWsHistory, loadLogsGap } = context;
+    const { syncClient, state, renderTop, renderSelf, isBootActive, loadAll, receiveFriendState, receiveFeedEvent, loadFriends, renderFriends, $, patchFeedRowEl, renderFeed, drawWsSpark, applyHealthUi, applyVrcStatus, receiveLog, openReloginModal, bootProgress, showView, loadFeed, api, loadHealth, loadWsHistory, loadLogsGap } = context;
     let evt = null;
     function connectEvents() {
       const want = syncClient().eventsUrl();
@@ -58,6 +58,9 @@ window.VrcDashboardEvents = {
       };
       handlers['health'] = (data) => {
         try { applyHealthUi(data); } catch (err) { /* ignore */ }
+      };
+      handlers['vrc-status'] = (data) => {
+        try { applyVrcStatus(data); } catch (err) { /* ignore */ }
       };
       handlers['log'] = (data) => receiveLog(data);
       handlers['log-update'] = (data) => receiveLog(data, true);

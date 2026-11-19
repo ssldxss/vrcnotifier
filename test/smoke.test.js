@@ -110,9 +110,9 @@ test('end-to-end: login → configure → ws event → QQ notification', async (
     logger: silent,
     dbPath: ':memory:',
     apiBaseUrl: api.base + '/api/1',
+    vrcStatusUrl: api.base + '/api/2',
     wsBaseUrl: ws.url,
     accessToken: 'smoke-token',
-    vrcStatusUrl: api.base + '/api/2',
     confirmDelayMs: 100, // 上线也要走"pending → me() 复核", 测试里把确认窗口压到 100ms
     qq
   });
@@ -122,6 +122,7 @@ test('end-to-end: login → configure → ws event → QQ notification', async (
 
   t.after(async () => {
     try { runtime.monitor.stopTimers(); } catch (e) { /* ignore */ }
+    runtime.vrcStatus.stop();
     try { runtime.healthMonitor.stop(); } catch (e) { /* ignore */ }
     for (const { user } of runtime.monitor.activeUsers()) {
       try { runtime.monitor.deactivateUser(user.vrchat_user_id); } catch (e) { /* ignore */ }
@@ -197,12 +198,14 @@ test('登录进度: 取到实时连接凭据(GET /auth)后上报 auth 阶段', a
     logger: silent,
     dbPath: ':memory:',
     apiBaseUrl: api.base + '/api/1',
+    vrcStatusUrl: api.base + '/api/2',
     wsBaseUrl: ws.url,
     accessToken: 'smoke-token'
   });
   const server = runtime.app.listen(0);
   t.after(async () => {
     try { runtime.monitor.stopTimers(); } catch (e) { /* ignore */ }
+    runtime.vrcStatus.stop();
     try { runtime.healthMonitor.stop(); } catch (e) { /* ignore */ }
     for (const { user } of runtime.monitor.activeUsers()) {
       try { runtime.monitor.deactivateUser(user.vrchat_user_id); } catch (e) { /* ignore */ }
@@ -235,6 +238,7 @@ test('buildApplication starts periodic snapshot timer', async (t) => {
     logger: silent,
     dbPath: ':memory:',
     apiBaseUrl: api.base + '/api/1',
+    vrcStatusUrl: api.base + '/api/2',
     wsBaseUrl: ws.url,
     accessToken: 'smoke-token',
     snapshotIntervalMs: 100,
@@ -244,6 +248,7 @@ test('buildApplication starts periodic snapshot timer', async (t) => {
 
   t.after(async () => {
     try { runtime.monitor.stopTimers(); } catch (e) { /* ignore */ }
+    runtime.vrcStatus.stop();
     try { runtime.healthMonitor.stop(); } catch (e) { /* ignore */ }
     for (const { user } of runtime.monitor.activeUsers()) {
       try { runtime.monitor.deactivateUser(user.vrchat_user_id); } catch (e) { /* ignore */ }
@@ -272,12 +277,14 @@ test('buildApplication default ws reconnectMaxMs is 1 hour', () => {
     logger: silent,
     dbPath: ':memory:',
     apiBaseUrl: 'http://127.0.0.1:1/api/1',
+    vrcStatusUrl: 'http://127.0.0.1:1/status',
     wsBaseUrl: 'ws://127.0.0.1:1'
   });
   try {
     assert.equal(runtime.config.ws.reconnectMaxMs, 3600000);
   } finally {
     try { runtime.monitor.stopTimers(); } catch (e) { /* ignore */ }
+    runtime.vrcStatus.stop();
   }
 });
 
@@ -316,6 +323,7 @@ test('access token auth: 401 without token, whitelist open, SSE via query token,
     logger: silent,
     dbPath: ':memory:',
     apiBaseUrl: api.base + '/api/1',
+    vrcStatusUrl: api.base + '/api/2',
     wsBaseUrl: ws.url,
     accessToken: 'smoke-token'
   });
@@ -323,6 +331,7 @@ test('access token auth: 401 without token, whitelist open, SSE via query token,
 
   t.after(async () => {
     try { runtime.monitor.stopTimers(); } catch (e) { /* ignore */ }
+    runtime.vrcStatus.stop();
     await new Promise((r) => server.close(r));
     await new Promise((r) => api.server.close(r));
     await new Promise((r) => ws.wss.close(r));
@@ -398,9 +407,10 @@ function seedDb(dbPath) {
 
 // 起一次完整应用, 用完关掉(返回 runtime 供断言)
 function restartOn(dbPath, t) {
-  const runtime = buildApplication({ logger: silent, dbPath, accessToken: 'tok-keep' });
+  const runtime = buildApplication({ logger: silent, dbPath, accessToken: 'tok-keep', vrcStatusUrl: 'http://127.0.0.1:1/status' });
   t.after(() => {
     try { runtime.monitor.stopTimers(); } catch (e) { /* ignore */ }
+    runtime.vrcStatus.stop();
     try { runtime.avatarCache.stopTimers(); } catch (e) { /* ignore */ }
     try { runtime.healthMonitor.stop(); } catch (e) { /* ignore */ }
   });

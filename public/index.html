@@ -46,9 +46,19 @@
   <!-- 服务器状态: 复用主页顶栏的状态条样式, 显示在最右边 -->
   <div class="status-strip login-strip">
     <span class="tb-spacer"></span>
-    <span class="ss-item"><i class="ss-dot" id="lgHealthDot"></i>服务器 <b id="lgHealth">-</b><span class="ss-meta" id="lgLatency"></span></span>
+    <span class="ss-item server-status-wrap" id="lgServerWrap">
+      <a class="ss-item server-status" id="lgServerStatus" href="https://status.vrchat.com" target="_blank" rel="noopener noreferrer"><i class="ss-dot" id="lgHealthDot" aria-hidden="true"></i><b id="lgHealth">服务器</b></a>
+      <span class="ss-meta" id="lgLatency"></span>
+      <span class="server-status-detail hidden" id="lgVrcDetail" role="tooltip"><strong>VRChat 服务目前存在降级</strong><span id="lgVrcText"></span></span>
+    </span>
   </div>
   <div class="login-center">
+    <div class="login-status-alert hidden" id="loginVrcAlert" role="status" aria-live="polite">
+      <a href="https://status.vrchat.com" target="_blank" rel="noopener noreferrer">
+        <strong>VRChat 服务目前存在降级</strong>
+        <span id="loginVrcText"></span>
+      </a>
+    </div>
     <div class="card login-main login-card" id="loginCard">
       <h2>登录 VRChat</h2>
       <div id="loginForm">
@@ -87,7 +97,11 @@
   <span class="ss-item"><i class="ss-dot" id="stWsDot"></i>WS <b id="stWs">-</b><span class="ss-meta" id="stWsRate"></span></span>
   <canvas class="ss-spark" id="wsSpark" width="96" height="16" title="WebSocket 消息速率（最近 60 秒）" aria-label="WebSocket 消息速率图"></canvas>
   <span class="ss-sep"></span>
-  <span class="ss-item"><i class="ss-dot" id="stHealthDot"></i>服务器 <b id="stHealth">-</b><span class="ss-meta" id="stLatency"></span></span>
+  <span class="ss-item server-status-wrap" id="stServerWrap">
+    <a class="ss-item server-status" id="stServerStatus" href="https://status.vrchat.com" target="_blank" rel="noopener noreferrer"><i class="ss-dot" id="stHealthDot" aria-hidden="true"></i><b id="stHealth">服务器</b></a>
+    <span class="ss-meta" id="stLatency"></span>
+    <span class="server-status-detail hidden" id="stVrcDetail" role="tooltip"><strong>VRChat 服务目前存在降级</strong><span id="stVrcText"></span></span>
+  </span>
   <span class="tb-spacer"></span>
   <span id="wsProbe" aria-hidden="true" style="position:absolute;width:0;height:0;overflow:hidden;color:var(--accent)"></span>
   <button class="tb-btn" id="refreshBtn" title="刷新数据" aria-label="刷新数据">
