@@ -23,7 +23,7 @@
   ];
   const SSE_EVENTS = [
     'status', 'self-state', 'friend-state', 'friend-event', 'snapshot', 'world-name',
-    'ws-stats', 'ws-failure', 'ws-recovered', 'health', 'log', 'log-update',
+    'ws-stats', 'ws-failure', 'ws-recovered', 'health', 'vrc-status', 'log', 'log-update',
     'qq-status', 'notification', 'relogin-ok', '2fa-needed', 'login-progress', 'session-expired'
   ];
   const STATE_LABELS = { offline: '离线', active: '网页在线', online: '在线', web: '网页在线', unknown: '未知' };

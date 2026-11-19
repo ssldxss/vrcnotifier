@@ -653,6 +653,7 @@ function createApp({
   });
   // 健康探测结果(healthMonitor 每轮采样完成) → SSE 推送
   bus.on('health', (h) => broadcast('health', h));
+  bus.on('vrc-status', (status) => broadcast('vrc-status', status));
 
   // WS 图表数据: 每秒推送最近几秒的消息数(前端 rAF 按时间锚定自行匀速左移)
   // 每 tick 补推最近 3 秒: 事件循环繁忙漏掉一个 tick 也不会丢秒, 前端按 sec 幂等去重
@@ -1109,11 +1110,11 @@ function createApp({
     return res.json({ ok: true, series: s.series, total: s.total });
   });
 
-  // VRC 服务器状态: 前端调用时才请求 status.vrchat.com, 后端内存缓存 30s
+  // 官方状态由后端定时探测; 窗口重新聚焦时允许超过 60s 的结果提前刷新。
   app.get('/api/vrc-status', async (req, res) => {
-    const s = vrcStatus && typeof vrcStatus.status === 'function' ? await vrcStatus.status() : null;
+    const s = vrcStatus && typeof vrcStatus.status === 'function' ? await vrcStatus.status({ focus: req.query.focus === '1' }) : null;
     if (!s) return res.status(503).json({ ok: false, error: '服务器状态未启用' });
-    return res.json({ ok: true, ...s });
+    return res.set('Cache-Control', 'no-store').json({ ok: true, ...s });
   });
 
   app.post('/api/monitor/snapshot', async (req, res) => {
@@ -1181,6 +1182,12 @@ function createApp({
     });
     res.write(': connected\n\n');
     sseClients.add(res);
+    // 补齐 HTTP 加载与 SSE 建连之间完成的状态/组件详情。
+    if (vrcStatus && typeof vrcStatus.status === 'function') {
+      Promise.resolve(vrcStatus.status()).then((status) => {
+        if (status && sseClients.has(res)) sseSend(res, 'vrc-status', status);
+      }).catch((error) => log.warn(`[vrcstatus] 初始状态推送失败: ${error.message}`));
+    }
     const keepAlive = setInterval(() => {
       try { res.write(': ping\n\n'); } catch (e) { /* closed */ }
     }, 25000);

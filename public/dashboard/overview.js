@@ -116,47 +116,88 @@ window.VrcDashboardOverview = {
       } catch (e) { drawWsSpark(); }
     }
 
-    // 顶栏 + 登录页「服务器状态」卡共用: 健康探测(延迟/连通) 与官方状态(VRChat)分开显示
+    // API 健康探测只显示延迟, 不覆盖官方状态的颜色和故障详情。
     function applyHealthUi(hd) {
       state.lastHealth = hd || null;
-      const ok = !!hd && hd.status === 'ok';
       const lat = hd ? hd.latencyMs : null;
-      const text = state.vrcAbnormal ? 'VRC 异常' : (ok ? '正常' : (hd ? '异常' : '-'));
       const latText = typeof lat === 'number' ? lat + ' ms' : '';
       // 主页顶栏和登录页右上角的状态条共用同一套字段(st/lg 前缀)
       for (const prefix of ['st', 'lg']) {
-        const dot = document.getElementById(prefix + 'HealthDot');
-        if (dot) setDot(dot, ok && !state.vrcAbnormal);
-        const label = document.getElementById(prefix + 'Health');
-        if (label) label.textContent = text;
         const meta = document.getElementById(prefix + 'Latency');
-        if (meta) meta.textContent = latText;
-      }
-    }
-    function applyVrcStatus(vd) {
-      state.vrcStatus = vd || null;
-      state.vrcAbnormal = !!(vd && vd.state && vd.state !== 'normal');
-      if (state.lastHealth) applyHealthUi(state.lastHealth);
-      else {
-        for (const prefix of ['st', 'lg']) {
-          const label = document.getElementById(prefix + 'Health');
-          if (label) label.textContent = state.vrcAbnormal ? 'VRC 异常' : '-';
-          if (state.vrcAbnormal) {
-            const dot = document.getElementById(prefix + 'HealthDot');
-            if (dot) setDot(dot, false);
-          }
+        if (meta) {
+          meta.textContent = latText;
+          meta.title = hd && hd.status === 'ok' ? 'VRChat API 延迟' : 'VRChat API 探测失败';
         }
       }
     }
-    async function loadHealth() {
+    let statusDetailTimer = null;
+    function applyVrcStatus(vd) {
+      const hadIssue = state.vrcAbnormal;
+      state.vrcStatus = vd || null;
+      state.vrcAbnormal = !!(vd && vd.state && vd.state !== 'normal');
+      const isMajor = !!(vd && vd.indicator === 'major');
+      const text = state.vrcAbnormal
+        ? [vd.description, vd.summary].filter(Boolean).join(': ')
+        : 'VRChat 服务目前一切正常';
+      for (const prefix of ['st', 'lg']) {
+        const dot = document.getElementById(prefix + 'HealthDot');
+        if (dot) dot.className = 'ss-dot' + (state.vrcAbnormal ? (isMajor ? ' bad' : ' warn') : (vd && vd.state === 'normal' ? ' ok' : ''));
+        const link = document.getElementById(prefix + 'ServerStatus');
+        if (link) {
+          link.title = text;
+          link.setAttribute('aria-label', '服务器: ' + text);
+          if (state.vrcAbnormal) link.setAttribute('aria-describedby', prefix + 'VrcDetail');
+          else link.removeAttribute('aria-describedby');
+        }
+        const detail = document.getElementById(prefix + 'VrcDetail');
+        if (detail) detail.classList.toggle('hidden', !state.vrcAbnormal);
+        const description = document.getElementById(prefix + 'VrcText');
+        if (description) description.textContent = state.vrcAbnormal ? text : '';
+        if (!state.vrcAbnormal) document.getElementById(prefix + 'ServerWrap')?.classList.remove('auto-open');
+      }
+      const loginAlert = $('#loginVrcAlert');
+      if (loginAlert) {
+        loginAlert.classList.toggle('hidden', !state.vrcAbnormal);
+        loginAlert.classList.toggle('bad', isMajor);
+        $('#loginVrcText').textContent = state.vrcAbnormal ? text : '';
+      }
+      if (!state.vrcAbnormal) clearTimeout(statusDetailTimer);
+      else if (!hadIssue) {
+        for (const prefix of ['st', 'lg']) document.getElementById(prefix + 'ServerWrap')?.classList.add('auto-open');
+        clearTimeout(statusDetailTimer);
+        statusDetailTimer = setTimeout(() => {
+          for (const prefix of ['st', 'lg']) document.getElementById(prefix + 'ServerWrap')?.classList.remove('auto-open');
+        }, 5000);
+      }
+    }
+    async function loadHealth({ focus = false } = {}) {
       try {
-        const [h, v] = await Promise.all([api('GET', '/api/health'), api('GET', '/api/vrc-status')]);
+        const [h, v] = await Promise.all([api('GET', '/api/health'), api('GET', '/api/vrc-status' + (focus ? '?focus=1' : ''))]);
         applyHealthUi(h.data || {});
         applyVrcStatus(v.data || {});
       } catch (e) { /* 顶栏保持 - */ }
     }
 
+    window.addEventListener('focus', () => {
+      if (state.view === 'main' || state.view === 'login') loadHealth({ focus: true });
+    });
 
-    return { renderTop, renderSelf, drawWsSpark, applyHealthUi, loadHealth, loadWsHistory };
+    for (const prefix of ['st', 'lg']) {
+      const wrap = document.getElementById(prefix + 'ServerWrap');
+      if (!wrap) continue;
+      wrap.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') {
+          wrap.classList.add('detail-dismissed');
+          wrap.classList.remove('auto-open');
+        }
+      });
+      wrap.addEventListener('mouseleave', () => wrap.classList.remove('detail-dismissed'));
+      wrap.addEventListener('focusout', (event) => {
+        if (!wrap.contains(event.relatedTarget)) wrap.classList.remove('detail-dismissed');
+      });
+    }
+
+
+    return { renderTop, renderSelf, drawWsSpark, applyHealthUi, applyVrcStatus, loadHealth, loadWsHistory };
   }
 };

@@ -191,7 +191,7 @@
   }
 
   // Compose panels once. Cross-panel calls are callbacks to avoid initialization cycles.
-  const { renderTop, renderSelf, drawWsSpark, applyHealthUi, loadHealth, loadWsHistory } = window.VrcDashboardOverview.create({
+  const { renderTop, renderSelf, drawWsSpark, applyHealthUi, applyVrcStatus, loadHealth, loadWsHistory } = window.VrcDashboardOverview.create({
     state, $, escapeHtml, FR, avatarUrl, api
   });
   const { initLogPanel, receiveLog, loadLogsGap } = window.VrcDashboardLogs.create({
@@ -238,6 +238,7 @@
     renderFeed: (...args) => renderFeed(...args),
     drawWsSpark: (...args) => drawWsSpark(...args),
     applyHealthUi: (...args) => applyHealthUi(...args),
+    applyVrcStatus: (...args) => applyVrcStatus(...args),
     receiveLog: (...args) => receiveLog(...args),
     openReloginModal: (...args) => openReloginModal(...args),
     bootProgress: (...args) => bootProgress(...args),
