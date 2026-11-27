@@ -2,7 +2,7 @@
 // VRChat 官方状态: 请求 status.json, 正常 15 分钟、异常/失败 2 分钟后刷新(与 VRCX 一致)。
 // All Systems Operational → normal; 仅 major → outage, 其余异常 → degraded(与 VRCX 一致)。
 // 有异常时补拉 summary.json 汇总故障组件, 供前端悬停详情。
-// 获取失败: 和 VRCX 一样显示 Failed to fetch VRC status, 不沿用旧正常状态。
+// 获取失败: 显示「无法获取状态」, 不沿用旧正常状态, 仍按 2 分钟间隔重试。
 
 const DEFAULT_API_URL = 'https://status.vrchat.com/api/v2';
 const NORMAL_INTERVAL_MS = 15 * 60 * 1000;
@@ -99,7 +99,7 @@ function createVrcStatus({
         log.warn(`[vrcstatus] 状态获取失败: ${e.message}`);
         cache = {
           state: 'unknown',
-          description: 'Failed to fetch VRC status',
+          description: '无法获取状态',
           summary: e && e.message ? e.message : String(e),
           updatedAt: null,
           fetchedAt: now()

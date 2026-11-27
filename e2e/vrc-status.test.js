@@ -55,7 +55,7 @@ test('后端探测通过 SSE 更新严重故障与恢复, 异常详情自动展�
   assert.equal(await page.locator('#stServerStatus').getAttribute('title'), 'VRChat 服务目前一切正常');
 });
 
-test('登录页显示故障警告, 获取失败替换旧故障详情, 恢复后隐藏警告', async (t) => {
+test('登录页显示故障警告, 获取失败显示灰色和无法获取状态, 恢复后隐藏提示', async (t) => {
   const { page, advance, setOfficialStatus, request } = await statusDashboard(t, { loggedIn: false, officialStatus: {
     description: 'Major System Outage', indicator: 'major', components: [{ name: 'API', status: 'major_outage' }]
   } });
@@ -65,8 +65,14 @@ test('登录页显示故障警告, 获取失败替换旧故障详情, 恢复后�
   setOfficialStatus({ httpStatus: 503 });
   advance(60001);
   await request('GET', '/api/vrc-status?focus=1');
-  await page.waitForSelector('#lgHealthDot.warn');
-  assert.match(await page.locator('#loginVrcAlert').textContent(), /Failed to fetch VRC status/);
+  await page.waitForSelector('#loginVrcAlert.unavailable');
+  for (const prefix of ['lg', 'st']) {
+    assert.equal(await page.locator('#' + prefix + 'HealthDot').getAttribute('class'), 'ss-dot');
+    assert.equal(await page.locator('#' + prefix + 'VrcDetail strong').textContent(), '无法获取状态');
+    assert.match(await page.locator('#' + prefix + 'ServerStatus').getAttribute('aria-label'), /无法获取状态/);
+  }
+  assert.match(await page.locator('#loginVrcAlert').textContent(), /无法获取状态/);
+  assert.doesNotMatch(await page.locator('#loginVrcAlert').textContent(), /服务目前存在降级/);
   assert.doesNotMatch(await page.locator('#loginVrcAlert').textContent(), /Major System Outage: API/);
   assert.equal(await page.locator('#loginVrcAlert.bad').count(), 0);
   setOfficialStatus({ httpStatus: 200, description: 'All Systems Operational', indicator: 'none', components: [] });
@@ -74,6 +80,7 @@ test('登录页显示故障警告, 获取失败替换旧故障详情, 恢复后�
   await request('GET', '/api/vrc-status?focus=1');
   await page.waitForSelector('#lgHealthDot.ok');
   assert.equal(await page.locator('#loginVrcAlert').isVisible(), false);
+  assert.equal(await page.locator('#loginVrcAlert.unavailable').count(), 0);
 });
 
 test('窗口重新聚焦通过后端刷新, 60 秒内保留当前结果', async (t) => {
