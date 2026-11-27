@@ -127,6 +127,12 @@ npm start                    # 面板 + API 同源 :3000(默认行为, 打开 ht
 | 头像下载（公开端点） | 0.15 |
 
 `数据来自运行 500h+ 后日志统计,取决于好友数量,不代表真实api调用`
+## 界面截图
+<br><br>
+<img width="800" alt="friends-blurred" src="https://github.com/user-attachments/assets/5f5a8931-41df-4e1e-b4e8-7eab571d9998" />
+<br><br>
+<img width="800" alt="settings-blurred" src="https://github.com/user-attachments/assets/ccba6ff7-7dc0-413a-959c-56a447001c64" />
+<br><br>
 ## vrcnotifier 有没有违反 VRChat 的服务条款？
 
 **简而言之：没有违反**
