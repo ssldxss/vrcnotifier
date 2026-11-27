@@ -116,15 +116,14 @@ npm start                    # 面板 + API 同源 :3000(默认行为, 打开 ht
 `PORT` `ACCESS_TOKEN` `MASTER_KEY` `VRC_API_URL` `VRC_WS_URL` `QQ_API_BASE` `QQ_WS_URL` `VRC_STATUS_URL` `USER_AGENT` `SNAPSHOT_INTERVAL_MS` `DEDUPE_WINDOW_MS` `WATCHDOG_MS` `WATCHDOG_CHECK_MS` `WS_PING_INTERVAL_MS` `WS_PONG_TIMEOUT_MS` `RECONNECT_MAX_MS` `SERVE_STATIC`(默认开: 同源托管面板; 置 `0` 只跑 API) `LOG_SEGMENT_MB` `LOG_MAX_FILES`
 
 灵感来自 [shanyaojinjn/VRC-Notifier](https://github.com/shanyaojinjn/VRC-Notifier):改用 WebSocket 实时事件 + QQ 机器人集成  
-极致的vrcapi调用(小于4次/h)
+极致的vrcapi调用(在网络良好情况下长时间运行平均小于4次/h)
 | 请求类型 | 平均次数/h |
 |--|--:|
-| 所有需要鉴权的端点（`/auth/user`,`/auth`,`/users/{userId}/groups`,`/auth/user/friends`） | **3.34** |
-| 世界信息查询（公开端点） | 10.35 |
-| 头像下载（公开端点） | 0.24 |
-| 健康探测（公开端点/config，旧策略） | 180 |
+| 所有需要鉴权的端点（`/auth/user`,`/auth`,`/users/{userId}/groups`,`/auth/user/friends`） | **3.31** |
+| 世界信息查询（公开端点） | 8.54 |
+| 头像下载（公开端点） | 0.15 |
 
-`数据来自运行 200h 后日志统计`
+`数据来自运行 500h+ 后日志统计,取决于好友数量,不代表真实api调用`
 
 延迟显示优先复用现有 WebSocket 心跳（默认每 10 秒一次），有有效心跳时不再请求公开 `/config`。未登录、断线或没有有效心跳时才回退到 HTTP 探测：没有前端 SSE 连接时暂停定时采样；有人连接时每 5 分钟采样一次，约 12 次/h。打开页面、重连或窗口重新聚焦时共用 5 分钟 HTTP 缓存，多个页面不会重复采样，前端统一显示延迟。
 
