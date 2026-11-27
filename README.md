@@ -1,12 +1,14 @@
 
 # vrcnotifier  [![Docker Pulls](https://img.shields.io/docker/pulls/sihenglu/vrcnotifier-backend)](https://hub.docker.com/r/sihenglu/vrcnotifier-backend)  
 
-
-VRChat 好友监控与通知器:WebSocket 实时好友**上线 / 下线 / 切换世界 / 状态变化**+ 站内通知(仅推送邀请、戳一戳、群组公告,可在设置页分别开关,公告自动解析群组名),经 **QQ bot**推送到手机(2FA 验证码、查在线好友列表);自动恢复(cookie 失效自动重登、会话挂起自动 2FA、WS 自动重连);Web 面板、REST 对账、日志监控。敏感数据(VRChat 用户名/密码/cookie、QQ AppSecret)AES-256-GCM 加密落库。
+### VRChat 好友监控与通知器:  
+- WebSocket 实时监控好友**上线 / 下线 / 切换世界 / 状态变化+ 通知(推送邀请、戳一戳、群组公告)**  
+- 经 **QQ bot**推送到手机(2FA 验证码、查在线好友列表)  
+- **全自动的登录状态管理**(cookie 失效自动重登、会话挂起自动 2FA、WS 自动检测/重连)  
 
 ## 快速开始(Docker)
 
-镜像支持 `linux/amd64`、`linux/arm64`、`linux/arm/v7`, Docker 自动选择对应架构。AMD64/ARM64 使用 Node 24, ARMv7 使用 Node 22。
+支持  `linux/amd64`  `linux/arm64`  `linux/arm/v7`
 
 将以下内容保存为 `docker-compose.yml`:
 
@@ -72,7 +74,7 @@ docker compose logs vrcnotifier-backend | grep 访问令牌   # 访问令牌: �
 
 门禁页的「后端地址」会自动预填为当前页面地址(同源),正常只需填令牌即可。
 
-### 更新到新版本
+#### 更新到新版本
 
 ```bash
 docker compose pull        # 拉取最新镜像
@@ -91,7 +93,7 @@ docker compose down        # 停止(保留卷)
 ```
 
 
-## 本地运行
+### 本地运行
 
 Node.js ≥ 22.13.0(AMD64/ARM64 推荐 24.x, ARMv7 使用 22.x,依赖 node:sqlite):
 
@@ -101,22 +103,23 @@ npm start                    # 面板 + API 同源 :3000(默认行为, 打开 ht
 ```
 
 
-## 加密与密钥
+### 加密与密钥
 
 密钥优先级:Docker Secret(首启自动生成,存 `vrcn-key` 卷)→ 环境变量 `MASTER_KEY`(64 位 hex)→ 不加密启动(有提示)。密钥丢失/不匹配时已加密数据被清空(访问令牌保留);明文旧数据直通。
 
-## 数据与安全
+### 数据与安全
 
 本项目将存储 VRChat 的用户名/密码和 cookies 信息;存储的密码可在 IP 变化等场景下重新登录,实现免 2FA、无需人工干预的自动重登
 
 本项目与 VRChat 官方无关
 
-## 环境变量
+### 环境变量
 
 `PORT` `ACCESS_TOKEN` `MASTER_KEY` `VRC_API_URL` `VRC_WS_URL` `QQ_API_BASE` `QQ_WS_URL` `VRC_STATUS_URL` `USER_AGENT` `SNAPSHOT_INTERVAL_MS` `DEDUPE_WINDOW_MS` `WATCHDOG_MS` `WATCHDOG_CHECK_MS` `WS_PING_INTERVAL_MS` `WS_PONG_TIMEOUT_MS` `RECONNECT_MAX_MS` `SERVE_STATIC`(默认开: 同源托管面板; 置 `0` 只跑 API) `LOG_SEGMENT_MB` `LOG_MAX_FILES`
 
 灵感来自 [shanyaojinjn/VRC-Notifier](https://github.com/shanyaojinjn/VRC-Notifier):改用 WebSocket 实时事件 + QQ 机器人集成  
-极致的vrcapi调用(在网络良好情况下长时间运行平均小于4次/h)
+### 极致的vrcapi调用  
+(在网络良好情况下长时间运行平均小于4次/h)
 | 请求类型 | 平均次数/h |
 |--|--:|
 | 所有需要鉴权的端点（`/auth/user`,`/auth`,`/users/{userId}/groups`,`/auth/user/friends`） | **3.31** |
@@ -124,11 +127,16 @@ npm start                    # 面板 + API 同源 :3000(默认行为, 打开 ht
 | 头像下载（公开端点） | 0.15 |
 
 `数据来自运行 500h+ 后日志统计,取决于好友数量,不代表真实api调用`
-
-延迟显示优先复用现有 WebSocket 心跳（默认每 10 秒一次），有有效心跳时不再请求公开 `/config`。未登录、断线或没有有效心跳时才回退到 HTTP 探测：没有前端 SSE 连接时暂停定时采样；有人连接时每 5 分钟采样一次，约 12 次/h。打开页面、重连或窗口重新聚焦时共用 5 分钟 HTTP 缓存，多个页面不会重复采样，前端统一显示延迟。
-
+###
+<br><br>
+<br><br>
+<br><br>
+<br><br> 
+<br><br>  
+###
+<br><br>
 鉴定为玩vrc玩的
 
-<img width="1254" height="1254" alt="psc" src="https://github.com/user-attachments/assets/43077f4e-4fc1-4b8d-bd18-499edef84a52" />
+<img width="400" height="400" alt="psc" src="https://github.com/user-attachments/assets/43077f4e-4fc1-4b8d-bd18-499edef84a52" />
 
 也就只能写写readme了
