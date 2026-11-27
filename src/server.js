@@ -932,6 +932,12 @@ function createApp({
     }
     log.info(`[server] 登出: ${userId || '无活动会话'}`);
     current = null;
+    // 主动停用 WebSocket 不触发 ws-close; 原有 SSE 订阅仍需要 HTTP 延迟更新。
+    if (sseClients.size) {
+      readHealthStatus().then(health => {
+        if (health) broadcast('health', health);
+      }).catch(error => log.warn(`[health] 登出后延迟读取失败: ${error.message}`));
+    }
     return res.json({ ok: true });
   });
 

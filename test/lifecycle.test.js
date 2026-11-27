@@ -104,7 +104,7 @@ test('a pending HTTP probe cannot overwrite a heartbeat that becomes available f
   assert.equal(events.at(-1).latencyMs, 42, 'HTTP 采样完成时也不覆盖 SSE 的心跳值');
 });
 
-test('a frontend that stays connected after logout resumes periodic HTTP latency updates', async (t) => {
+test('an existing SSE subscription resumes periodic HTTP latency after API logout without another read', async (t) => {
   const pong = deferred();
   const app = await startApplication(t, { pingIntervalMs: 50, healthIntervalMs: 50,
     onPing(ws, data) { ws.pong(data); pong.resolve(); }
@@ -112,11 +112,13 @@ test('a frontend that stays connected after logout resumes periodic HTTP latency
   await app.login('A');
   await pong.promise;
   await sleep(10);
-  await healthStream(t, app);
+  const events = await healthStream(t, app);
+  await waitFor(() => events.length, count => count > 0);
+  const before = events.length;
   assert.equal(app.healthRequests.length, 0);
   await app.request('POST', '/api/logout', {});
-  await app.request('GET', '/api/health');
   await waitFor(() => app.healthRequests.length, count => count >= 2, 500);
+  assert.ok(events.length > before, '原有 SSE 订阅继续收到 HTTP 延迟结果');
 });
 
 test('API latency is idle without a frontend and reads use the shared 5 minute cache', async (t) => {
@@ -125,6 +127,9 @@ test('API latency is idle without a frontend and reads use the shared 5 minute c
   await app.login('A');
   await sleep(30);
   assert.equal(app.healthRequests.length, 0, '登录和好友监控不触发延迟探测');
+  await app.request('POST', '/api/logout', {});
+  await sleep(30);
+  assert.equal(app.healthRequests.length, 0, '无 SSE 订阅时注销也不启动 HTTP 探测');
   const initial = await app.request('GET', '/api/health');
   assert.equal(initial.data.ok, true);
   assert.equal(app.healthRequests.length, 1);
