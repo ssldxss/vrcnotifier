@@ -30,6 +30,7 @@ async function waitFor(read, predicate, timeoutMs = 3000) {
 
 async function startApplication(t, { qqPlatform = null, serveStatic = false, now = Date.now, officialStatus = {} } = {}) {
   const official = { description: 'All Systems Operational', indicator: 'none', components: [], httpStatus: 200, ...officialStatus };
+  const healthRequests = [];
   const holds = [];
   const expired = new Set();
   const invalidSessions = new Set();
@@ -61,7 +62,10 @@ async function startApplication(t, { qqPlatform = null, serveStatic = false, now
     if (url.pathname.endsWith('/verify')) return send({ verified: true });
     if (url.pathname === '/api/1/auth/user/friends') return send(url.searchParams.get('offline') === 'true' ? [friendOf(name)] : []);
     if (url.pathname === '/api/1/auth') return send({ token: name || 'mock' });
-    if (url.pathname === '/api/1/config') return send({ clientApiKey: 'mock' });
+    if (url.pathname === '/api/1/config') {
+      healthRequests.push(now());
+      return send({ clientApiKey: 'mock' });
+    }
     if (url.pathname.startsWith('/api/1/users/')) return send({ id: url.pathname.split('/').at(-1) });
     if (url.pathname === '/status/status.json') return send({ page: { updated_at: '2026-11-19T00:00:00Z' },
       status: { indicator: official.indicator, description: official.description } }, official.httpStatus);
@@ -97,7 +101,7 @@ async function startApplication(t, { qqPlatform = null, serveStatic = false, now
     return { status: response.status, data: await response.json() };
   }
   return {
-    base: appBase, setOfficialStatus: values => Object.assign(official, values),
+    base: appBase, healthRequests, setOfficialStatus: values => Object.assign(official, values),
     request, login: (name) => request('POST', '/api/login', { username: name, password: 'test-password', rememberMe: true }),
     holdNext(matches) {
       const hold = { matches, used: false, started: deferred(), resume: deferred() }; holds.push(hold);

@@ -4,6 +4,25 @@ const assert = require('node:assert/strict');
 const { once } = require('node:events');
 const { startApplication, startQqPlatform, waitFor, sleep } = require('./helpers/lifecycle');
 
+test('API latency is idle without a frontend and reads use the shared 5 minute cache', async (t) => {
+  let time = Date.now();
+  const app = await startApplication(t, { now: () => time });
+  await app.login('A');
+  await sleep(30);
+  assert.equal(app.healthRequests.length, 0, '登录和好友监控不触发延迟探测');
+  const initial = await app.request('GET', '/api/health');
+  assert.equal(initial.data.ok, true);
+  assert.equal(app.healthRequests.length, 1);
+  time += 4 * 60 * 1000;
+  await Promise.all(Array.from({ length: 5 }, () => app.request('GET', '/api/health')));
+  assert.equal(app.healthRequests.length, 1, '反复读取不增加上游请求');
+  time += 60 * 1000;
+  const next = await app.request('GET', '/api/health');
+  assert.equal(next.data.ok, true);
+  assert.ok(next.data.updatedAt > initial.data.updatedAt);
+  assert.equal(app.healthRequests.length, 2, '过期后只刷新一次');
+});
+
 test('switching accounts keeps the new friends when an old snapshot finally returns', async (t) => {
   const app = await startApplication(t);
   await app.login('A');

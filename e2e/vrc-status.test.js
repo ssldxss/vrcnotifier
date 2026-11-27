@@ -10,7 +10,8 @@ async function statusDashboard(t, { loggedIn = true, officialStatus = {} } = {})
   if (loggedIn) await app.login('A');
   const browser = await launchBrowser();
   t.after(() => browser.close());
-  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const page = await context.newPage();
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   t.after(() => assert.deepEqual(errors, [], 'no unhandled browser errors'));
@@ -125,4 +126,49 @@ test('浏览器新订阅 SSE 立即收到当前官方状态, 不必等待下一�
     }, { once: true });
   }));
   assert.equal(status?.state, 'normal');
+});
+
+for (const loggedIn of [false, true]) {
+  test(`${loggedIn ? '主面板' : '登录页'}: 延迟首次可见, 多页面共用缓存, 聚焦时刷新过期结果`, async (t) => {
+    const { page, base, advance, healthRequests } = await statusDashboard(t, { loggedIn });
+    const latency = loggedIn ? '#stLatency' : '#lgLatency';
+    await page.waitForFunction(selector => /\d+ ms/.test(document.querySelector(selector).textContent), latency);
+    assert.equal(healthRequests.length, 1, '首屏 HTTP 与 SSE 共用一次采样');
+    const second = await page.context().newPage();
+    await second.goto(base);
+    await second.waitForFunction(selector => /\d+ ms/.test(document.querySelector(selector).textContent), latency);
+    assert.equal(healthRequests.length, 1, '第二个页面立即显示缓存, 不重复采样');
+    await second.close();
+    const focus = async () => {
+      const [response] = await Promise.all([
+        page.waitForResponse(response => response.url().endsWith('/api/health'), { timeout: 2000 }),
+        page.evaluate(() => window.dispatchEvent(new Event('focus')))
+      ]);
+      return response.json();
+    };
+    await focus();
+    assert.equal(healthRequests.length, 1, '缓存未过期时聚焦不补测');
+    advance(5 * 60 * 1000);
+    const refreshed = await focus();
+    assert.equal(refreshed.ok, true);
+    assert.equal(healthRequests.length, 2, '过期后聚焦只采样一次');
+    await page.waitForFunction(selector => /\d+ ms/.test(document.querySelector(selector).textContent), latency);
+    assert.equal(await page.locator(loggedIn ? '#stHealthDot.ok' : '#lgHealthDot.ok').count(), 1);
+  });
+}
+
+test('浏览器新订阅 SSE 立即收到缓存延迟, 不重复探测', async (t) => {
+  const { page, healthRequests } = await statusDashboard(t);
+  const health = await page.evaluate(() => new Promise(resolve => {
+    const events = new EventSource('/api/events?token=lifecycle-token');
+    const timer = setTimeout(() => { events.close(); resolve(null); }, 1500);
+    events.addEventListener('health', event => {
+      clearTimeout(timer);
+      events.close();
+      resolve(JSON.parse(event.data));
+    }, { once: true });
+  }));
+  assert.equal(health?.status, 'ok');
+  assert.equal(typeof health?.latencyMs, 'number');
+  assert.equal(healthRequests.length, 1);
 });

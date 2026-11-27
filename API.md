@@ -32,6 +32,8 @@
 
 ## 事件与数据保留
 
+`GET /api/health` 返回 API 延迟和最近一次成功采样时间 `updatedAt`；缓存超过 5 分钟时等待一次采样，并发读取共用同一请求。每次采样默认只请求一次公开 `/config`，失败也等待 5 分钟后再试；若有历史成功结果则返回旧值并标记 `stale: true`。有 SSE 客户端时每 5 分钟自动采样并推送 `health`，新连接立即收到当前结果；没有 SSE 客户端时暂停定时采样，直接读取本接口仍可触发按需采样。
+
 `GET /api/events` 为 SSE，事件名称由 `public/contracts.js` 定义。它不支持历史重放；客户端首次连接和重新连接后需要通过 HTTP 补拉。`friend-event` 只表示历史动态；`friend-state` 的 `{ friend_vrchat_id, friend }` 携带与 `GET /api/friends` 相同的完整好友 DTO，删除好友时 `friend: null`。当前状态以该 DTO 为准，保留已确认 state、pending_state、display_state 和全部资料字段。通知配置只存在于嵌套 `config`，不在好友顶层重复返回。
 
 登出或更换 VRChat 账号会清理该账号的好友、好友动态、通知去重和用户信息；QQ 设置与绑定为全局数据，除非选择彻底重置。历史设计文稿不代表当前接口契约。

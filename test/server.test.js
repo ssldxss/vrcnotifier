@@ -14,6 +14,7 @@ const { createApp } = require('../src/server');
 const { createLogStream } = require('../src/logstream');
 const { createFileLog } = require('../src/filelog');
 const { maskKey } = require('../src/util');
+const { createHealthMonitor } = require('../src/health');
 
 const silent = { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
 
@@ -1294,7 +1295,7 @@ test('SSE stream receives notification events', async (t) => {
   ac.abort();
 });
 
-test('GET /api/health returns continuous probe status', async (t) => {
+test('GET /api/health returns cached probe status', async (t) => {
   const ctx = setup({ health: { status: 'ok', latencyMs: 87, serverName: 'mock-vrc', updatedAt: 42 } });
   t.after(() => close(ctx));
   const r = await get(ctx, '/api/health');
@@ -1304,6 +1305,85 @@ test('GET /api/health returns continuous probe status', async (t) => {
   assert.equal(r.data.latencyMs, 87);
   assert.equal(r.data.serverName, 'mock-vrc');
   assert.equal(r.data.updatedAt, 42);
+});
+
+test('health: HTTP and new SSE clients share a sample and refresh expired results', async (t) => {
+  let time = 1000;
+  let calls = 0;
+  const healthMonitor = createHealthMonitor({ now: () => time, fetchImpl: async () => {
+    calls++;
+    time += 10;
+    return { ok: true, json: async () => ({ serverName: 'mock-vrc' }) };
+  } });
+  const ctx = setup({ healthMonitor });
+  t.after(async () => {
+    healthMonitor.stop();
+    ctx.server.closeAllConnections();
+    await close(ctx);
+  });
+  assert.equal(calls, 0, '后端启动无前端时不探测');
+  const results = await Promise.all(Array.from({ length: 5 }, () => get(ctx, '/api/health')));
+  assert.equal(calls, 1);
+  assert.ok(results.every(r => r.data.latencyMs === 10 && r.data.ok));
+  const initial = await sseOnce(ctx, 'health');
+  assert.equal(initial.latencyMs, 10, '新 SSE 订阅立即收到延迟');
+  assert.equal(calls, 1, '有效缓存不重复探测');
+  time += 5 * 60 * 1000;
+  const refreshed = await sseOnce(ctx, 'health');
+  assert.equal(refreshed.latencyMs, 10);
+  assert.ok(refreshed.updatedAt > initial.updatedAt, '过期后重连会刷新');
+  assert.equal(calls, 2);
+});
+
+test('health: sampling continues until the final SSE client disconnects', async (t) => {
+  let starts = 0;
+  let stops = 0;
+  const ctx = setup({ healthMonitor: {
+    start() { starts++; }, stop() { stops++; },
+    status: () => ({ status: 'ok', latencyMs: 10 })
+  } });
+  const controllers = [new AbortController(), new AbortController()];
+  t.after(async () => {
+    for (const controller of controllers) controller.abort();
+    ctx.server.closeAllConnections();
+    await close(ctx);
+  });
+  for (const controller of controllers) {
+    await fetch(ctx.base + '/api/events', { signal: controller.signal });
+  }
+  assert.equal(starts, 1);
+  controllers[0].abort();
+  // HTTP 往返给服务端时间处理先前连接的关闭。
+  await get(ctx, '/api/health');
+  assert.equal(stops, 0, '还有一个前端连接时继续采样');
+  controllers[1].abort();
+  const deadline = Date.now() + 2000;
+  while (stops === 0 && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10));
+  assert.equal(stops, 1, '最后一个前端断开后暂停');
+});
+
+test('health: active SSE clients receive periodic updates without HTTP polling, disconnect pauses sampling', async (t) => {
+  let calls = 0;
+  let ctx;
+  const healthMonitor = createHealthMonitor({ intervalMs: 50, fetchImpl: async () => {
+    calls++;
+    return { ok: true, json: async () => ({}) };
+  }, onSample: health => ctx.bus.emit('health', health) });
+  ctx = setup({ healthMonitor });
+  const stream = await sseCollect(ctx, 'health');
+  t.after(async () => {
+    stream.stop();
+    healthMonitor.stop();
+    ctx.server.closeAllConnections();
+    await close(ctx);
+  });
+  assert.equal(await stream.until(events => events.some(health => health.updatedAt > events[0].updatedAt)), true);
+  assert.ok(calls >= 2, '定时采样通过 SSE 自动更新');
+  stream.stop();
+  await new Promise(resolve => setTimeout(resolve, 30));
+  const paused = calls;
+  await new Promise(resolve => setTimeout(resolve, 120));
+  assert.equal(calls, paused, '关闭页面后不再定时采样');
 });
 
 test('GET /api/ws-stats returns last-60s series and total', async (t) => {

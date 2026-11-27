@@ -44,7 +44,7 @@ test('health: averages 3 samples, reports ok and serverName, no cookies', async 
   assert.equal(s.serverName, 'mock-vrc');
   assert.equal(fetchImpl.calls.length, 3);
   assert.equal(fetchImpl.calls[0].url, 'https://api.vrchat.cloud/api/1/config');
-  assert.equal(fetchImpl.calls[0].options.headers.Cookie, undefined, '持续探测不带 cookie');
+  assert.equal(fetchImpl.calls[0].options.headers.Cookie, undefined, '探测不带 cookie');
   assert.ok(fetchImpl.calls[0].options.headers['User-Agent']);
 });
 
@@ -144,4 +144,82 @@ test('health: starts in starting state and stop is idempotent', async () => {
   h.stop();
   h.stop();
   assert.ok(h.status().updatedAt > 0 || h.status().updatedAt === 0);
+});
+
+test('health: idle until requested, one sample every 5 minutes while active, pauses after stop', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1000 });
+  let calls = 0;
+  const h = createHealthMonitor({ fetchImpl: async () => {
+    calls++;
+    return { ok: true, json: async () => ({ serverName: 'mock-vrc' }) };
+  } });
+  t.after(() => h.stop());
+  const flush = () => new Promise(resolve => setImmediate(resolve));
+  t.mock.timers.tick(30 * 60 * 1000);
+  assert.equal(calls, 0, '没有读取或前端连接时不请求上游');
+  h.start();
+  h.start();
+  await h.refresh();
+  assert.equal(calls, 1, '启动只采样一次');
+  assert.equal(h.status().status, 'ok');
+  t.mock.timers.tick(5 * 60 * 1000 - 1);
+  await flush();
+  assert.equal(calls, 1);
+  t.mock.timers.tick(1);
+  await flush();
+  assert.equal(calls, 2, '满 5 分钟才再次采样');
+  h.stop();
+  t.mock.timers.tick(30 * 60 * 1000);
+  await flush();
+  assert.equal(calls, 2, '暂停期间不采样');
+  h.start();
+  await h.refresh();
+  assert.equal(calls, 3, '重连时过期结果立即刷新');
+});
+
+test('health: concurrent readers share a sample and restarting keeps the original cache deadline', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1000 });
+  let calls = 0;
+  let release;
+  const h = createHealthMonitor({ fetchImpl: async () => {
+    calls++;
+    if (calls === 1) await new Promise(resolve => { release = resolve; });
+    return { ok: true, json: async () => ({}) };
+  } });
+  t.after(() => h.stop());
+  const reads = Array.from({ length: 10 }, () => h.refresh());
+  h.start();
+  assert.equal(calls, 1, 'HTTP 首屏与多个 SSE 连接合并采样');
+  release();
+  for (const result of await Promise.all(reads)) assert.equal(result.status, 'ok');
+  h.stop();
+  t.mock.timers.tick(4 * 60 * 1000);
+  h.start();
+  await h.refresh();
+  assert.equal(calls, 1, '缓存有效时重连不补测');
+  t.mock.timers.tick(60 * 1000);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(calls, 2, '仍按原采样时间刷新, 不因重连延后');
+});
+
+test('health: failed attempts are throttled independently of the last successful timestamp', async () => {
+  let time = 1000;
+  let calls = 0;
+  const h = createHealthMonitor({ now: () => time, fetchImpl: async () => {
+    calls++;
+    return { ok: calls !== 2, status: 503, json: async () => ({}) };
+  } });
+  await h.refresh();
+  time += 5 * 60 * 1000;
+  const stale = await h.refresh();
+  assert.equal(stale.stale, true);
+  assert.equal(stale.updatedAt, 1000, '保留成功样本的时间');
+  await Promise.all(Array.from({ length: 10 }, () => h.refresh()));
+  assert.equal(calls, 2, '失败后的反复读取不会立即重试');
+  time += 5 * 60 * 1000;
+  const recovered = await h.refresh();
+  assert.equal(calls, 3);
+  assert.equal(recovered.status, 'ok');
+  assert.equal(recovered.stale, undefined);
+  assert.equal(recovered.updatedAt, time);
 });

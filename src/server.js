@@ -108,9 +108,18 @@ function createApp({
     res.write(`data: ${JSON.stringify(data)}\n\n`);
   }
 
+  function removeSseClient(res) {
+    if (sseClients.delete(res) && !sseClients.size) healthMonitor?.stop?.();
+  }
+
+  function readHealthStatus() {
+    if (typeof healthMonitor?.refresh === 'function') return healthMonitor.refresh();
+    return healthMonitor?.status?.() || null;
+  }
+
   function broadcast(event, data) {
     for (const res of sseClients) {
-      try { sseSend(res, event, data); } catch (e) { sseClients.delete(res); }
+      try { sseSend(res, event, data); } catch (e) { removeSseClient(res); }
     }
   }
 
@@ -120,7 +129,7 @@ function createApp({
       const payload = { seq: entry.seq, line: maskOut(entry.line) };
       const event = kind === 'update' ? 'log-update' : 'log'; // update: 令牌行被替换, 前端按 seq 同步
       for (const res of sseClients) {
-        try { sseSend(res, event, payload); } catch (e) { sseClients.delete(res); }
+        try { sseSend(res, event, payload); } catch (e) { removeSseClient(res); }
       }
     });
   }
@@ -1089,11 +1098,11 @@ function createApp({
     return res.json(statusPayload());
   });
 
-  // VRChat API 健康探测(持续进行, 无 cookie): 返回最近一轮的 3 样本平均延迟
-  app.get('/api/health', (req, res) => {
-    const h = healthMonitor && typeof healthMonitor.status === 'function' ? healthMonitor.status() : null;
+  // 按需读取 API 延迟: 缓存过期时等待一次采样, 并发请求共用同一轮。
+  app.get('/api/health', async (req, res) => {
+    const h = await readHealthStatus();
     if (!h) return res.status(503).json({ ok: false, error: '健康探测未启用' });
-    return res.json({
+    return res.set('Cache-Control', 'no-store').json({
       ok: h.status === 'ok',
       status: h.status,
       latencyMs: h.latencyMs,
@@ -1182,20 +1191,26 @@ function createApp({
     });
     res.write(': connected\n\n');
     sseClients.add(res);
+    const keepAlive = setInterval(() => {
+      try { res.write(': ping\n\n'); } catch (e) { removeSseClient(res); }
+    }, 25000);
+    keepAlive.unref?.();
+    res.on('close', () => {
+      clearInterval(keepAlive);
+      removeSseClient(res);
+    });
+    // 首个前端连接才启动周期采样; 最后一个断开后暂停。
+    if (sseClients.size === 1) healthMonitor?.start?.();
+    // 新连接立即拿到延迟, 无需等待 5 分钟; 与首屏 HTTP 请求共用采样。
+    Promise.resolve().then(readHealthStatus).then((health) => {
+      if (health && sseClients.has(res)) sseSend(res, 'health', health);
+    }).catch((error) => log.warn(`[health] 初始延迟推送失败: ${error.message}`));
     // 补齐 HTTP 加载与 SSE 建连之间完成的状态/组件详情。
     if (vrcStatus && typeof vrcStatus.status === 'function') {
       Promise.resolve(vrcStatus.status()).then((status) => {
         if (status && sseClients.has(res)) sseSend(res, 'vrc-status', status);
       }).catch((error) => log.warn(`[vrcstatus] 初始状态推送失败: ${error.message}`));
     }
-    const keepAlive = setInterval(() => {
-      try { res.write(': ping\n\n'); } catch (e) { /* closed */ }
-    }, 25000);
-    keepAlive.unref?.();
-    req.on('close', () => {
-      clearInterval(keepAlive);
-      sseClients.delete(res);
-    });
   });
 
   app.use('/api', (req, res) => res.status(404).json({ error: '接口不存在' }));
