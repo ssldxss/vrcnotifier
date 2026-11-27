@@ -1099,6 +1099,7 @@ body.variant-a .status-strip { display: none; }
   color: var(--warn);
 }
 .login-status-alert.bad { border-color: var(--bad); background: var(--bad-soft); color: var(--bad); }
+.login-status-alert.unavailable { border-color: var(--line-strong); background: var(--btn-sec); color: var(--text-2); }
 .login-status-alert a { display: flex; flex-direction: column; gap: 6px; padding: 14px 18px; color: inherit; text-decoration: none; overflow-wrap: anywhere; }
 .login-status-alert a:hover { background: var(--btn-sec-hover); }
 .login-status-alert a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }

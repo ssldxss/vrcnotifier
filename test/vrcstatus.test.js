@@ -183,7 +183,7 @@ test('vrcstatus: fetch failure maps to unknown with error detail', async () => {
   const s = createVrcStatus({ fetchImpl: f, logger: silent });
   const st = await s.status();
   assert.equal(st.state, 'unknown');
-  assert.equal(st.description, 'Failed to fetch VRC status');
+  assert.equal(st.description, '无法获取状态');
   assert.equal(st.summary, 'network down');
 });
 
@@ -206,7 +206,7 @@ test('vrcstatus: 获取失败替换旧正常状态, 恢复后重新显示正常'
   const b = await s.status();
   assert.equal(b.state, 'unknown', '获取失败必须提示, 不能继续显示旧正常状态');
   assert.equal(b.stale, undefined);
-  assert.equal(b.description, 'Failed to fetch VRC status');
+  assert.equal(b.description, '无法获取状态');
 
   const c = await s.status(); // TTL 内复用, 不重新请求
   assert.equal(c.state, 'unknown');

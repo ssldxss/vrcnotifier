@@ -135,13 +135,15 @@ window.VrcDashboardOverview = {
       const hadIssue = state.vrcAbnormal;
       state.vrcStatus = vd || null;
       state.vrcAbnormal = !!(vd && vd.state && vd.state !== 'normal');
+      const isUnavailable = !!(vd && vd.state === 'unknown');
       const isMajor = !!(vd && vd.indicator === 'major');
+      const title = isUnavailable ? '无法获取状态' : 'VRChat 服务目前存在降级';
       const text = state.vrcAbnormal
         ? [vd.description, vd.summary].filter(Boolean).join(': ')
         : 'VRChat 服务目前一切正常';
       for (const prefix of ['st', 'lg']) {
         const dot = document.getElementById(prefix + 'HealthDot');
-        if (dot) dot.className = 'ss-dot' + (state.vrcAbnormal ? (isMajor ? ' bad' : ' warn') : (vd && vd.state === 'normal' ? ' ok' : ''));
+        if (dot) dot.className = 'ss-dot' + (isUnavailable ? '' : (state.vrcAbnormal ? (isMajor ? ' bad' : ' warn') : (vd && vd.state === 'normal' ? ' ok' : '')));
         const link = document.getElementById(prefix + 'ServerStatus');
         if (link) {
           link.title = text;
@@ -150,7 +152,10 @@ window.VrcDashboardOverview = {
           else link.removeAttribute('aria-describedby');
         }
         const detail = document.getElementById(prefix + 'VrcDetail');
-        if (detail) detail.classList.toggle('hidden', !state.vrcAbnormal);
+        if (detail) {
+          detail.classList.toggle('hidden', !state.vrcAbnormal);
+          detail.querySelector('strong').textContent = title;
+        }
         const description = document.getElementById(prefix + 'VrcText');
         if (description) description.textContent = state.vrcAbnormal ? text : '';
         if (!state.vrcAbnormal) document.getElementById(prefix + 'ServerWrap')?.classList.remove('auto-open');
@@ -159,6 +164,8 @@ window.VrcDashboardOverview = {
       if (loginAlert) {
         loginAlert.classList.toggle('hidden', !state.vrcAbnormal);
         loginAlert.classList.toggle('bad', isMajor);
+        loginAlert.classList.toggle('unavailable', isUnavailable);
+        loginAlert.querySelector('strong').textContent = title;
         $('#loginVrcText').textContent = state.vrcAbnormal ? text : '';
       }
       if (!state.vrcAbnormal) clearTimeout(statusDetailTimer);
