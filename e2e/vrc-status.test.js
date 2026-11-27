@@ -1,12 +1,12 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { startApplication } = require('../test/helpers/lifecycle');
+const { startApplication, deferred } = require('../test/helpers/lifecycle');
 const { launchBrowser } = require('./helpers');
 
-async function statusDashboard(t, { loggedIn = true, officialStatus = {} } = {}) {
+async function statusDashboard(t, { loggedIn = true, officialStatus = {}, pingIntervalMs, onPing } = {}) {
   let now = Date.now();
-  const app = await startApplication(t, { serveStatic: true, officialStatus, now: () => now });
+  const app = await startApplication(t, { serveStatic: true, officialStatus, now: () => now, pingIntervalMs, onPing });
   if (loggedIn) await app.login('A');
   const browser = await launchBrowser();
   t.after(() => browser.close());
@@ -171,4 +171,45 @@ test('浏览器新订阅 SSE 立即收到缓存延迟, 不重复探测', async (
   assert.equal(health?.status, 'ok');
   assert.equal(typeof health?.latencyMs, 'number');
   assert.equal(healthRequests.length, 1);
+});
+
+test('页面统一显示延迟, 心跳和 HTTP 切换时保留最新显示', async (t) => {
+  let advanceTime;
+  let gateway;
+  let responding = true;
+  const { page, advance, login, request, healthRequests } = await statusDashboard(t, { loggedIn: false, pingIntervalMs: 50,
+    onPing(ws, data) {
+      if (!responding) return;
+      gateway = ws; advanceTime(42); ws.pong(data);
+    }
+  });
+  advanceTime = advance;
+  assert.equal(await page.locator('#lgLatency').textContent(), '0 ms');
+  const title = await page.locator('#lgLatency').getAttribute('title');
+  await login('A');
+  await page.waitForSelector('#mainView:not(.hidden)');
+  await page.waitForFunction(() => document.querySelector('#stLatency').textContent === '42 ms');
+  assert.equal(await page.locator('#stLatency').getAttribute('title'), title, '前端不区分延迟来源');
+  assert.equal(healthRequests.length, 1, '登录后复用心跳, 不增加 HTTP 探测');
+  const held = deferred();
+  const release = deferred();
+  await page.route('**/api/health', async route => {
+    const response = await route.fetch();
+    held.resolve();
+    await release.promise;
+    await route.fulfill({ response });
+  }, { times: 1 });
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await held.promise;
+  responding = false;
+  gateway.terminate();
+  try {
+    await page.waitForFunction(() => document.querySelector('#stLatency').textContent === '0 ms', null, { timeout: 2000 }).catch(async error => {
+      assert.fail(`${error.message}; displayed=${await page.locator('#stLatency').textContent()}; health=${JSON.stringify((await request('GET', '/api/health')).data)}`);
+    });
+  } finally { release.resolve(); }
+  await page.waitForTimeout(100);
+  assert.equal(await page.locator('#stLatency').textContent(), '0 ms', '旧 HTTP 响应不能覆盖更新的 SSE 值');
+  assert.equal(await page.locator('#stLatency').getAttribute('title'), title);
+  assert.equal(healthRequests.length, 1, '断线后直接展示有效的 HTTP 缓存');
 });

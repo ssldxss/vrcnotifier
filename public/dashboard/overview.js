@@ -172,8 +172,10 @@ window.VrcDashboardOverview = {
     }
     async function loadHealth({ focus = false } = {}) {
       try {
+        const previousHealth = state.lastHealth;
         const [h, v] = await Promise.all([api('GET', '/api/health'), api('GET', '/api/vrc-status' + (focus ? '?focus=1' : ''))]);
-        applyHealthUi(h.data || {});
+        // 等待 HTTP 期间收到的 SSE 更新优先, 避免旧响应覆盖已切换的延迟。
+        if (state.lastHealth === previousHealth) applyHealthUi(h.data || {});
         applyVrcStatus(v.data || {});
       } catch (e) { /* 顶栏保持 - */ }
     }

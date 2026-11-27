@@ -1,6 +1,6 @@
 'use strict';
 // VRChat pipeline WebSocket 客户端管理: 连接/断线重连(指数退避+jitter)/帧去重/
-// per-user 串行队列/protocol ping-pong 保活(尽力而为)/失败告警。
+// per-user 串行队列/protocol ping-pong 保活与往返延迟/失败告警。
 // 注意: VRChat 协议无应用层心跳, 存活兜底由 monitor 的 watchdog + 周期快照负责。
 
 const WebSocket = require('ws');
@@ -10,7 +10,7 @@ function createPipelineManager(opts) {
     getToken, onMessage, wsUrl, userAgent,
     now = Date.now, logger = null,
     onConnectFailure = null, onConnectRecovered = null, onReconnect = null,
-    onOpen = null, onClose = null,
+    onOpen = null, onClose = null, onLatency = null,
     WsClient = WebSocket,
     config = {}
   } = opts;
@@ -28,6 +28,7 @@ function createPipelineManager(opts) {
   const handshakeTimeoutMs = config.handshakeTimeoutMs ?? 30000;
 
   const conns = new Map();   // userId -> conn
+  let pingSequence = 0;
   const chains = new Map();  // userId -> promise chain
   const msgCounts = new Map(); // 秒 -> 收到消息数(供最近一分钟图表)
 
@@ -66,6 +67,9 @@ function createPipelineManager(opts) {
         lastMessageAt: 0,
         pingTimer: null,
         pongTimer: null,
+        pendingPings: new Map(),
+        latencyMs: null,
+        latencyUpdatedAt: null,
         reconnectTimer: null,
         displayName: displayName || '',
         stopped: false,
@@ -84,6 +88,9 @@ function createPipelineManager(opts) {
     if (conn.pingTimer) { clearInterval(conn.pingTimer); conn.pingTimer = null; }
     if (conn.pongTimer) { clearTimeout(conn.pongTimer); conn.pongTimer = null; }
     if (conn.reconnectTimer) { clearTimeout(conn.reconnectTimer); conn.reconnectTimer = null; }
+    conn.pendingPings.clear();
+    conn.latencyMs = null;
+    conn.latencyUpdatedAt = null;
   }
 
   function backoffMs(attempt) {
@@ -146,7 +153,13 @@ function createPipelineManager(opts) {
           try { ws.terminate(); } catch (e) { /* ignore */ }
         }, pongTimeoutMs);
       }
-      try { ws.ping(); } catch (e) { /* 等待超时后断开 */ }
+      const sentAt = now();
+      for (const [id, ping] of conn.pendingPings) {
+        if (sentAt - ping.sentAt >= pongTimeoutMs) conn.pendingPings.delete(id);
+      }
+      const id = String(++pingSequence);
+      conn.pendingPings.set(id, { sentAt });
+      try { ws.ping(id); } catch (e) { conn.pendingPings.delete(id); /* 等待超时后断开 */ }
     }, pingIntervalMs);
   }
 
@@ -224,8 +237,17 @@ function createPipelineManager(opts) {
         .catch((e) => log.error(`[ws] onMessage 错误 userId=${userId}: ${e.message}`)));
     });
 
-    ws.on('pong', () => {
-      if (conn.pongTimer) { clearTimeout(conn.pongTimer); conn.pongTimer = null; }
+    ws.on('pong', (data) => {
+      const id = Buffer.isBuffer(data) ? data.toString() : '';
+      const ping = conn.pendingPings.get(id);
+      if (ping) {
+        if (conn.pongTimer) { clearTimeout(conn.pongTimer); conn.pongTimer = null; }
+        const receivedAt = now();
+        conn.latencyMs = Math.max(0, Math.round(receivedAt - ping.sentAt));
+        conn.latencyUpdatedAt = receivedAt;
+        conn.pendingPings.delete(id);
+        try { onLatency?.(userId); } catch (e) { log.error(`[ws] onLatency 错误 userId=${userId}: ${e.message}`); }
+      }
     });
 
     ws.on('close', () => {
@@ -290,8 +312,11 @@ function createPipelineManager(opts) {
   function status(userId) {
     const conn = conns.get(userId);
     if (!conn) return null;
+    const connected = isConnected(userId);
+    const latencyFresh = connected && conn.latencyUpdatedAt !== null
+      && now() - conn.latencyUpdatedAt < pingIntervalMs + pongTimeoutMs;
     return {
-      connected: isConnected(userId),
+      connected,
       // connecting: 正在握手(尚未 open)。握手上限由 handshakeTimeoutMs 保证, 不会永久停留在此态。
       connecting: !!(conn.ws && conn.ws.readyState === WebSocket.CONNECTING),
       // reconnectPending: 是否已有退避重连定时器在排。watchdog 靠它区分"退避重连中(别打扰)"
@@ -300,7 +325,9 @@ function createPipelineManager(opts) {
       attempt: conn.attempt,
       failedSince: conn.failedSince,
       notified: conn.notified,
-      lastMessageAt: conn.lastMessageAt
+      lastMessageAt: conn.lastMessageAt,
+      latencyMs: latencyFresh ? conn.latencyMs : null,
+      latencyUpdatedAt: latencyFresh ? conn.latencyUpdatedAt : null
     };
   }
 

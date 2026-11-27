@@ -112,9 +112,20 @@ function createApp({
     if (sseClients.delete(res) && !sseClients.size) healthMonitor?.stop?.();
   }
 
-  function readHealthStatus() {
-    if (typeof healthMonitor?.refresh === 'function') return healthMonitor.refresh();
-    return healthMonitor?.status?.() || null;
+  async function readHealthStatus() {
+    const heartbeat = heartbeatHealth();
+    if (heartbeat) return heartbeat;
+    if (sseClients.size) healthMonitor?.start?.();
+    const fallback = typeof healthMonitor?.refresh === 'function'
+      ? await healthMonitor.refresh() : await healthMonitor?.status?.();
+    // HTTP 采样期间可能已收到首个 Pong, 响应时再次选择当前可用的心跳值。
+    return heartbeatHealth() || fallback || null;
+  }
+
+  function heartbeatHealth() {
+    const ws = current ? pipeline.status(current.userId) : null;
+    if (!ws?.connected || typeof ws.latencyMs !== 'number') return null;
+    return { status: 'ok', latencyMs: ws.latencyMs, serverName: null, updatedAt: ws.latencyUpdatedAt, stale: false };
   }
 
   function broadcast(event, data) {
@@ -651,7 +662,15 @@ function createApp({
   // 登录进度: 登录路由与 monitor 都往 bus 上发, 这里统一转 SSE(前端等待页照它逐行点亮)
   bus.on('sync-progress', (e) => broadcast('login-progress', e));
   bus.on('ws-open', () => broadcast('status', statusPayload()));
-  bus.on('ws-close', () => broadcast('status', statusPayload()));
+  bus.on('ws-close', ({ userId }) => {
+    broadcast('status', statusPayload());
+    if (current?.userId === userId && sseClients.size) {
+      healthMonitor?.start?.();
+      readHealthStatus().then(health => {
+        if (health) broadcast('health', health);
+      }).catch(error => log.warn(`[health] 断线后延迟读取失败: ${error.message}`));
+    }
+  });
   bus.on('self-state', ({ userId }) => {
     broadcast('self-state', { userId });
     broadcast('status', statusPayload());
@@ -660,8 +679,15 @@ function createApp({
     broadcast('qq-status', e);
     broadcast('status', statusPayload());
   });
-  // 健康探测结果(healthMonitor 每轮采样完成) → SSE 推送
-  bus.on('health', (h) => broadcast('health', h));
+  // 前端共用 health 事件: 优先心跳 RTT, HTTP 作为回退。
+  bus.on('health', (h) => broadcast('health', heartbeatHealth() || h));
+  bus.on('ws-latency', ({ userId }) => {
+    if (current?.userId !== userId) return;
+    const health = heartbeatHealth();
+    if (!health) return;
+    healthMonitor?.stop?.();
+    broadcast('health', health);
+  });
   bus.on('vrc-status', (status) => broadcast('vrc-status', status));
 
   // WS 图表数据: 每秒推送最近几秒的消息数(前端 rAF 按时间锚定自行匀速左移)
@@ -1199,8 +1225,8 @@ function createApp({
       clearInterval(keepAlive);
       removeSseClient(res);
     });
-    // 首个前端连接才启动周期采样; 最后一个断开后暂停。
-    if (sseClients.size === 1) healthMonitor?.start?.();
+    // 首个前端连接无有效心跳时才启动 HTTP 采样; 最后一个断开后暂停。
+    if (sseClients.size === 1 && !heartbeatHealth()) healthMonitor?.start?.();
     // 新连接立即拿到延迟, 无需等待 5 分钟; 与首屏 HTTP 请求共用采样。
     Promise.resolve().then(readHealthStatus).then((health) => {
       if (health && sseClients.has(res)) sseSend(res, 'health', health);

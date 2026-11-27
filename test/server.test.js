@@ -1336,30 +1336,32 @@ test('health: HTTP and new SSE clients share a sample and refresh expired result
 });
 
 test('health: sampling continues until the final SSE client disconnects', async (t) => {
-  let starts = 0;
-  let stops = 0;
-  const ctx = setup({ healthMonitor: {
-    start() { starts++; }, stop() { stops++; },
-    status: () => ({ status: 'ok', latencyMs: 10 })
+  let calls = 0;
+  const healthMonitor = createHealthMonitor({ intervalMs: 50, fetchImpl: async () => {
+    calls++;
+    return { ok: true, json: async () => ({}) };
   } });
+  const ctx = setup({ healthMonitor });
   const controllers = [new AbortController(), new AbortController()];
   t.after(async () => {
     for (const controller of controllers) controller.abort();
+    healthMonitor.stop();
     ctx.server.closeAllConnections();
     await close(ctx);
   });
   for (const controller of controllers) {
     await fetch(ctx.base + '/api/events', { signal: controller.signal });
   }
-  assert.equal(starts, 1);
+  const connected = calls;
   controllers[0].abort();
-  // HTTP 往返给服务端时间处理先前连接的关闭。
-  await get(ctx, '/api/health');
-  assert.equal(stops, 0, '还有一个前端连接时继续采样');
-  controllers[1].abort();
   const deadline = Date.now() + 2000;
-  while (stops === 0 && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10));
-  assert.equal(stops, 1, '最后一个前端断开后暂停');
+  while (calls === connected && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10));
+  assert.ok(calls > connected, '还有一个前端连接时继续采样');
+  controllers[1].abort();
+  await new Promise(resolve => setTimeout(resolve, 30));
+  const paused = calls;
+  await new Promise(resolve => setTimeout(resolve, 120));
+  assert.equal(calls, paused, '最后一个前端断开后暂停');
 });
 
 test('health: active SSE clients receive periodic updates without HTTP polling, disconnect pauses sampling', async (t) => {
