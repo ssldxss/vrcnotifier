@@ -127,6 +127,22 @@ npm start                    # 面板 + API 同源 :3000(默认行为, 打开 ht
 | 头像下载（公开端点） | 0.15 |
 
 `数据来自运行 500h+ 后日志统计,取决于好友数量,不代表真实api调用`
+## vrcnotifier 有没有违反 VRChat 的服务条款？
+
+**简而言之：没有违反**
+
+vrcnotifier 是一个外部工具，使用 VRChat API 来提供相关功能。
+
+它并不会以任何方式修改游戏，只是合理使用 API 来提供相应的功能。
+
+要了解 VRChat 对 API 使用的相关态度，请查看 [VRChat Discord](https://discord.gg/vrchat) 服务器的 #faq 频道。
+
+---
+
+vrcnotifier 未获得 VRChat 的认可，也不代表 VRChat 或任何正式参与制作或管理 VRChat 的个人/组织的观点或立场。VRChat 及所有相关内容均为 VRChat Inc. 的商标或注册商标。VRChat © VRChat Inc.  
+
+~~这段怎么有种熟悉的感觉?~~
+
 ###
 <br><br>
 <br><br>
