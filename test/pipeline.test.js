@@ -27,6 +27,101 @@ function startMockPipeline({ autoPong = true } = {}) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+test('status exposes the round trip time of a matching heartbeat pong', async (t) => {
+  const { wss, url, close } = await startMockPipeline({ autoPong: false });
+  let time = 1000;
+  let pinged;
+  const sent = new Promise(resolve => { pinged = resolve; });
+  wss.on('connection', ws => ws.once('ping', data => {
+    time = 1042;
+    ws.pong(data);
+    pinged();
+  }));
+  const pm = createPipelineManager({
+    getToken: async () => ({ status: 'ok', token: 't' }),
+    wsUrl: () => url, userAgent: 't/1', now: () => time,
+    config: { ...cfg, pongTimeoutMs: 1000 }
+  });
+  t.after(async () => { pm.disconnect('u1'); await close(); });
+  pm.connect('u1');
+  await sent;
+  await sleep(20);
+  assert.equal(pm.status('u1').latencyMs, 42);
+  assert.equal(pm.status('u1').latencyUpdatedAt, 1042);
+});
+
+test('status clears the heartbeat latency when the gateway disconnects', async (t) => {
+  const { state, url, close } = await startMockPipeline();
+  const pm = createPipelineManager({
+    getToken: async () => ({ status: 'ok', token: 't' }),
+    wsUrl: () => url, userAgent: 't/1', now: () => 1000,
+    config: { ...cfg, reconnectBaseMs: 5000 }
+  });
+  t.after(async () => { pm.disconnect('u1'); await close(); });
+  pm.connect('u1');
+  const deadline = Date.now() + 1500;
+  while (pm.status('u1')?.latencyMs == null && Date.now() < deadline) await sleep(10);
+  assert.equal(pm.status('u1').latencyMs, 0);
+  state.connections[0].ws.terminate();
+  while (pm.isConnected('u1') && Date.now() < deadline) await sleep(10);
+  assert.equal(pm.status('u1').latencyMs, null);
+  assert.equal(pm.status('u1').latencyUpdatedAt, null);
+});
+
+test('status stops exposing a heartbeat sample after its response window expires', async (t) => {
+  const { url, close } = await startMockPipeline();
+  let time = 1000;
+  const pm = createPipelineManager({
+    getToken: async () => ({ status: 'ok', token: 't' }),
+    wsUrl: () => url, userAgent: 't/1', now: () => time,
+    config: { ...cfg, pongTimeoutMs: 1000 }
+  });
+  t.after(async () => { pm.disconnect('u1'); await close(); });
+  pm.connect('u1');
+  const deadline = Date.now() + 1500;
+  while (pm.status('u1')?.latencyMs == null && Date.now() < deadline) await sleep(10);
+  assert.equal(pm.status('u1').latencyMs, 0);
+  time = 3000;
+  assert.equal(pm.status('u1').latencyMs, null);
+  assert.equal(pm.status('u1').latencyUpdatedAt, null);
+});
+
+test('unrelated pongs cannot acknowledge a heartbeat or postpone its response deadline', async (t) => {
+  const { wss, state, url, close } = await startMockPipeline({ autoPong: false });
+  wss.on('connection', ws => ws.on('ping', () => ws.pong('unrelated')));
+  const pm = createPipelineManager({
+    getToken: async () => ({ status: 'ok', token: 't' }),
+    wsUrl: () => url, userAgent: 't/1',
+    config: { ...cfg, pongTimeoutMs: 150, jitterMs: 0 }
+  });
+  t.after(async () => { pm.disconnect('u1'); await close(); });
+  pm.connect('u1');
+  const deadline = Date.now() + 1000;
+  while (state.connections.length < 2 && Date.now() < deadline) await sleep(10);
+  assert.ok(state.connections.length >= 2, '未收到对应 Pong 的连接会按原截止时间重连');
+  assert.equal(pm.status('u1').latencyMs, null);
+});
+
+test('a valid pong remains measurable after the next heartbeat has been sent', async (t) => {
+  const { wss, url, close } = await startMockPipeline({ autoPong: false });
+  let time = 1000;
+  let replied;
+  const pong = new Promise(resolve => { replied = resolve; });
+  wss.on('connection', ws => ws.once('ping', data => setTimeout(() => {
+    time = 1080; ws.pong(data); replied();
+  }, 80)));
+  const pm = createPipelineManager({
+    getToken: async () => ({ status: 'ok', token: 't' }),
+    wsUrl: () => url, userAgent: 't/1', now: () => time,
+    config: { ...cfg, pongTimeoutMs: 1000 }
+  });
+  t.after(async () => { pm.disconnect('u1'); await close(); });
+  pm.connect('u1');
+  await pong;
+  await sleep(10);
+  assert.equal(pm.status('u1').latencyMs, 80);
+});
+
 test('a silent peer is reconnected on the pong deadline and a responsive peer stays connected', async () => {
   const { wss, state, url, close } = await startMockPipeline({ autoPong: false });
   let pongs = 0;

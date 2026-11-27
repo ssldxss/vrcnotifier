@@ -2,7 +2,146 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { once } = require('node:events');
-const { startApplication, startQqPlatform, waitFor, sleep } = require('./helpers/lifecycle');
+const { startApplication, startQqPlatform, waitFor, sleep, deferred } = require('./helpers/lifecycle');
+
+async function healthStream(t, app) {
+  const controller = new AbortController();
+  t.after(() => controller.abort());
+  const response = await fetch(app.base + '/api/events?token=lifecycle-token', { signal: controller.signal });
+  const events = [];
+  const decoder = new TextDecoder();
+  let buffer = '';
+  (async () => {
+    try {
+      for await (const chunk of response.body) {
+        buffer += decoder.decode(chunk, { stream: true });
+        let end;
+        while ((end = buffer.indexOf('\n\n')) >= 0) {
+          const frame = buffer.slice(0, end);
+          buffer = buffer.slice(end + 2);
+          if (frame.startsWith('event: health\n')) events.push(JSON.parse(frame.split('data: ')[1]));
+        }
+      }
+    } catch (error) { if (!controller.signal.aborted) throw error; }
+  })().catch(() => {});
+  return events;
+}
+
+test('health reads reuse the connected gateway heartbeat without requesting config', async (t) => {
+  let time = 1000;
+  const pong = deferred();
+  const app = await startApplication(t, { now: () => time, pingIntervalMs: 50,
+    onPing(ws, data) { time += 42; ws.pong(data); pong.resolve(); }
+  });
+  await app.login('A');
+  await pong.promise;
+  await sleep(10);
+  const health = await app.request('GET', '/api/health');
+  assert.equal(health.data.latencyMs, 42);
+  assert.equal(health.data.ok, true);
+  assert.equal(app.healthRequests.length, 0, '已有心跳延迟时不请求 /config');
+});
+
+test('SSE viewers receive changing heartbeat latency without HTTP probes', async (t) => {
+  let time = 1000;
+  let latency = 42;
+  const pong = deferred();
+  const app = await startApplication(t, { now: () => time, pingIntervalMs: 50,
+    onPing(ws, data) { time += latency; ws.pong(data); pong.resolve(); }
+  });
+  await app.login('A');
+  await pong.promise;
+  await sleep(10);
+  const events = await healthStream(t, app);
+  await waitFor(() => events.at(-1), health => health?.latencyMs === 42);
+  assert.equal(app.healthRequests.length, 0, '打开 SSE 不触发 /config');
+  latency = 17;
+  await waitFor(() => events.at(-1), health => health?.latencyMs === 17);
+  assert.equal(app.healthRequests.length, 0, '每次心跳更新继续复用现有连接');
+});
+
+test('SSE viewers fall back to HTTP latency when the gateway connection is lost', async (t) => {
+  let time = 1000;
+  let gateway;
+  let responding = true;
+  const pong = deferred();
+  const app = await startApplication(t, { now: () => time, pingIntervalMs: 50,
+    onPing(ws, data) {
+      if (!responding) return;
+      gateway = ws; time += 42; ws.pong(data); pong.resolve();
+    }
+  });
+  await app.login('A');
+  await pong.promise;
+  await sleep(10);
+  const events = await healthStream(t, app);
+  await waitFor(() => events.at(-1), health => health?.latencyMs === 42);
+  responding = false;
+  gateway.terminate();
+  await waitFor(() => events.at(-1), health => health?.latencyMs === 0);
+  assert.equal(app.healthRequests.length, 1, '断线后通过公开 /config 补测一次');
+});
+
+test('a pending HTTP probe cannot overwrite a heartbeat that becomes available first', async (t) => {
+  let time = 1000;
+  const pong = deferred();
+  const app = await startApplication(t, { now: () => time, pingIntervalMs: 50,
+    onPing(ws, data) { time += 42; ws.pong(data); pong.resolve(); }
+  });
+  const held = app.holdNext(req => req.path === '/api/1/config');
+  const reading = app.request('GET', '/api/health');
+  await held.started;
+  await app.login('A');
+  await pong.promise;
+  await sleep(10);
+  const events = await healthStream(t, app);
+  await waitFor(() => events.at(-1), health => health?.latencyMs === 42);
+  const before = events.length;
+  time += 100;
+  held.release();
+  assert.equal((await reading).data.latencyMs, 42, 'HTTP 响应继续优先返回心跳延迟');
+  await waitFor(() => events.length, count => count > before);
+  assert.equal(events.at(-1).latencyMs, 42, 'HTTP 采样完成时也不覆盖 SSE 的心跳值');
+});
+
+test('an existing SSE subscription resumes periodic HTTP latency after API logout without another read', async (t) => {
+  const pong = deferred();
+  const app = await startApplication(t, { pingIntervalMs: 50, healthIntervalMs: 50,
+    onPing(ws, data) { ws.pong(data); pong.resolve(); }
+  });
+  await app.login('A');
+  await pong.promise;
+  await sleep(10);
+  const events = await healthStream(t, app);
+  await waitFor(() => events.length, count => count > 0);
+  const before = events.length;
+  assert.equal(app.healthRequests.length, 0);
+  await app.request('POST', '/api/logout', {});
+  await waitFor(() => app.healthRequests.length, count => count >= 2, 500);
+  assert.ok(events.length > before, '原有 SSE 订阅继续收到 HTTP 延迟结果');
+});
+
+test('API latency is idle without a frontend and reads use the shared 5 minute cache', async (t) => {
+  let time = Date.now();
+  const app = await startApplication(t, { now: () => time });
+  await app.login('A');
+  await sleep(30);
+  assert.equal(app.healthRequests.length, 0, '登录和好友监控不触发延迟探测');
+  await app.request('POST', '/api/logout', {});
+  await sleep(30);
+  assert.equal(app.healthRequests.length, 0, '无 SSE 订阅时注销也不启动 HTTP 探测');
+  const initial = await app.request('GET', '/api/health');
+  assert.equal(initial.data.ok, true);
+  assert.equal(app.healthRequests.length, 1);
+  time += 4 * 60 * 1000;
+  await Promise.all(Array.from({ length: 5 }, () => app.request('GET', '/api/health')));
+  assert.equal(app.healthRequests.length, 1, '反复读取不增加上游请求');
+  time += 60 * 1000;
+  const next = await app.request('GET', '/api/health');
+  assert.equal(next.data.ok, true);
+  assert.ok(next.data.updatedAt > initial.data.updatedAt);
+  assert.equal(app.healthRequests.length, 2, '过期后只刷新一次');
+});
 
 test('switching accounts keeps the new friends when an old snapshot finally returns', async (t) => {
   const app = await startApplication(t);

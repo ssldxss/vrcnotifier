@@ -216,8 +216,10 @@ function buildApplication(opts = {}) {
     },
     onOpen: (userId, displayName, wasFailing) => bus.emit('ws-open', { userId, displayName, wasFailing }),
     onClose: (userId) => bus.emit('ws-close', { userId }),
+    onLatency: (userId) => bus.emit('ws-latency', { userId }),
     wsUrl: (token) => `${config.wsBaseUrl.replace(/\/+$/, '')}?authToken=${encodeURIComponent(token)}`,
     userAgent: config.userAgent,
+    now,
     logger,
     onConnectFailure: (userId, displayName) => bus.emit('ws-failure', { userId, displayName }),
     onConnectRecovered: (userId) => bus.emit('ws-recovered', { userId }),
@@ -232,12 +234,12 @@ function buildApplication(opts = {}) {
     userAgent: config.userAgent,
     fetchImpl: opts.fetchImpl || fetch,
     logger,
-    intervalMs: opts.healthIntervalMs ?? 60 * 1000,
-    sampleCount: opts.healthSampleCount ?? 3,
+    now,
+    intervalMs: opts.healthIntervalMs ?? 5 * 60 * 1000,
+    sampleCount: opts.healthSampleCount ?? 1,
     sampleTimeoutMs: opts.healthSampleTimeoutMs ?? 3000,
     onSample: (h) => bus.emit('health', h) // 每轮采样完成 → SSE 推给前端(替代 5s 轮询)
   });
-  healthMonitor.start();
   const vrcStatus = opts.vrcStatus || createVrcStatus({
     apiUrl: opts.vrcStatusUrl || undefined,
     userAgent: config.userAgent,

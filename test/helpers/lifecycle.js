@@ -28,8 +28,9 @@ async function waitFor(read, predicate, timeoutMs = 3000) {
   assert.fail('condition not reached: ' + JSON.stringify(value));
 }
 
-async function startApplication(t, { qqPlatform = null, serveStatic = false, now = Date.now, officialStatus = {} } = {}) {
+async function startApplication(t, { qqPlatform = null, serveStatic = false, now = Date.now, officialStatus = {}, pingIntervalMs, healthIntervalMs, onPing } = {}) {
   const official = { description: 'All Systems Operational', indicator: 'none', components: [], httpStatus: 200, ...officialStatus };
+  const healthRequests = [];
   const holds = [];
   const expired = new Set();
   const invalidSessions = new Set();
@@ -61,7 +62,10 @@ async function startApplication(t, { qqPlatform = null, serveStatic = false, now
     if (url.pathname.endsWith('/verify')) return send({ verified: true });
     if (url.pathname === '/api/1/auth/user/friends') return send(url.searchParams.get('offline') === 'true' ? [friendOf(name)] : []);
     if (url.pathname === '/api/1/auth') return send({ token: name || 'mock' });
-    if (url.pathname === '/api/1/config') return send({ clientApiKey: 'mock' });
+    if (url.pathname === '/api/1/config') {
+      healthRequests.push(now());
+      return send({ clientApiKey: 'mock' });
+    }
     if (url.pathname.startsWith('/api/1/users/')) return send({ id: url.pathname.split('/').at(-1) });
     if (url.pathname === '/status/status.json') return send({ page: { updated_at: '2026-11-19T00:00:00Z' },
       status: { indicator: official.indicator, description: official.description } }, official.httpStatus);
@@ -69,13 +73,17 @@ async function startApplication(t, { qqPlatform = null, serveStatic = false, now
     return send({}, 404);
   });
   upstream.listen(0, '127.0.0.1'); await once(upstream, 'listening');
-  const wss = new WebSocketServer({ server: upstream });
-  wss.on('connection', (ws) => { sockets.add(ws); ws.on('close', () => sockets.delete(ws)); });
+  const wss = new WebSocketServer({ server: upstream, autoPong: !onPing });
+  wss.on('connection', (ws) => {
+    sockets.add(ws);
+    ws.on('close', () => sockets.delete(ws));
+    if (onPing) ws.on('ping', data => onPing(ws, data));
+  });
   const base = 'http://127.0.0.1:' + upstream.address().port;
   const avatarDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vrcn-lifecycle-'));
   const runtime = buildApplication({ dbPath: ':memory:', avatarDir, logger: silent,
     apiBaseUrl: base + '/api/1', wsBaseUrl: base, vrcStatusUrl: base + '/status',
-    accessToken: 'lifecycle-token', reconnectBaseMs: 20, jitterMs: 0, now,
+    accessToken: 'lifecycle-token', reconnectBaseMs: 20, jitterMs: 0, now, pingIntervalMs, healthIntervalMs,
     publicDir: serveStatic ? path.join(__dirname, '../../public') : null,
     ...(qqPlatform ? { qqTokenUrl: qqPlatform.base + '/app/getAppAccessToken', qqApiBase: qqPlatform.base, qqWsUrl: qqPlatform.wsUrl } : {}) });
   const server = runtime.app.listen(0, '127.0.0.1'); await once(server, 'listening');
@@ -97,7 +105,7 @@ async function startApplication(t, { qqPlatform = null, serveStatic = false, now
     return { status: response.status, data: await response.json() };
   }
   return {
-    base: appBase, setOfficialStatus: values => Object.assign(official, values),
+    base: appBase, healthRequests, setOfficialStatus: values => Object.assign(official, values),
     request, login: (name) => request('POST', '/api/login', { username: name, password: 'test-password', rememberMe: true }),
     holdNext(matches) {
       const hold = { matches, used: false, started: deferred(), resume: deferred() }; holds.push(hold);

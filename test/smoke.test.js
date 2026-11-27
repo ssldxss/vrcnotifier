@@ -152,7 +152,7 @@ test('end-to-end: login → configure → ws event → QQ notification', async (
     if (r.data && r.data.status === 'ok') health = r.data;
     else await new Promise((resolve) => setTimeout(resolve, 100));
   }
-  assert.ok(health, '/health 持续探测应返回 ok');
+  assert.ok(health, '/api/health 按需采样应返回 ok');
   assert.equal(typeof health.latencyMs, 'number');
   const vrcStatus = await json('GET', '/api/vrc-status');
   assert.equal(vrcStatus.status, 200);

@@ -1,7 +1,6 @@
 'use strict';
-// VRChat API 健康探测: 持续探测公开 /config 端点(不带 cookie, 避免 429;
-// /health 无凭证返回 401, 不适用), 每轮取 3 个计时样本, 超时样本舍去, 剩余样本取平均。
-// 每轮取 3 个计时样本, 超时样本舍去, 剩余样本取平均。
+// VRChat API 延迟: 按需请求公开 /config, 不带 cookie。
+// 前端连接期间每 5 分钟采样 1 次; HTTP 读取与 SSE 共用缓存和在途请求。
 
 function createHealthMonitor({
   apiBaseUrl = 'https://api.vrchat.cloud/api/1',
@@ -9,16 +8,18 @@ function createHealthMonitor({
   userAgent = 'vrcnotifier/1.0',
   logger = null,
   now = Date.now,
-  intervalMs = 60 * 1000,
-  sampleCount = 3,
+  intervalMs = 5 * 60 * 1000,
+  sampleCount = 1,
   sampleTimeoutMs = 3000,
   onSample = null
 } = {}) {
   const log = logger || { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
   let latest = { status: 'starting', latencyMs: null, serverName: null, updatedAt: now() };
   let lastOk = null; // 最近一次成功探测; 探测失败时对外沿用该状态(标记 stale)
+  let lastAttemptAt = null; // 失败也遵守刷新间隔, 避免重连/切换窗口引起重试风暴
   let timer = null;
-  let inFlight = false;
+  let active = false;
+  let inFlight = null;
 
   async function probe() {
     const ac = new AbortController();
@@ -42,9 +43,7 @@ function createHealthMonitor({
     }
   }
 
-  async function tick() {
-    if (inFlight) return;
-    inFlight = true;
+  async function sample() {
     try {
       const samples = [];
       let serverName = null;
@@ -75,31 +74,60 @@ function createHealthMonitor({
       latest = lastOk
         ? { ...lastOk, stale: true }
         : { status: 'error', latencyMs: null, serverName: null, updatedAt: now() };
-    } finally {
-      inFlight = false;
     }
     // 每轮采样完成后推送给订阅者(SSE 推送, 前端不再轮询)
     if (onSample) {
       try { onSample({ ...latest }); } catch (e) { /* 订阅者异常不影响探测 */ }
     }
+    return status();
+  }
+
+  function schedule() {
+    if (timer) { clearTimeout(timer); timer = null; }
+    if (!active || inFlight) return;
+    const delay = Math.max(1, intervalMs - (now() - lastAttemptAt));
+    timer = setTimeout(() => {
+      timer = null;
+      refresh().catch(() => {});
+    }, delay);
+    timer.unref?.();
+  }
+
+  function tick() {
+    if (inFlight) return inFlight;
+    lastAttemptAt = now();
+    inFlight = sample().finally(() => {
+      inFlight = null;
+      schedule();
+    });
+    return inFlight;
+  }
+
+  function refresh() {
+    if (inFlight) return inFlight;
+    if (lastAttemptAt !== null && now() - lastAttemptAt < intervalMs) {
+      if (!timer) schedule();
+      return Promise.resolve(status());
+    }
+    return tick();
   }
 
   function start() {
-    if (timer) return;
-    tick().catch(() => {});
-    timer = setInterval(() => { tick().catch(() => {}); }, intervalMs);
-    if (timer.unref) timer.unref();
+    if (active) return;
+    active = true;
+    refresh().catch(() => {});
   }
 
   function stop() {
-    if (timer) { clearInterval(timer); timer = null; }
+    active = false;
+    if (timer) { clearTimeout(timer); timer = null; }
   }
 
   function status() {
     return { ...latest };
   }
 
-  return { start, stop, status, _debug: { probe, tick } };
+  return { start, stop, status, refresh, _debug: { probe, tick } };
 }
 
 module.exports = { createHealthMonitor };

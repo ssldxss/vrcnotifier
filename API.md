@@ -32,6 +32,10 @@
 
 ## 事件与数据保留
 
+`GET /api/health` 返回统一的 `latencyMs` 和采样时间 `updatedAt`，优先复用当前账号 WebSocket 的 Ping/Pong 往返延迟。心跳默认每 10 秒一次，不增加额外心跳；新结果通过现有 `health` SSE 推送，前端不区分来源。有有效心跳结果时暂停公开 `/config` 探测，断线或没有有效心跳时回退到 HTTP 采样。
+
+HTTP 回退使用 5 分钟缓存，过期时等待一次采样，并发读取共用同一请求。每次默认只请求一次公开 `/config`，失败也等待 5 分钟后再试；若有历史成功的 HTTP 结果则返回旧值并标记 `stale: true`。有 SSE 客户端且无有效心跳时每 5 分钟自动采样；没有 SSE 客户端时暂停定时采样，直接读取本接口仍可触发按需采样。新 SSE 连接立即收到当前可用结果。此延迟不代表所有 REST 接口的业务健康，服务状态灯使用独立的官方状态查询。
+
 `GET /api/events` 为 SSE，事件名称由 `public/contracts.js` 定义。它不支持历史重放；客户端首次连接和重新连接后需要通过 HTTP 补拉。`friend-event` 只表示历史动态；`friend-state` 的 `{ friend_vrchat_id, friend }` 携带与 `GET /api/friends` 相同的完整好友 DTO，删除好友时 `friend: null`。当前状态以该 DTO 为准，保留已确认 state、pending_state、display_state 和全部资料字段。通知配置只存在于嵌套 `config`，不在好友顶层重复返回。
 
 登出或更换 VRChat 账号会清理该账号的好友、好友动态、通知去重和用户信息；QQ 设置与绑定为全局数据，除非选择彻底重置。历史设计文稿不代表当前接口契约。
